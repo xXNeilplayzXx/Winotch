@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Freebuff",
+  "productName": "Winotch",
   "version": "0.1.0",
-  "identifier": "com.neilsohal.notchy",
+  "identifier": "com.winotch.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,16 +14,18 @@
     "windows": [
       {
         "label": "main",
-        "title": "Freebuff",
+        "title": "Winotch",
         "width": 380,
         "height": 58,
         "resizable": false,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
+        "backgroundColor": "#121216",
         "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "visible": false,
+        "visible": true,
+        "focus": true,
         "center": false
       }
     ],

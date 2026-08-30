@@ -37,19 +37,24 @@ body {
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
-  border-radius: var(--pill-radius);
-  background: linear-gradient(180deg, rgba(22, 22, 26, 0.92), rgba(8, 8, 10, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  border-radius: var(--pill-radius, 30px);
+  background: radial-gradient(140% 120% at 50% 0%, rgba(40, 40, 48, 0.96), rgba(12, 12, 15, 0.98) 70%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   cursor: default;
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  opacity: 1;
+  animation: island-in 0.28s ease;
 }
 
-.island-ready {
-  opacity: 1;
-  transform: translateY(0) scale(1);
+@keyframes island-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* ---- Collapsed pill (the strip) ---- */
@@ -169,4 +174,107 @@ body {
 .panel-empty span {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.42);
+}
+
+/* Collapsed state shows only the pill nodule; the panel is hidden entirely. */
+.island.mode-collapsed .island-panel {
+  display: none;
+}
+
+/* ---- Panel head ---- */
+.panel-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn:hover,
+.icon-btn-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ---- Settings ---- */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.settings-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 20px;
+  text-align: right;
+}
+
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.segmented button {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segmented button:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.segmented button.seg-active {
+  background: #2dd4bf;
+  color: #04211d;
+}
+
+.settings-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: #2dd4bf;
+  height: 4px;
+  cursor: pointer;
 }
