@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { animateTo, EXPANDED, SHAPES, type IslandShape } from "../lib/island";
+import { animateIsland, type IslandShape } from "../lib/island";
 import { WidgetSlot } from "./WidgetSlot";
 import { Clock } from "./widgets/Clock";
 
@@ -9,7 +9,7 @@ type Mode = "collapsed" | "expanded";
 export function Island() {
   const [mode, setMode] = useState<Mode>("collapsed");
   const [shape, setShape] = useState<IslandShape>("notch");
-  const [roundness, setRoundness] = useState(70);
+  const [roundness, setRoundness] = useState(85);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const modeRef = useRef<Mode>("collapsed");
 
@@ -25,14 +25,14 @@ export function Island() {
     if (modeRef.current === "expanded") return;
     modeRef.current = "expanded";
     setMode("expanded");
-    void animateTo(EXPANDED, 300);
+    void animateIsland({ shape, expanded: true });
   };
 
   const leave = () => {
     if (modeRef.current === "collapsed") return;
     modeRef.current = "collapsed";
     setMode("collapsed");
-    void animateTo(SHAPES[shape].collapsed, 260);
+    void animateIsland({ shape, expanded: false });
   };
 
   const changeShape = (next: IslandShape) => {
@@ -40,11 +40,16 @@ export function Island() {
     setSettingsOpen(false);
     // If we're collapsed right now, snap to the new shape immediately.
     if (modeRef.current === "collapsed") {
-      void animateTo(SHAPES[next].collapsed, 260);
+      void animateIsland({ shape: next, expanded: false });
     }
   };
 
-  const radiusPx = Math.round(10 + (roundness / 100) * 60);
+  const toggleSettings = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSettingsOpen((v) => !v);
+  };
+
+  const radiusPx = Math.round((roundness / 100) * 200);
   const style = {
     "--pill-radius": `${radiusPx}px`,
   } as CSSProperties;
@@ -62,9 +67,7 @@ export function Island() {
           <span className="island-name">Winotch</span>
         </div>
         <div className="island-strip-slot">
-          <WidgetSlot>
-            <Clock expanded={mode === "expanded"} />
-          </WidgetSlot>
+          <Clock expanded={mode === "expanded"} />
         </div>
       </header>
 
@@ -75,10 +78,7 @@ export function Island() {
               type="button"
               className={`icon-btn ${settingsOpen ? "icon-btn-active" : ""}`}
               title="Settings"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSettingsOpen((v) => !v);
-              }}
+              onClick={toggleSettings}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <circle cx="12" cy="12" r="3" />
@@ -136,10 +136,8 @@ export function Island() {
 
         <WidgetSlot>
           <div className="panel-empty">
-            <p>Your widgets dock here.</p>
-            <span>
-              {shape === "notch" ? "Notch" : "Pill"} mode · more widgets coming
-            </span>
+            <p>Nothing playing yet</p>
+            <span>Music, clipboard and timers arrive next</span>
           </div>
         </WidgetSlot>
       </section>

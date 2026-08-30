@@ -1,7 +1,8 @@
 // Window geometry + animation for the Winotch island.
-// "Logical" units are CSS pixels, which is what the webview measures.
-// The native window is set in physical pixels, scaling by the monitor's scale factor
-// so the island renders at a consistent on-screen size across displays.
+// "Logical" units are CSS pixels, which the webview measures. Island sizes are
+// derived from the current display's width so it scales up on large (e.g. second)
+// monitors instead of staying a fixed compact size, then converted to physical
+// pixels via the monitor's scale factor.
 import {
   getCurrentWindow,
   currentMonitor,
@@ -18,45 +19,67 @@ export interface Size {
 
 export type IslandShape = "pill" | "notch";
 
-/** Collapsed geometry per mode. Both open to the same expanded panel on hover. */
-export const SHAPES: Record<IslandShape, { collapsed: Size }> = {
-  pill: { collapsed: { width: 380, height: 58 } },
-  notch: { collapsed: { width: 112, height: 84 } },
-};
-
-/** The panel size once expanded. */
-export const EXPANDED: Size = { width: 420, height: 320 };
-
-/**
- * How far (logical points) below the top edge of the display to place the
- * island. Sits just under the macOS menu bar/notch (~34pt) so it stays visible
- * instead of hiding inside a real notch. Windows has no menu bar, so this small
- * offset just hugs the top edge there.
- */
-const TOP_OFFSET = 56;
-
-interface MonitorGeometry {
-  scale: number;
-  centerX: number;
-  top: number;
+export interface IslandSizes {
+  pillCollapsed: Size;
+  notchCollapsed: Size;
+  expanded: Size;
 }
 
-async function monitorGeometry(): Promise<MonitorGeometry> {
-  const mon = await currentMonitor();
-  if (!mon) {
-    return { scale: 1, centerX: 0, top: 0 };
-  }
-  // Work-area coordinates come back inconsistently on macOS, so anchor to the
-  // true top edge of the display instead and offset below the menu bar.
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+/**
+ * Sizes as fractions of the display width (points), clamped so the island is
+ * never comically large on a big monitor nor minuscule on a small one.
+ */
+export function sizesForDisplay(widthPoints: number): IslandSizes {
   return {
-    scale: mon.scaleFactor ?? 1,
-    centerX: mon.position.x + mon.size.width / 2,
-    top: mon.position.y,
+    pillCollapsed: {
+      width: clamp(Math.round(widthPoints * 0.16), 240, 420),
+      height: clamp(Math.round(widthPoints * 0.032), 44, 84),
+    },
+    notchCollapsed: {
+      width: clamp(Math.round(widthPoints * 0.12), 260, 460),
+      height: clamp(Math.round(widthPoints * 0.036), 52, 104),
+    },
+    expanded: {
+      width: clamp(Math.round(widthPoints * 0.2), 320, 520),
+      height: clamp(Math.round(widthPoints * 0.16), 260, 420),
+    },
   };
 }
 
-async function applySize(size: Size): Promise<void> {
-  const geo = await monitorGeometry();
+/**
+ * How far (logical points) below the top edge of the display to place the
+ * island. Zero hugs the very top edge so the island reads as attached to the
+ * top / a Dynamic Island. On Windows (no menu bar) this is the true top of the
+ * screen.
+ */
+const TOP_OFFSET = 0;
+
+interface Geometry {
+  scale: number;
+  centerX: number;
+  top: number;
+  sizes: IslandSizes;
+}
+
+async function geometry(): Promise<Geometry> {
+  const mon = await currentMonitor();
+  const scale = mon?.scaleFactor ?? 1;
+  const centerX = mon ? mon.position.x + mon.size.width / 2 : 0;
+  const top = mon ? mon.position.y : 0;
+  const widthPoints = mon ? Math.round(mon.size.width / scale) : 1710;
+  return {
+    scale,
+    centerX,
+    top,
+    sizes: sizesForDisplay(widthPoints),
+  };
+}
+
+async function applySize(geo: Geometry, size: Size): Promise<void> {
   const pixelWidth = Math.round(size.width * geo.scale);
   const pixelHeight = Math.round(size.height * geo.scale);
   const x = Math.round(geo.centerX - pixelWidth / 2);
@@ -68,7 +91,10 @@ async function applySize(size: Size): Promise<void> {
 
 /** Place the island collapsed for the given shape, then reveal and focus it. */
 export async function showIsland(shape: IslandShape): Promise<void> {
-  await applySize(SHAPES[shape].collapsed);
+  const geo = await geometry();
+  const size =
+    shape === "notch" ? geo.sizes.notchCollapsed : geo.sizes.pillCollapsed;
+  await applySize(geo, size);
   await appWindow.show();
   await appWindow.setFocus();
 }
@@ -79,10 +105,24 @@ function easeInOutCubic(t: number): number {
 
 let animationToken = 0;
 
-/** Tween the native window from its current size to `to`, keeping it centered. */
-export async function animateTo(to: Size, duration = 300): Promise<void> {
+export interface AnimateOpts {
+  shape: IslandShape;
+  expanded: boolean;
+  duration?: number;
+}
+
+/** Tween the native window between the collapsed and expanded sizes, centered. */
+export async function animateIsland(opts: AnimateOpts): Promise<void> {
+  const { shape, expanded, duration = 300 } = opts;
   const token = ++animationToken;
-  const geo = await monitorGeometry();
+  const geo = await geometry();
+  const target =
+    expanded === false
+      ? shape === "notch"
+        ? geo.sizes.notchCollapsed
+        : geo.sizes.pillCollapsed
+      : geo.sizes.expanded;
+
   const current = await appWindow.innerSize(); // PhysicalSize
   const startLogical = {
     width: current.width / geo.scale,
@@ -92,21 +132,26 @@ export async function animateTo(to: Size, duration = 300): Promise<void> {
   return new Promise<void>((resolve) => {
     const step = async () => {
       if (token !== animationToken) {
-        return; // superseded by a newer animation
+        resolve(); // superseded by a newer animation
+        return;
       }
       const t = Math.min(1, (performance.now() - (step as any)._start) / duration);
       const e = easeInOutCubic(t);
-      await applySize({
-        width: Math.round(startLogical.width + (to.width - startLogical.width) * e),
-        height: Math.round(startLogical.height + (to.height - startLogical.height) * e),
+      await applySize(geo, {
+        width: Math.round(startLogical.width + (target.width - startLogical.width) * e),
+        height: Math.round(startLogical.height + (target.height - startLogical.height) * e),
       });
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
+        // Re-assert on-screen state after the move; macOS sometimes drops a moved
+        // always-on-top window from the compositor otherwise.
+        await appWindow.show();
+        await appWindow.setFocus();
         resolve();
       }
     };
     (step as any)._start = performance.now();
-    step();
+    void step().catch(() => resolve());
   });
 }
