@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { animateIsland, type IslandShape } from "../lib/island";
 import { WidgetSlot } from "./WidgetSlot";
 import { Clock } from "./widgets/Clock";
@@ -9,7 +8,6 @@ type Mode = "collapsed" | "expanded";
 export function Island() {
   const [mode, setMode] = useState<Mode>("collapsed");
   const [shape, setShape] = useState<IslandShape>("notch");
-  const [roundness, setRoundness] = useState(85);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const modeRef = useRef<Mode>("collapsed");
 
@@ -49,15 +47,9 @@ export function Island() {
     setSettingsOpen((v) => !v);
   };
 
-  const radiusPx = Math.round((roundness / 100) * 200);
-  const style = {
-    "--pill-radius": `${radiusPx}px`,
-  } as CSSProperties;
-
   return (
     <div
       className={`island shape-${shape} mode-${mode}`}
-      style={style}
       onMouseEnter={enter}
       onMouseLeave={leave}
     >
@@ -116,20 +108,6 @@ export function Island() {
                   Pill
                 </button>
               </div>
-            </div>
-            <div className="settings-row">
-              <span className="settings-label">Roundness</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={roundness}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  setRoundness(Number(e.currentTarget.value));
-                }}
-              />
-              <span className="settings-value">{roundness}</span>
             </div>
           </div>
         )}
