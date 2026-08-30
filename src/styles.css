@@ -77,6 +77,12 @@ body {
   height: 100%;
 }
 
+/* When expanded, drop the brand/clock strip so the panel starts at the header
+   (the menu bar already shows the time). */
+.island.mode-expanded .island-strip {
+  display: none;
+}
+
 /* ---- Brand ---- */
 .island-brand {
   display: flex;
@@ -239,8 +245,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* Pad the width so content snaps to the capsule's rounded ends. */
-  padding: 4px 26px 26px;
+  /* Pad so content clears the rounded caps and snaps to the ends. */
+  padding: 14px 26px 26px;
   min-height: 0;
 }
 

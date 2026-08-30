@@ -1,8 +1,13 @@
 // Window geometry + animation for the Winotch island.
 // "Logical" units are CSS pixels, which the webview measures. Island sizes are
-// derived from the current display's width so it scales up on large (e.g. second)
-// monitors instead of staying a fixed compact size, then converted to physical
-// pixels via the monitor's scale factor.
+// derived from the current display's width so it scales sensibly on big/other
+// monitors, then converted to physical pixels via the monitor's scale factor.
+//
+// Anchoring: initial placement centers on the display, but every expand/collapse
+// animation anchors to the island's OWN current center (the collapsed pill is
+// the "trigger"). This keeps the floating panel/popover centered under its
+// trigger even when the OS reports a different monitor or the island was moved,
+// which is the Windows tray-popover behavior we want.
 import {
   getCurrentWindow,
   currentMonitor,
@@ -60,8 +65,9 @@ const TOP_OFFSET = 0;
 
 interface Geometry {
   scale: number;
-  centerX: number;
   top: number;
+  /** Horizontal center of the current display, in physical pixels. */
+  centerX: number;
   sizes: IslandSizes;
 }
 
@@ -73,28 +79,37 @@ async function geometry(): Promise<Geometry> {
   const widthPoints = mon ? Math.round(mon.size.width / scale) : 1710;
   return {
     scale,
-    centerX,
     top,
+    centerX,
     sizes: sizesForDisplay(widthPoints),
   };
 }
 
-async function applySize(geo: Geometry, size: Size): Promise<void> {
+/**
+ * Position and size the window so it is centered on `anchorXPhys` (a physical
+ * horizontal center). Used with the display center for first placement and with
+ * the island's own center during animations.
+ */
+async function placeWindow(
+  geo: Geometry,
+  anchorXPhys: number,
+  size: Size,
+): Promise<void> {
   const pixelWidth = Math.round(size.width * geo.scale);
   const pixelHeight = Math.round(size.height * geo.scale);
-  const x = Math.round(geo.centerX - pixelWidth / 2);
+  const x = Math.round(anchorXPhys - pixelWidth / 2);
   const y = geo.top + Math.round(TOP_OFFSET * geo.scale);
 
   await appWindow.setPosition(new PhysicalPosition(x, y));
   await appWindow.setSize(new PhysicalSize(pixelWidth, pixelHeight));
 }
 
-/** Place the island collapsed for the given shape, then reveal and focus it. */
+/** Place the island collapsed, centered on the display, then reveal + focus. */
 export async function showIsland(shape: IslandShape): Promise<void> {
   const geo = await geometry();
   const size =
     shape === "notch" ? geo.sizes.notchCollapsed : geo.sizes.pillCollapsed;
-  await applySize(geo, size);
+  await placeWindow(geo, geo.centerX, size);
   await appWindow.show();
   await appWindow.setFocus();
 }
@@ -111,22 +126,31 @@ export interface AnimateOpts {
   duration?: number;
 }
 
-/** Tween the native window between the collapsed and expanded sizes, centered. */
+/**
+ * Tween the window between collapsed and expanded sizes, anchoring the
+ * horizontal center to the island's current center (the trigger pill) so the
+ * panel never drifts left/right relative to it.
+ */
 export async function animateIsland(opts: AnimateOpts): Promise<void> {
   const { shape, expanded, duration = 300 } = opts;
   const token = ++animationToken;
   const geo = await geometry();
-  const target =
-    expanded === false
-      ? shape === "notch"
-        ? geo.sizes.notchCollapsed
-        : geo.sizes.pillCollapsed
-      : geo.sizes.expanded;
+  const target = expanded
+    ? geo.sizes.expanded
+    : shape === "notch"
+      ? geo.sizes.notchCollapsed
+      : geo.sizes.pillCollapsed;
 
-  const current = await appWindow.innerSize(); // PhysicalSize
+  // Anchor to the pill's own center, NOT the display center, so the panel stays
+  // centered under the trigger even if the OS reports a different monitor or the
+  // island was moved.
+  const outer = await appWindow.outerPosition(); // PhysicalPosition
+  const inner = await appWindow.innerSize(); // PhysicalSize
+  const anchorXPhys = outer.x + inner.width / 2;
+
   const startLogical = {
-    width: current.width / geo.scale,
-    height: current.height / geo.scale,
+    width: inner.width / geo.scale,
+    height: inner.height / geo.scale,
   };
 
   return new Promise<void>((resolve) => {
@@ -137,7 +161,7 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
       }
       const t = Math.min(1, (performance.now() - (step as any)._start) / duration);
       const e = easeInOutCubic(t);
-      await applySize(geo, {
+      await placeWindow(geo, anchorXPhys, {
         width: Math.round(startLogical.width + (target.width - startLogical.width) * e),
         height: Math.round(startLogical.height + (target.height - startLogical.height) * e),
       });
