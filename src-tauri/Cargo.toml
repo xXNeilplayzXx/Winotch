@@ -1,6 +1,6 @@
 [package]
 name = "winotch"
-version = "0.2.1"
+version = "0.2.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -30,7 +30,8 @@ base64 = "0.22"
 objc2 = "0.6"
 objc2-core-foundation = "0.3"
 
-# Windows-only: System Media Transport Controls (SMTC) media session access.
+# Windows-only: System Media Transport Controls (SMTC) media session access,
+# plus the registry + message-box APIs used by the WebView2 Runtime self-install.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
   "Foundation",
@@ -38,5 +39,13 @@ windows = { version = "0.58", features = [
   "Media_Control",
   "Storage_Streams",
   "Win32_System_Com",
+  "Win32_System_Registry",
+  "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Vendored webview2-com-sys patched to statically link WebView2Loader on the
+# GNU toolchain too (see vendor/webview2-com-sys), so the release exe needs no
+# companion DLLs.
+[patch.crates-io]
+webview2-com-sys = { path = "vendor/webview2-com-sys" }
 

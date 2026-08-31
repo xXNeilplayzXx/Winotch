@@ -16,15 +16,13 @@ Built with Tauri 2 (Rust + React).
 
 Grab the latest build from the Releases page:
 
-**https://github.com/xXNeilplayzXx/Winotch/releases/tag/v0.2.0**
-
-Direct download: [Winotch-v0.2.0-Windows.zip](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.0/Winotch-v0.2.0-Windows.zip)
+**https://github.com/xXNeilplayzXx/Winotch/releases**
 
 > The repo is private, so you must be logged in as `xXNeilplayzXx` for the link to work.
 
 ## Install
 
-1. Download and extract the zip — it contains `winotch.exe`, `WebView2Loader.dll`, and `libunwind.dll`. **Keep all three files in the same folder.**
+1. Download `winotch.exe` (a single file — no zip, no DLLs).
 2. Double-click `winotch.exe`.
 3. If Windows SmartScreen shows *"Windows protected your PC"* (the build is unsigned), click **More info → Run anyway**. Full unblocking steps, antivirus false-positive handling, and code-signing options are in [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md).
 4. Hover the pill at the top-center of your screen. Use the ⚙ button in the expanded panel to switch modes and appearance.
@@ -32,8 +30,8 @@ Direct download: [Winotch-v0.2.0-Windows.zip](https://github.com/xXNeilplayzXx/W
 **Requirements**
 
 - Windows 10 (1809+) or Windows 11
-- **WebView2 Runtime** — preinstalled on Windows 11 and nearly all Windows 10 machines. If the window never appears, install the free [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2) ("Evergreen Bootstrapper").
-- No admin rights needed — it's a portable app; delete the folder to remove it.
+- Nothing else. If the WebView2 Runtime isn't already installed (it ships with Windows 11 and most Windows 10 machines), Winotch downloads and installs it silently on first run.
+- No admin rights needed — it's a portable app; delete the exe to remove it.
 
 ## Building from source
 

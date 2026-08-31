@@ -1,0 +1,7 @@
+# Force the llvm-mingw static libunwind (shipped in src-tauri/static/) instead
+# of the toolchain's libunwind.dll import lib, so the release exe needs no
+# companion DLL. `-L` is appended before the toolchain dirs, and lld finds
+# libunwind.a there first. (Note: `${CARGO_MANIFEST_DIR}` is NOT expanded in
+# rustflags, hence the absolute path — this cross-build only runs on this box.)
+[target.x86_64-pc-windows-gnullvm]
+rustflags = ["-C", "link-arg=-L/Volumes/NotchDev/notchy/src-tauri/static"]
