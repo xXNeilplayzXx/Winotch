@@ -12,18 +12,21 @@ export default defineConfig(async () => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
+  // 2. tauri expects a fixed port, fail if that port is not available.
+  //    Bind explicitly to 127.0.0.1 (not the `localhost` name): on Windows,
+  //    `localhost` can resolve to ::1 while Tauri's devUrl dials 127.0.0.1,
+  //    producing ERR_CONNECTION_REFUSED even though Vite is running.
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    host: "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
           host,
           port: 1421,
         }
-      : undefined,
+      : { protocol: "ws", host: "127.0.0.1", port: 1421 },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],

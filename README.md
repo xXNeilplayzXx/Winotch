@@ -45,6 +45,22 @@ npm run tauri build  # produce a release bundle
 
 The Windows exe in the releases is cross-compiled from macOS with the `x86_64-pc-windows-gnullvm` target (portable llvm-mingw toolchain).
 
+## Development server notes
+
+`tauri dev` starts Vite automatically on **http://127.0.0.1:1420** (HMR on 1421) and the Rust shell loads that URL — you normally don't run anything by hand. If the webview ever shows `ERR_CONNECTION_REFUSED` or a blank window:
+
+1. A previous dev session probably died uncleanly and something still holds port 1420 (or the Vite process is simply not running). Free the ports and relaunch:
+
+   ```bash
+   npm run tauri:dev   # frees ports 1420/1421, then runs tauri dev
+   ```
+
+   (On Windows use `scripts\kill-dev-ports.bat` before `npm run tauri dev`.)
+
+2. The dev server and the app must agree on the address: Vite binds `127.0.0.1:1420` (`vite.config.ts`, `strictPort`) and `tauri.conf.json` points `devUrl` at the same `http://127.0.0.1:1420`. Both are pinned to the explicit IPv4 loopback so a `localhost` → `::1` resolution mismatch on Windows can never produce a refused connection.
+
+3. `strictPort: true` means Vite **fails loudly** if 1420 is taken instead of silently drifting to 1421 (which the webview wouldn't know about) — combined with the cleanup script this keeps the pair in sync.
+
 ## Project layout
 
 - `src/` — React frontend (island UI, widgets, styles)

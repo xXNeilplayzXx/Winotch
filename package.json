@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:clean": "bash scripts/kill-dev-ports.sh && vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "bash scripts/kill-dev-ports.sh && tauri dev",
+    "ports:free": "bash scripts/kill-dev-ports.sh"
   },
   "dependencies": {
     "react": "^19.1.0",
