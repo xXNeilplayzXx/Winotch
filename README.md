@@ -26,7 +26,7 @@ Direct download: [Winotch-v0.2.0-Windows.zip](https://github.com/xXNeilplayzXx/W
 
 1. Download and extract the zip — it contains `winotch.exe`, `WebView2Loader.dll`, and `libunwind.dll`. **Keep all three files in the same folder.**
 2. Double-click `winotch.exe`.
-3. If Windows SmartScreen shows *"Windows protected your PC"* (the build is unsigned), click **More info → Run anyway**.
+3. If Windows SmartScreen shows *"Windows protected your PC"* (the build is unsigned), click **More info → Run anyway**. Full unblocking steps, antivirus false-positive handling, and code-signing options are in [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md).
 4. Hover the pill at the top-center of your screen. Use the ⚙ button in the expanded panel to switch modes and appearance.
 
 **Requirements**
