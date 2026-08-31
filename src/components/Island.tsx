@@ -222,7 +222,9 @@ export function Island() {
     if (modeRef.current === "expanded") return;
     modeRef.current = "expanded";
     setMode("expanded");
-    void animateIsland({ shape, expanded: true });
+    // Carry the settings-open bonus so a re-expansion while settings is still
+    // active keeps the taller window and nothing overflows.
+    void animateIsland({ shape, expanded: true, settingsOpen });
   };
 
   const leave = () => {
@@ -240,12 +242,16 @@ export function Island() {
     // to the new geometry — a fresh silhouette when collapsed, a re-anchor
     // (notch flush to the top, pill floating just below) when expanded.
     const expanded = modeRef.current === "expanded";
-    void animateIsland({ shape: next, expanded });
+    // changeShape closes the settings panel, so drop its height bonus too.
+    void animateIsland({ shape: next, expanded, settingsOpen: false });
   };
 
   const toggleSettings = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setSettingsOpen((v) => !v);
+    const next = !settingsOpen;
+    setSettingsOpen(next);
+    // Grow the expanded window while settings are visible so nothing overflows.
+    void animateIsland({ shape, expanded: true, settingsOpen: next });
   };
 
   const mediaLive = Boolean(media?.playing);

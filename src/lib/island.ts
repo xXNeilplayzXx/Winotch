@@ -138,8 +138,13 @@ let animationToken = 0;
 export interface AnimateOpts {
   shape: IslandShape;
   expanded: boolean;
+  /** Settings panel open — the expanded window needs extra vertical room. */
+  settingsOpen?: boolean;
   duration?: number;
 }
+
+/** Extra logical height for the expanded window while the settings are open. */
+const SETTINGS_HEIGHT_BONUS = 96;
 
 /**
  * Tween the window between collapsed and expanded sizes, anchoring the
@@ -150,7 +155,16 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
   const { shape, expanded, duration = 300 } = opts;
   const token = ++animationToken;
   const geo = await geometry();
-  const target = targetState(shape, expanded, geo.sizes);
+  const base = targetState(shape, expanded, geo.sizes);
+  const target = {
+    size: { ...base.size },
+    topOffset: base.topOffset,
+  };
+  // Reserve room for the settings panel so its content can never overflow the
+  // window (which is how a scrollbar could ever appear).
+  if (opts.settingsOpen && expanded) {
+    target.size.height += SETTINGS_HEIGHT_BONUS;
+  }
 
   // Anchor to the pill's own center, NOT the display center, so the panel stays
   // centered under the trigger even if the OS reports a different monitor or the

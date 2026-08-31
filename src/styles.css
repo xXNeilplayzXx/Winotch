@@ -21,10 +21,22 @@ body,
   margin: 0;
   padding: 0;
   overflow: hidden;
+  scrollbar-width: none;
   background: transparent;
 }
 
+/* No scrollbars, ever — the island is a fixed-shape widget. */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 body {
+  /* Fixed to the viewport: immune to fractional-DPI rounding that can push the
+     document 1px past the window and trigger a scrollbar in WebView2. */
+  position: fixed;
+  inset: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", Roboto, Helvetica, Arial, sans-serif;
   color: var(--text);
   -webkit-user-select: none;
@@ -237,8 +249,8 @@ body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 28px 24px;
+  gap: 9px;
+  padding: 12px 28px 20px;
   min-height: 0;
 }
 
