@@ -2,7 +2,11 @@
 :root {
   color-scheme: dark;
   --strip-height: 64px;
-  --accent: #f0b23c;
+  --accent: #e9b949;
+  --text: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.55);
+  --text-3: rgba(255, 255, 255, 0.34);
+  --hairline: rgba(255, 255, 255, 0.07);
 }
 
 * {
@@ -22,7 +26,7 @@ body,
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", Roboto, Helvetica, Arial, sans-serif;
-  color: #fff;
+  color: var(--text);
   -webkit-user-select: none;
   user-select: none;
   text-rendering: optimizeLegibility;
@@ -31,20 +35,41 @@ body {
 
 /* ---- Island shell ---- */
 .island {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
-  /* A real capsule: fully rounded ends, no boxy corners. */
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(5, 5, 6, 0.985), rgba(10, 10, 12, 0.99));
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #121214, #0b0b0d);
+  /* Hairline on the sides/bottom only — the top edge merges with the screen
+     bezel like real hardware, so no seam line at Y=0. */
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
   cursor: default;
-  opacity: 1;
   animation: island-in 0.28s ease;
+}
+
+/* The two modes are genuinely different layouts:
+   - Pill: a floating capsule, fully rounded, hovering just below the top edge.
+   - Notch: a container carved out of the top edge — flat top, rounded bottom
+     corners — so it reads as part of the screen, like the Dynamic Island. */
+.island.shape-pill {
+  border-radius: 999px;
+}
+
+.island.shape-pill.mode-expanded {
+  border-radius: 32px;
+}
+
+.island.shape-notch {
+  border-radius: 0 0 22px 22px;
+}
+
+.island.shape-notch.mode-expanded {
+  border-radius: 0 0 30px 30px;
 }
 
 @keyframes island-in {
@@ -58,7 +83,7 @@ body {
   }
 }
 
-/* ---- Collapsed bar (the notch/nodule) ---- */
+/* ---- Collapsed bar ---- */
 .island-strip {
   flex: 0 0 var(--strip-height);
   height: var(--strip-height);
@@ -66,19 +91,16 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 16px;
+  padding: 0 14px;
   overflow: hidden;
 }
 
-/* When collapsed the strip fills the whole island so the nodule looks like a
-   real Dynamic Island hanging from the top edge. */
 .island.mode-collapsed .island-strip {
   flex: 1 1 auto;
   height: 100%;
+  padding: 0 18px;
 }
 
-/* When expanded, drop the brand/clock strip so the panel starts at the header
-   (the menu bar already shows the time). */
 .island.mode-expanded .island-strip {
   display: none;
 }
@@ -92,19 +114,33 @@ body {
 }
 
 .island-dot {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #8ef7dd, #2dd4bf 60%, #0ea5a4);
-  box-shadow: 0 0 10px rgba(45, 212, 191, 0.8);
+  background: rgba(255, 255, 255, 0.25);
+  transition: background 0.3s ease;
+}
+
+.island.media-live .island-dot {
+  background: var(--accent);
+  animation: dot-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes dot-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .island-name {
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
 }
 
@@ -124,119 +160,76 @@ body {
 }
 
 .clock-time {
-  font-size: 14px;
-  font-weight: 650;
-  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .clock-date {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  color: var(--text-3);
   white-space: nowrap;
 }
 
-/* ---- Now playing (reserved for real media feed on Windows) ---- */
+/* ---- Now playing (expanded card) ---- */
 .nowplaying {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
   min-width: 0;
-  flex: 1;
+  width: 100%;
 }
 
 .np-art {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
-  border-radius: 50%;
-}
-
-.np-ring {
-  position: absolute;
-  inset: -2px;
-  width: 50px;
-  height: 50px;
-  transform: rotate(-90deg);
-}
-
-.np-ring-track {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.12);
-  stroke-width: 2;
-}
-
-.np-ring-progress {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.4;
-  stroke-linecap: round;
-}
-
-.np-art-img {
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #1f2937, #111827 70%);
-  color: rgba(255, 255, 255, 0.85);
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  border-radius: 11px;
+  overflow: hidden;
+  background: linear-gradient(150deg, #23252b, #14151a 70%);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  color: var(--text-2);
+}
+
+.np-art-img {
+  width: 100%;
+  height: 100%;
+}
+
+.np-art-img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .np-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.25;
+  gap: 2px;
 }
 
 .np-title {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.25;
 }
 
 .np-artist {
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* ---- Ellipsis menu ---- */
-.ellipsis {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.ellipsis:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.ellipsis span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--accent);
+  line-height: 1.25;
 }
 
 /* ---- Expanded panel ---- */
@@ -245,8 +238,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* Pad so content clears the rounded caps and snaps to the ends. */
-  padding: 14px 26px 26px;
+  padding: 14px 28px 24px;
   min-height: 0;
 }
 
@@ -254,94 +246,48 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 24px;
 }
 
-.panel-title {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.panel-badge {
-  font-size: 10px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
-  padding: 2px 8px;
-}
-
-.panel-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px dashed rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.02);
-  text-align: center;
-  padding: 12px;
-}
-
-.panel-empty p {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.panel-empty span {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.42);
-}
-
-/* Collapsed state shows only the pill nodule; the panel is hidden entirely. */
-.island.mode-collapsed .island-panel {
-  display: none;
-}
-
-/* ---- Panel head ---- */
 .panel-head-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
 }
 
 .icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-3);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .icon-btn:hover,
 .icon-btn-active {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.8);
 }
 
-/* ---- Settings ---- */
+/* ---- Settings (quiet rows, hairline dividers) ---- */
 .settings {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 2px;
 }
 
 .settings-row {
@@ -349,55 +295,256 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 8px 2px;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid var(--hairline);
 }
 
 .settings-label {
   font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.settings-value {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.5);
-  min-width: 20px;
-  text-align: right;
+  font-weight: 450;
+  color: var(--text-2);
 }
 
 .segmented {
   display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .segmented button {
   border: none;
-  border-radius: 999px;
-  padding: 4px 14px;
+  border-radius: 7px;
+  padding: 3px 12px;
   font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+  color: var(--text-2);
   background: transparent;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .segmented button:hover {
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .segmented button.seg-active {
-  background: var(--accent);
-  color: #211603;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text);
 }
 
-.settings-row input[type="range"] {
+/* ---- Empty state ---- */
+.panel-empty {
   flex: 1;
-  min-width: 0;
-  accent-color: var(--accent);
-  height: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.panel-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.panel-empty > span:last-child {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Collapsed state shows only the pill; the panel is hidden entirely. */
+.island.mode-collapsed .island-panel {
+  display: none;
+}
+
+/* ---- Now playing card (live media, Windows SMTC feed) ---- */
+.np-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 11px;
+  padding: 4px 2px 0;
+  min-height: 0;
+}
+
+.np-progress {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.np-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s linear;
+}
+
+.np-times {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.np-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.np-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.np-ctl:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.np-ctl:active {
+  transform: scale(0.92);
+}
+
+.np-ctl-main {
+  width: 34px;
+  height: 34px;
+  background: rgba(233, 185, 73, 0.16);
+  color: var(--accent);
+}
+
+.np-ctl-main:hover {
+  background: rgba(233, 185, 73, 0.26);
+  color: #f4cd6e;
+}
+
+.np-ctl-sm {
+  width: 26px;
+  height: 26px;
+}
+
+.np-ctl-xs {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---- Liquid glass mode ---- */
+.island.glass {
+  background: linear-gradient(165deg, rgba(26, 28, 34, 0.5) 0%, rgba(10, 12, 16, 0.62) 55%, rgba(7, 9, 13, 0.68) 100%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.13);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+}
+
+.island::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 32%, rgba(255, 255, 255, 0) 55%);
+  pointer-events: none;
+}
+
+/* ---- Collapsed mini now-playing (auto live activity) ---- */
+.np-mini {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  animation: island-in 0.25s ease;
+}
+
+.npm-art {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(150deg, #23252b, #14151a 70%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+}
+
+.npm-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.npm-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.npm-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.npm-artist {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.npm-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* Thin live-progress line across the pill's bottom edge. */
+.np-mini-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.75;
+  border-radius: 999px;
+  transition: width 0.4s linear;
 }

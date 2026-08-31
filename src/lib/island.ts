@@ -49,19 +49,33 @@ export function sizesForDisplay(widthPoints: number): IslandSizes {
       height: clamp(Math.round(widthPoints * 0.036), 52, 104),
     },
     expanded: {
-      width: clamp(Math.round(widthPoints * 0.2), 320, 520),
-      height: clamp(Math.round(widthPoints * 0.16), 260, 420),
+      width: clamp(Math.round(widthPoints * 0.18), 300, 480),
+      height: clamp(Math.round(widthPoints * 0.14), 240, 340),
     },
   };
 }
 
 /**
- * How far (logical points) below the top edge of the display to place the
- * island. Zero hugs the very top edge so the island reads as attached to the
- * top / a Dynamic Island. On Windows (no menu bar) this is the true top of the
- * screen.
+ * Vertical placement: BOTH shapes hug the absolute top edge of the display
+ * (offset 0) so the widget reads as physical hardware — a real notch or a
+ * Dynamic Island. No margin, no gap; the window's top border is the monitor's
+ * first pixel row. On Windows (no menu bar) that is the true screen top.
  */
-const TOP_OFFSET = 0;
+const SHAPE_TOP_OFFSET: Record<IslandShape, number> = { notch: 0, pill: 0 };
+
+/** Window geometry for a given shape/state. */
+function targetState(
+  shape: IslandShape,
+  expanded: boolean,
+  sizes: IslandSizes,
+): { size: Size; topOffset: number } {
+  if (expanded) {
+    return { size: sizes.expanded, topOffset: SHAPE_TOP_OFFSET[shape] };
+  }
+  return shape === "notch"
+    ? { size: sizes.notchCollapsed, topOffset: SHAPE_TOP_OFFSET.notch }
+    : { size: sizes.pillCollapsed, topOffset: SHAPE_TOP_OFFSET.pill };
+}
 
 interface Geometry {
   scale: number;
@@ -87,18 +101,20 @@ async function geometry(): Promise<Geometry> {
 
 /**
  * Position and size the window so it is centered on `anchorXPhys` (a physical
- * horizontal center). Used with the display center for first placement and with
- * the island's own center during animations.
+ * horizontal center) at `topOffsetLogical` below the display's top edge. Used
+ * with the display center for first placement and with the island's own center
+ * during animations.
  */
 async function placeWindow(
   geo: Geometry,
   anchorXPhys: number,
   size: Size,
+  topOffsetLogical: number,
 ): Promise<void> {
   const pixelWidth = Math.round(size.width * geo.scale);
   const pixelHeight = Math.round(size.height * geo.scale);
   const x = Math.round(anchorXPhys - pixelWidth / 2);
-  const y = geo.top + Math.round(TOP_OFFSET * geo.scale);
+  const y = geo.top + Math.round(topOffsetLogical * geo.scale);
 
   await appWindow.setPosition(new PhysicalPosition(x, y));
   await appWindow.setSize(new PhysicalSize(pixelWidth, pixelHeight));
@@ -107,9 +123,8 @@ async function placeWindow(
 /** Place the island collapsed, centered on the display, then reveal + focus. */
 export async function showIsland(shape: IslandShape): Promise<void> {
   const geo = await geometry();
-  const size =
-    shape === "notch" ? geo.sizes.notchCollapsed : geo.sizes.pillCollapsed;
-  await placeWindow(geo, geo.centerX, size);
+  const { size, topOffset } = targetState(shape, false, geo.sizes);
+  await placeWindow(geo, geo.centerX, size, topOffset);
   await appWindow.show();
   await appWindow.setFocus();
 }
@@ -135,11 +150,7 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
   const { shape, expanded, duration = 300 } = opts;
   const token = ++animationToken;
   const geo = await geometry();
-  const target = expanded
-    ? geo.sizes.expanded
-    : shape === "notch"
-      ? geo.sizes.notchCollapsed
-      : geo.sizes.pillCollapsed;
+  const target = targetState(shape, expanded, geo.sizes);
 
   // Anchor to the pill's own center, NOT the display center, so the panel stays
   // centered under the trigger even if the OS reports a different monitor or the
@@ -151,6 +162,9 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
   const startLogical = {
     width: inner.width / geo.scale,
     height: inner.height / geo.scale,
+    // Derive the current top offset from where the window actually is, so the
+    // y-tween is correct no matter which shape/state produced it.
+    topOffset: (outer.y - geo.top) / geo.scale,
   };
 
   return new Promise<void>((resolve) => {
@@ -161,10 +175,15 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
       }
       const t = Math.min(1, (performance.now() - (step as any)._start) / duration);
       const e = easeInOutCubic(t);
-      await placeWindow(geo, anchorXPhys, {
-        width: Math.round(startLogical.width + (target.width - startLogical.width) * e),
-        height: Math.round(startLogical.height + (target.height - startLogical.height) * e),
-      });
+      await placeWindow(
+        geo,
+        anchorXPhys,
+        {
+          width: Math.round(startLogical.width + (target.size.width - startLogical.width) * e),
+          height: Math.round(startLogical.height + (target.size.height - startLogical.height) * e),
+        },
+        startLogical.topOffset + (target.topOffset - startLogical.topOffset) * e,
+      );
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
