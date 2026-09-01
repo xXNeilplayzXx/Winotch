@@ -103,6 +103,55 @@ export function SetupWizard({ requireShape, initialShape, onDone }: SetupWizardP
 
       {page === 1 ? (
         <>
+          <h2 className="setup-section">Quick presets</h2>
+          <div className="setup-chips">
+            <button
+              type="button"
+              className={`setup-chip${
+                shape === "notch" && appearance === "glass" && themePref === "dark"
+                  ? " setup-picked"
+                  : ""
+              }`}
+              onClick={() => {
+                setTheme("dark");
+                setShape("notch");
+                setAppearance("glass");
+              }}
+            >
+              Classic Notch
+            </button>
+            <button
+              type="button"
+              className={`setup-chip${
+                shape === "notch" && appearance === "solid" && themePref === "system"
+                  ? " setup-picked"
+                  : ""
+              }`}
+              onClick={() => {
+                setTheme("system");
+                setShape("notch");
+                setAppearance("solid");
+              }}
+            >
+              Solid Notch
+            </button>
+            <button
+              type="button"
+              className={`setup-chip${
+                shape === "pill" && appearance === "glass" && themePref === "light"
+                  ? " setup-picked"
+                  : ""
+              }`}
+              onClick={() => {
+                setTheme("light");
+                setShape("pill");
+                setAppearance("glass");
+              }}
+            >
+              Light Pill
+            </button>
+          </div>
+
           <h2 className="setup-section">Theme</h2>
           <div className="segmented segmented-full">
             <button

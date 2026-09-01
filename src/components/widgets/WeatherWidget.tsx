@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { WeatherSettings } from "../../lib/widgets";
 
 /** WMO weather code → emoji + short label. */
@@ -41,6 +42,8 @@ export function WeatherWidget({ settings, edit, onSave, onEditDone }: WeatherWid
   const [failed, setFailed] = useState(false);
   const [cityInput, setCityInput] = useState(settings?.city ?? "");
   const [geoErr, setGeoErr] = useState(false);
+  const [winLocBusy, setWinLocBusy] = useState(false);
+  const [winLocErr, setWinLocErr] = useState<string | null>(null);
 
   const s = settings?.lat != null && settings?.lon != null ? settings : null;
 
@@ -90,6 +93,7 @@ export function WeatherWidget({ settings, edit, onSave, onEditDone }: WeatherWid
             onChange={(e) => {
               setCityInput(e.target.value);
               setGeoErr(false);
+              setWinLocErr(null);
             }}
             onKeyDown={(e) => e.key === "Enter" && saveCity()}
           />
@@ -98,6 +102,15 @@ export function WeatherWidget({ settings, edit, onSave, onEditDone }: WeatherWid
           </button>
         </div>
         {geoErr && <p className="widget-err">Couldn't find that place — try another name.</p>}
+        <button
+          type="button"
+          className="widget-btn"
+          disabled={winLocBusy}
+          onClick={() => void useWindowsLocation()}
+        >
+          {winLocBusy ? "Locating…" : "Use Windows location"}
+        </button>
+        {winLocErr && <p className="widget-err">{winLocErr}</p>}
       </div>
     );
   }
@@ -131,6 +144,26 @@ export function WeatherWidget({ settings, edit, onSave, onEditDone }: WeatherWid
       </div>
     </div>
   );
+
+  /** Ask Windows where the device is (weather for your actual location). */
+  async function useWindowsLocation() {
+    setWinLocBusy(true);
+    setWinLocErr(null);
+    try {
+      const r = await invoke<{ lat: number; lon: number }>("weather_geo");
+      onSave({ city: "Current location", lat: r.lat, lon: r.lon });
+      setCityInput("Current location");
+      onEditDone?.();
+    } catch (e) {
+      setWinLocErr(
+        typeof e === "string"
+          ? e
+          : "Windows location is unavailable — check Settings → Privacy → Location.",
+      );
+    } finally {
+      setWinLocBusy(false);
+    }
+  }
 
   async function saveCity() {
     const q = cityInput.trim();

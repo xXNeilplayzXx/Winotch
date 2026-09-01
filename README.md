@@ -15,12 +15,12 @@ A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top
 ## 🪟 For non-technical people (3 steps)
 
 1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
-2. **Double-click `winotch.exe`.** If Windows pops up *"Windows protected your PC"*, click **More info**, then **Run anyway**. (We haven't bought a code-signing certificate yet, so Windows doesn't trust the file — it's safe, we promise.)
+2. **Double-click `winotch.exe`.** If Windows pops up *"Windows protected your PC"* (SmartScreen — we haven't bought a code-signing certificate yet, so Windows doesn't trust the file), click **More info**, then **Run anyway**. If Windows Defender blocks it again or quarantines the file, add an exclusion (below). See [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md) for the full walkthrough.
 3. **Answer the 2-page setup**, click **Get started**, and the notch appears at the top-center of your screen. Move your mouse over it to expand it.
 
 Done. To remove Winotch later, just delete the `.exe`.
 
-> See [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md) for full unblocking steps and antivirus false-positive handling.
+**If Windows Defender blocks the file:** Settings → Privacy & Security → **Windows Security** → **Virus & threat protection** → *Virus & threat protection settings* → **Manage settings** → *Exclusions* → **Add or remove exclusions** → **Add an exclusion** → **File** → pick `winotch.exe`. (Only do that for files you trust — this one is open source, and you can build it yourself from this repo.)
 
 ---
 
@@ -32,11 +32,16 @@ Done. To remove Winotch later, just delete the `.exe`.
 - **Theme system** — Light and Dark force every surface (notch, settings, menus, wizard) instantly; **System Default** follows your Windows app theme **live** — flip Windows between light/dark with no restart and the island re-skins itself; a **Color** theme unlocks preset accent swatches, a custom color picker, and a Follow-Windows accent option
 - **Windows accent integration** — the notch's highlight follows your Windows accent color automatically, including the small underline beneath active taskbar icons; changes apply live
 - **Choose your display** — main monitor, any specific display (shown by its real name), **All monitors** (one island per screen), or pick one on a visual map of your screen layout
-- **Widgets** — stack, reorder (with animations), and remove: media control, clock, weather (Open-Meteo, no API key), and an app launcher. Add with ＋, edit weather city / launcher apps with the ⚙ on each card
+- **Widgets** — stack, reorder (with animations), and remove: media control, clock, notes, weather (Open-Meteo, no API key), and an app launcher. Add with ＋, edit notes/weather city/launcher apps with the ⚙ on each card. Weather can also use your **Windows location** directly
 - **Live media widget** — reads the Windows SMTC feed, so Spotify, Chrome/Edge YouTube and other media apps automatically swap the collapsed pill into a mini player with title, artist, album art, progress, and play/pause + skip
-- **Live call indicator** — while you're in a Zoom, Teams, Discord, Slack, Skype, WhatsApp or other call, the notch swaps to a green pill showing the app and a ticking call timer; it disappears when the call ends
-- **Liquid glass mode** — translucent, blurred appearance (or solid dark), with a glass-opacity slider (10–100%) that only appears while Glass is selected
-- **Right-click the notch** — **Hide Winotch** or **Close Winotch**; a system-tray icon (Show / Hide / Quit) brings it back anytime
+- **Live call indicator** — while you're in a Zoom, Teams, Discord, Slack, Skype, WhatsApp, Phone Link or other call, the notch swaps to a green pill showing the app and a ticking call timer; it disappears when the call ends
+- **Status dot** — the little dot at the notch's left edge is always live: grey when idle, **red** while the microphone is in use, **green** while you're on a call, and **blue** on a call with your mic active (hover it for the current state)
+- **Liquid glass mode** — translucent, blurred appearance (or solid dark) with two sliders that only appear while Glass is selected: **opacity** (10–100%) and **blur** (0–40 px)
+- **Background gradients** — Sunset, Ocean, Aurora, Candy, or Graphite skins that tint the glass/solid notch
+- **Drag to move** — grab the collapsed notch and drag it anywhere (toggle in settings); it remembers where you left it until the next settings change
+- **Size presets** — one-click Compact / Standard / Wide sizes on top of the width & height sliders, in settings and setup
+- **Idle content** — choose what the collapsed strip shows when nothing is playing: brand + clock, clock only, custom text, or just the dot
+- **Right-click the notch** (while expanded) — **Hide Winotch**, **Restart Winotch**, or **Close Winotch**; a system-tray icon (Show / Hide / Quit) brings it back anytime
 - **Hover to expand** — grows into a full panel with settings (theme, mode, appearance, display)
 - **Always on top, zero scrollbars** — fixed-shape windows that hug the absolute top edge of their display
 
@@ -64,6 +69,43 @@ Direct download for v0.2.5: **https://github.com/xXNeilplayzXx/Winotch/releases/
 - No admin rights needed — it's a portable app; delete the exe to remove it.
 
 ---
+
+## Guide
+
+Everything is reachable from the notch itself — no settings app, no launcher.
+
+### Daily use
+
+- **Hover** the collapsed bar to expand it into the full panel; move the mouse away and it shrinks back.
+- **While music plays**, the collapsed bar becomes a mini player (title, artist, progress, play/pause, next).
+- **While you're on a call**, it becomes a green call pill with the app name and a live timer.
+- **The left dot** mirrors your privacy indicators: red mic, green call, blue call + mic.
+- **Right-click while expanded** for Hide / Restart / Close. Hidden? Left-click the tray icon (W) to bring it back.
+- **Drag** the collapsed bar to move the notch anywhere (toggle *Drag to move* in settings to switch this off).
+- **Notifications/status**: set a custom idle line in settings — e.g. `Lunch at 1` — and it replaces the brand text.
+
+### Settings (⚙ gear in the expanded panel)
+
+- **Mode** — Notch (carved into the top edge) or Pill (floating capsule).
+- **Display** — main monitor, any specific display by name, or **All monitors** (one island per screen).
+- **Size** — *Size preset* chips (Compact/Standard/Wide) or the Width/Height sliders (150–800 × 30–200). Everything is staged as a draft: **Apply** commits it, **Reset** discards it, **Reset to default** restores factory settings instantly.
+- **Appearance** — Solid or Glass; when Glass is on, extra sliders control **opacity** and **blur**.
+- **Gradient** — a background skin (None/Sunset/Ocean/Aurora/Candy/Graphite).
+- **Drag to move** — on/off. **When idle** — what the collapsed strip shows.
+- **Theme** — Light / Dark / System Default (follows Windows live) or **Color** for preset accent swatches, a custom color picker, or Follow-Windows accent.
+
+### Widgets
+
+- **＋** adds a widget; **↑/↓** reorder; **✕** removes; **⚙** edits notes, weather, or launcher apps (media and clock are automatic).
+- **Notes** autosaves as you type. **Weather** can use a typed city or your Windows location. **App launcher** runs any exe/path from the notch.
+
+## Troubleshooting
+
+- **"Windows protected your PC" / Defender deletes the exe** — unsigned builds trigger SmartScreen; see the unblocking + exclusion steps above and [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md).
+- **The call pill never appears** — it only shows for known desktop call apps (Zoom, Teams, Discord, Slack, Skype, WhatsApp, Phone Link…); browser-based calls (Meet/Zoom web in Chrome/Edge) aren't detected yet, and silent mic-only apps that aren't call apps won't trigger it.
+- **The mic dot stays grey while I'm talking** — the watcher meters capture devices; if your mic is an exotic/external device or the Windows meter reads ~0, it may not trip the threshold (privacy Settings → Microphone also matters).
+- **Weather says "Windows location is unavailable"** — allow location in Settings → Privacy → Location, then retry the **Use Windows location** button.
+- **A blank/flashed window on dev builds** — see the dev-server note below (port 1420 conflict).
 
 ## Building from source
 
@@ -94,4 +136,4 @@ The Windows exe in the releases is cross-compiled from macOS with the `x86_64-pc
 ## Project layout
 
 - `src/` — React frontend (island UI, widgets, styles, theme manager)
-- `src-tauri/` — Rust shell: window management, always-on-top + flush-top placement, SMTC media watcher (`src/media.rs`), call-activity watcher (`src/calls.rs`), display enumeration + multi-window mode (`src/monitors.rs`), theme/accent watcher (`src/theme.rs`), app launcher (`src/launcher.rs`), system tray (`src/tray.rs`)
+- `src-tauri/` — Rust shell: window management, always-on-top + flush-top placement, SMTC media watcher (`src/media.rs`), call-activity watcher (`src/calls.rs`), mic-in-use watcher (`src/mic.rs`), Windows geolocation (`src/geo.rs`), display enumeration + multi-window mode (`src/monitors.rs`), theme/accent watcher (`src/theme.rs`), app launcher (`src/launcher.rs`), system tray (`src/tray.rs`)

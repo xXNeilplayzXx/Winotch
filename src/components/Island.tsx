@@ -18,11 +18,30 @@ import {
 } from "../lib/monitors";
 import { readSizePref, saveSizePref, type IslandSize } from "../lib/size";
 import {
+  applyGlassBlur,
   applyGlassOpacity,
+  readGlassBlur,
   readGlassOpacity,
+  saveGlassBlur,
   saveGlassOpacity,
+  GLASS_BLUR_DEFAULT,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
   GLASS_OPACITY_DEFAULT,
 } from "../lib/glass";
+import {
+  GRADIENTS,
+  readDraggable,
+  readGradient,
+  readIdleContent,
+  readIdleText,
+  saveDraggable,
+  saveGradient,
+  saveIdleContent,
+  saveIdleText,
+  type GradientPref,
+  type IdleContent,
+} from "../lib/customize";
 import {
   ACCENT_SYSTEM,
   readAccentPref,
@@ -49,6 +68,13 @@ const ACCENT_PRESETS = [
   "#f97316", // orange
 ];
 
+/** Quick size presets for the settings sliders (one click applies both axes). */
+const SIZE_PRESETS = [
+  { label: "Compact", width: 240, height: 60 },
+  { label: "Standard", width: 300, height: 75 },
+  { label: "Wide", width: 460, height: 95 },
+];
+
 /** Pending settings values, staged by the controls until Apply is pressed. */
 interface SettingsDraft {
   shape: IslandShape;
@@ -56,6 +82,15 @@ interface SettingsDraft {
   glass: boolean;
   /** Liquid-glass opacity percent (only meaningful in glass mode). */
   glassOpacity: number;
+  /** Liquid-glass backdrop blur in px (only meaningful in glass mode). */
+  glassBlur: number;
+  /** Background gradient skin (`none` disables it). */
+  gradient: GradientPref;
+  /** What the collapsed strip shows while idle. */
+  idleContent: IdleContent;
+  idleText: string;
+  /** Whether the collapsed island can be dragged around. */
+  draggable: boolean;
   theme: ThemePref;
   /** `system` (follow Windows) or an explicit `#rrggbb` accent hex. */
   accent: string;
@@ -162,7 +197,6 @@ function MiniNowPlaying({ media }: { media: MediaState }) {
   return (
     <>
       <div className="np-mini" data-playing={media.playing}>
-        <span className="island-dot" />
         <span className="npm-art" aria-hidden>
           {media.art ? <img src={media.art} alt="" draggable={false} /> : <MusicNote size={14} />}
         </span>
@@ -195,6 +229,11 @@ function MiniNowPlaying({ media }: { media: MediaState }) {
 interface CallState {
   on_call: boolean;
   app?: string | null;
+}
+
+/** Shape of the Rust mic://state payload (mic.rs). */
+interface MicState {
+  on: boolean;
 }
 
 function MicIcon({ size = 14 }: { size?: number }) {
@@ -262,6 +301,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   });
   const [media, setMedia] = useState<MediaState | null>(null);
   const [call, setCall] = useState<CallState | null>(null);
+  const [micOn, setMicOn] = useState(false);
   // Ticking clock behind the call pill's elapsed timer.
   const [callNow, setCallNow] = useState(0);
   const callStartRef = useRef<number | null>(null);
@@ -275,6 +315,17 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const [themePref, setThemePref] = useState<ThemePref>(() => readThemePref());
   // Liquid-glass opacity percent; applies live as a CSS variable.
   const [glassOpacity, setGlassOpacity] = useState<number>(() => readGlassOpacity());
+  // Liquid-glass backdrop blur px; applies live as a CSS variable.
+  const [glassBlur, setGlassBlur] = useState<number>(() => readGlassBlur());
+  // Background gradient skin.
+  const [gradient, setGradient] = useState<GradientPref>(() => readGradient());
+  // What the collapsed strip shows while idle.
+  const [idleContent, setIdleContent] = useState<IdleContent>(() => readIdleContent());
+  const [idleText, setIdleText] = useState<string>(() => readIdleText());
+  // Whether the collapsed island can be dragged around.
+  const [draggable, setDraggable] = useState<boolean>(() => readDraggable());
+  // Set while an OS window drag is in flight, so the hover-expand is skipped.
+  const draggingRef = useRef(false);
   // Custom collapsed size (settings sliders); null = derive from the display.
   const [appliedSize, setAppliedSize] = useState<IslandSize | null>(() => readSizePref());
   // Staged settings values, only applied (and persisted) when Apply is pressed.
@@ -307,6 +358,9 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const hasMediaWidget = widgets.some((w) => w.type === "media");
   const mediaLive = Boolean(media?.playing) && hasMediaWidget;
   const callLive = Boolean(call?.on_call);
+  // Status-dot state: grey idle, red mic in use, green on call, blue both.
+  const dotState: "both" | "mic" | "call" | "idle" =
+    micOn && callLive ? "both" : micOn ? "mic" : callLive ? "call" : "idle";
 
   // Place the island collapsed for the current shape, then reveal on mount.
   useEffect(() => {
@@ -377,6 +431,30 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     };
   }, []);
 
+  // Live mic-in-use feed: pull initial state, then follow mic://state events.
+  // Off Windows the watcher is a no-op, so the dot stays grey.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void invoke<MicState | null>("mic_get_state")
+      .then((s) => {
+        if (!disposed) setMicOn(s?.on ?? false);
+      })
+      .catch(() => {});
+    void listen<boolean>("mic://state", (e) => {
+      if (!disposed) setMicOn(Boolean(e.payload));
+    })
+      .then((u) => {
+        if (disposed) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   // Tick the elapsed timer once a second while the call pill is showing;
   // the start instant is anchored the first time the call is seen.
   useEffect(() => {
@@ -396,12 +474,18 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   // The emitting window is expanded and skips the animation (it already did).
   useEffect(() => {
     let disposed = false;
-    let unlisten: (() => void) | undefined;      void listen<{
+    let unlisten: (() => void) | undefined;
+    void listen<{
       shape: IslandShape;
       glass: boolean;
       widgets?: WidgetInstance[];
       size?: IslandSize | null;
       glassOpacity?: number;
+      glassBlur?: number | null;
+      gradient?: GradientPref;
+      idleContent?: IdleContent;
+      idleText?: string;
+      draggable?: boolean;
       accent?: string;
     }>("winotch://config", (e) => {
       if (disposed) return;
@@ -409,6 +493,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       if (p.widgets) setWidgets(p.widgets);
       if (p.size !== undefined) setAppliedSize(p.size ?? null);
       if (p.glassOpacity !== undefined) setGlassOpacity(p.glassOpacity);
+      if (p.glassBlur !== undefined && p.glassBlur !== null) setGlassBlur(p.glassBlur);
+      if (p.gradient !== undefined) setGradient(p.gradient);
+      if (p.idleContent !== undefined) setIdleContent(p.idleContent);
+      if (p.idleText !== undefined) setIdleText(p.idleText);
+      if (p.draggable !== undefined) setDraggable(p.draggable);
       if (p.accent !== undefined) themeManager.setAccentPref(p.accent);
       setShape(p.shape);
       setGlass(p.glass);
@@ -427,10 +516,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     };
   }, []);
 
-  // Re-skin the island the instant the glass opacity changes (both themes).
+  // Re-skin the island the instant glass opacity/blur changes (both themes).
   useLayoutEffect(() => {
     applyGlassOpacity(glassOpacity);
-  }, [glassOpacity]);
+    applyGlassBlur(glassBlur);
+  }, [glassOpacity, glassBlur]);
 
   // Grow/shrink the expanded window when the widget count changes.
   const firstWidgetsRender = useRef(true);
@@ -446,6 +536,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   }, [widgets.length]);
 
   const enter = () => {
+    // Skip the hover-expand while an OS window drag is in flight.
+    if (draggingRef.current) return;
     if (modeRef.current === "expanded") return;
     modeRef.current = "expanded";
     setMode("expanded");
@@ -469,6 +561,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       monitor: readMonitorPref(),
       glass,
       glassOpacity,
+      glassBlur,
+      gradient,
+      idleContent,
+      idleText,
+      draggable,
       theme: themePref,
       accent: readAccentPref(),
       size: currentCollapsedSize(shape, monitors),
@@ -488,6 +585,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     const shapeChanged = d.shape !== shape;
     const glassChanged = d.glass !== glass;
     const opacityChanged = d.glassOpacity !== glassOpacity;
+    const blurChanged = d.glassBlur !== glassBlur;
+    const gradientChanged = d.gradient !== gradient;
+    const idleChanged = d.idleContent !== idleContent || d.idleText !== idleText;
+    const dragChanged = d.draggable !== draggable;
     const themeChanged = d.theme !== themePref;
     const accentChanged = d.accent !== readAccentPref();
     const monitorChanged = monitor !== readMonitorPref();
@@ -518,6 +619,24 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     if (opacityChanged) {
       saveGlassOpacity(d.glassOpacity);
       setGlassOpacity(d.glassOpacity); // effect re-skins --glass-opacity
+    }
+    if (blurChanged) {
+      saveGlassBlur(d.glassBlur);
+      setGlassBlur(d.glassBlur); // effect re-skins --glass-blur
+    }
+    if (gradientChanged) {
+      saveGradient(d.gradient);
+      setGradient(d.gradient);
+    }
+    if (idleChanged) {
+      saveIdleContent(d.idleContent);
+      saveIdleText(d.idleText);
+      setIdleContent(d.idleContent);
+      setIdleText(d.idleText);
+    }
+    if (dragChanged) {
+      saveDraggable(d.draggable);
+      setDraggable(d.draggable);
     }
     if (opts?.resetSizeToAuto) {
       saveSizePref(null);
@@ -568,6 +687,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       shape: d.shape,
       glass: d.glass,
       glassOpacity: d.glassOpacity,
+      glassBlur: d.glassBlur,
+      gradient: d.gradient,
+      idleContent: d.idleContent,
+      idleText: d.idleText,
+      draggable: d.draggable,
       accent: d.accent,
       size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
@@ -592,6 +716,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       monitor: "primary",
       glass: true,
       glassOpacity: GLASS_OPACITY_DEFAULT,
+      glassBlur: GLASS_BLUR_DEFAULT,
+      gradient: "none",
+      idleContent: "brand",
+      idleText: "",
+      draggable: true,
       theme: "system",
       accent: ACCENT_SYSTEM,
       size: derivedCollapsedSize("notch", monitors, "primary"),
@@ -617,6 +746,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     widgets?: WidgetInstance[];
     size?: IslandSize | null;
     glassOpacity?: number;
+    glassBlur?: number | null;
+    gradient?: GradientPref;
+    idleContent?: IdleContent;
+    idleText?: string;
+    draggable?: boolean;
     accent?: string;
   }) => {
     void invoke("broadcast_config", {
@@ -626,6 +760,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         widgets: override?.widgets ?? widgets,
         size: override?.size !== undefined ? override.size : appliedSize,
         glassOpacity: override?.glassOpacity ?? glassOpacity,
+        glassBlur: override?.glassBlur ?? glassBlur,
+        gradient: override?.gradient ?? gradient,
+        idleContent: override?.idleContent ?? idleContent,
+        idleText: override?.idleText ?? idleText,
+        draggable: override?.draggable ?? draggable,
         accent: override?.accent ?? readAccentPref(),
       },
     }).catch(() => {});
@@ -649,6 +788,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         monitor: readMonitorPref(),
         glass,
         glassOpacity,
+        glassBlur,
+        gradient,
+        idleContent,
+        idleText,
+        draggable,
         theme: themePref,
         accent: readAccentPref(),
         size: currentCollapsedSize(shape, monitors),
@@ -667,33 +811,78 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       onMouseLeave={leave}
       onContextMenu={(e) => {
         e.preventDefault();
+        // Right-click menu only shows while the panel is expanded; on the small
+        // collapsed bar a right-click does nothing (the tray icon still has
+        // Show / Hide / Quit).
+        if (modeRef.current !== "expanded") return;
         // Keep the menu fully inside the small island window (menus can now
-        // have two items, so reserve ~84px of height).
+        // have three items, so reserve ~130px of height).
         setCtxMenu({
           x: Math.max(0, Math.min(e.clientX, window.innerWidth - 180)),
-          y: Math.max(0, Math.min(e.clientY, window.innerHeight - 84)),
+          y: Math.max(0, Math.min(e.clientY, window.innerHeight - 130)),
         });
       }}
+      onPointerDown={(e) => {
+        // Drag-to-move: only from the collapsed bar, left button, and not on
+        // any interactive control. The OS moves the window; the hover-expand
+        // is suppressed while the drag is in flight so the bar doesn't grow
+        // under the cursor mid-drag.
+        if (e.button !== 0 || !draggable || modeRef.current !== "collapsed") return;
+        if ((e.target as HTMLElement | null)?.closest?.("button, input, select, textarea")) return;
+        draggingRef.current = true;
+        void getCurrentWindow()
+          .startDragging()
+          .catch(() => {})
+          .finally(() => {
+            draggingRef.current = false;
+          });
+      }}
     >
+      {gradient !== "none" && <div className={`island-grad grad-${gradient}`} aria-hidden />}
       <header className="island-strip">
-        {callLive ? (
-          <CallPill
-            app={call?.app ?? "Call"}
-            elapsedMs={Math.max(0, callNow - (callStartRef.current ?? callNow))}
-          />
-        ) : mediaLive && media?.title ? (
-          <MiniNowPlaying media={media} />
-        ) : (
-          <>
-            <div className="island-brand">
-              <span className="island-dot" />
-              <span className="island-name">Winotch</span>
-            </div>
-            <div className="island-strip-slot">
-              <Clock expanded={mode === "expanded"} />
-            </div>
-          </>
-        )}
+        {/* Status dot: always visible. Grey idle, red mic in use, green on a
+            call, blue on a call with the mic live. */}
+        <span
+          className="island-dot"
+          data-mic={micOn ? "on" : "off"}
+          data-call={callLive ? "on" : "off"}
+          title={
+            dotState === "both"
+              ? "On a call — microphone live"
+              : dotState === "mic"
+                ? "Microphone in use"
+                : dotState === "call"
+                  ? "On a call"
+                  : "Idle"
+          }
+        />
+        <div className="island-strip-body">
+          {callLive ? (
+            <CallPill
+              app={call?.app ?? "Call"}
+              elapsedMs={Math.max(0, callNow - (callStartRef.current ?? callNow))}
+            />
+          ) : mediaLive && media?.title ? (
+            <MiniNowPlaying media={media} />
+          ) : (
+            <>
+              <div className="island-brand">
+                {idleContent === "brand" && <span className="island-name">Winotch</span>}
+                {idleContent === "custom" && (
+                  <span className="island-custom-text">{idleText.trim() || "—"}</span>
+                )}
+              </div>
+              <div className="island-strip-slot">
+                {(idleContent === "brand" || idleContent === "clock") && (
+                  <Clock expanded={mode === "expanded"} />
+                )}
+                {idleContent === "custom" && idleText.trim() === "" && (
+                  <span className="island-custom-text is-muted">No text set — open settings</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       <section className="island-panel">
@@ -707,7 +896,9 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             >
               <SettingsIcon />
             </button>
-            <span className="panel-title">{shape === "notch" ? "Notch mode" : "Pill mode"}</span>
+            {settingsOpen && (
+              <span className="panel-title">{shape === "notch" ? "Notch mode" : "Pill mode"}</span>
+            )}
           </div>
         </div>
 
@@ -757,6 +948,26 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </select>
               </div>
             )}
+            <div className="settings-row">
+              <span className="settings-label">Size preset</span>
+              <div className="settings-chips">
+                {SIZE_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    className={`preset-chip${
+                      draft.size.width === p.width && draft.size.height === p.height ? " on" : ""
+                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDraft({ ...draft, size: { width: p.width, height: p.height } });
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="settings-row settings-row-slider">
               <div className="settings-slider-head">
                 <span className="settings-label">Notch Width</span>
@@ -814,6 +1025,24 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             </div>
+            <div className="settings-row">
+              <span className="settings-label">Gradient</span>
+              <div className="settings-chips">
+                {GRADIENTS.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    className={`preset-chip${draft.gradient === g.id ? " on" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDraft({ ...draft, gradient: g.id });
+                    }}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {draft.glass && (
               <div className="settings-row settings-row-slider">
                 <div className="settings-slider-head">
@@ -829,6 +1058,74 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                   onChange={(e) =>
                     setDraft({ ...draft, glassOpacity: Number(e.target.value) })
                   }
+                />
+              </div>
+            )}
+            {draft.glass && (
+              <div className="settings-row settings-row-slider">
+                <div className="settings-slider-head">
+                  <span className="settings-label">Glass blur</span>
+                  <span className="settings-slider-value">{draft.glassBlur}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={GLASS_BLUR_MIN}
+                  max={GLASS_BLUR_MAX}
+                  step="2"
+                  value={draft.glassBlur}
+                  onChange={(e) => setDraft({ ...draft, glassBlur: Number(e.target.value) })}
+                />
+              </div>
+            )}
+            <div className="settings-row">
+              <span className="settings-label">Drag to move</span>
+              <div className="segmented">
+                <button
+                  type="button"
+                  className={draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: true });
+                  }}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  className={!draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: false });
+                  }}
+                >
+                  Off
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <span className="settings-label">When idle</span>
+              <select
+                className="settings-select"
+                value={draft.idleContent}
+                onChange={(e) =>
+                  setDraft({ ...draft, idleContent: e.target.value as IdleContent })
+                }
+              >
+                <option value="brand">Brand + clock</option>
+                <option value="clock">Clock only</option>
+                <option value="custom">Custom text</option>
+                <option value="blank">Nothing (dot only)</option>
+              </select>
+            </div>
+            {draft.idleContent === "custom" && (
+              <div className="settings-row">
+                <span className="settings-label">Idle text</span>
+                <input
+                  className="settings-text-input"
+                  value={draft.idleText}
+                  maxLength={40}
+                  placeholder="e.g. Lunch at 1"
+                  onChange={(e) => setDraft({ ...draft, idleText: e.target.value })}
                 />
               </div>
             )}
@@ -982,6 +1279,20 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               <path d="M1 1l22 22" />
             </svg>
             Hide Winotch
+          </button>
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              setCtxMenu(null);
+              void invoke("restart_app").catch(() => {});
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-3-6.7" />
+              <path d="M21 3v6h-6" />
+            </svg>
+            Restart Winotch
           </button>
           <button
             type="button"

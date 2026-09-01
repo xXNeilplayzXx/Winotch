@@ -2,12 +2,14 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { uid, WIDGET_LABELS, WIDGET_TYPES } from "../lib/widgets";
 import type {
   LauncherSettings,
+  NotesSettings,
   WeatherSettings,
   WidgetInstance,
   WidgetType,
 } from "../lib/widgets";
 import { Clock } from "./widgets/Clock";
 import { MediaWidget, type MediaState } from "./widgets/MediaWidget";
+import { NotesWidget } from "./widgets/NotesWidget";
 import { WeatherWidget } from "./widgets/WeatherWidget";
 import { LauncherWidget } from "./widgets/LauncherWidget";
 
@@ -130,7 +132,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
 
   const saveSettings = (
     id: string,
-    patch: { weather?: WeatherSettings; launcher?: LauncherSettings },
+    patch: { weather?: WeatherSettings; launcher?: LauncherSettings; notes?: NotesSettings },
   ) => {
     update(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
@@ -145,7 +147,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
           title="Add widget"
           onClick={() => setAddOpen((v) => !v)}
         >
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
@@ -174,7 +176,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
       )}
 
       {widgets.map((w, i) => {
-        const editable = w.type === "weather" || w.type === "launcher";
+        const editable = w.type === "weather" || w.type === "launcher" || w.type === "notes";
         const edit = configureAll || editingId === w.id;
         return (
           <div
@@ -239,6 +241,13 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                   settings={w.launcher}
                   edit={edit}
                   onSave={(launcher) => saveSettings(w.id, { launcher })}
+                />
+              )}
+              {w.type === "notes" && (
+                <NotesWidget
+                  settings={w.notes}
+                  edit={edit}
+                  onSave={(notes) => saveSettings(w.id, { notes })}
                 />
               )}
             </div>

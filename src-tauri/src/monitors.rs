@@ -86,6 +86,21 @@ pub struct ConfigBroadcast {
     /// Accent preference: `system` (follow Windows) or an explicit hex.
     #[serde(default)]
     pub accent: Option<String>,
+    /// Liquid-glass backdrop blur in px (settings "Glass Blur" slider).
+    #[serde(default, rename = "glassBlur")]
+    pub glass_blur: Option<f64>,
+    /// Background gradient preset id (`none` disables it).
+    #[serde(default)]
+    pub gradient: Option<String>,
+    /// What the collapsed strip shows while idle.
+    #[serde(default, rename = "idleContent")]
+    pub idle_content: Option<String>,
+    /// Custom idle text (only used with `idleContent: "custom"`).
+    #[serde(default, rename = "idleText")]
+    pub idle_text: Option<String>,
+    /// Whether the collapsed island can be dragged around by its webview.
+    #[serde(default)]
+    pub draggable: Option<bool>,
 }
 
 /// Broadcast a config change to ALL island windows, so multi-window mode stays

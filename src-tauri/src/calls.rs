@@ -92,6 +92,14 @@ mod win {
         ("meetingcenter.exe", "Webex"),
         ("ciscowebexstart.exe", "Webex"),
         ("googlemeet.exe", "Google Meet"),
+        ("phonelink.exe", "Phone Link"),
+        ("viber.exe", "Viber"),
+        ("line.exe", "LINE"),
+        ("signal.exe", "Signal"),
+        ("session.exe", "Session"),
+        ("element.exe", "Element"),
+        ("mumble.exe", "Mumble"),
+        ("teamspeak3.exe", "TeamSpeak"),
     ];
 
     /// Full Path of the process with `pid` → lowercase exe name (e.g. "zoom.exe").

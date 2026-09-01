@@ -20,9 +20,17 @@ fn hide_island(app: tauri::AppHandle) {
     tray::hide_island(&app);
 }
 
+/// Restart the app (right-click "Restart Winotch" — handy after tweaks).
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 mod calls;
+mod geo;
 mod launcher;
 mod media;
+mod mic;
 mod monitors;
 mod sizing;
 mod theme;
@@ -250,6 +258,8 @@ pub fn run() {
             greet,
             calls::call_get_state,
             media::media_get_state,
+            mic::mic_get_state,
+            geo::weather_geo,
             media::media_play_pause,
             media::media_next,
             media::media_previous,
@@ -262,6 +272,7 @@ pub fn run() {
             sizing::move_notch_to_monitor,
             quit_app,
             hide_island,
+            restart_app,
             theme::get_system_theme,
         ])
         .setup(|app| {
@@ -282,6 +293,8 @@ pub fn run() {
             media::spawn(app.handle().clone());
             // Start the call-activity watcher (audio sessions on Windows).
             calls::spawn(app.handle().clone());
+            // Start the mic-in-use watcher (capture meters on Windows).
+            mic::spawn(app.handle().clone());
             // Watch Windows theme/accent changes and emit them live.
             theme::spawn(app.handle().clone());
             // The transparent always-on-top window is only composited while the
@@ -290,12 +303,17 @@ pub fn run() {
             let _ = app.show();
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // When another app takes focus, re-assert the island is composited
-            // (a macOS quirk can drop always-on-top windows otherwise). This
-            // must not steal keyboard focus back — show() only, never set_focus.
-            if let tauri::WindowEvent::Focused(false) = event {
-                let _ = window.show();
+        .on_window_event(|_window, _event| {
+            // macOS only: when another app takes focus, re-assert the island is
+            // composited (a macOS quirk can drop always-on-top windows
+            // otherwise). Never un-hide a window the user hid via the tray —
+            // and never run on Windows, where this same handler was undoing
+            // "Hide Winotch" as soon as the hidden window lost focus.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::Focused(false) = _event {
+                if _window.is_visible().unwrap_or(false) {
+                    let _ = _window.show();
+                }
             }
         })
         .run(tauri::generate_context!())
