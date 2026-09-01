@@ -1883,11 +1883,10 @@ input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.1);
 }
 
-/* Apply / Reset row at the bottom of the settings panel. */
-.settings-actions {
-  display: flex;
-  gap: 8px;
-  padding: 10px 2px 2px;
+/* Apply / Reset row at the bottom of the settings panel. */.settings-actions{
+  display:flex;
+  gap:8px;
+  padding:10px 2px 2px;
 }
 
 .settings-btn {
@@ -2002,6 +2001,130 @@ input[type="range"]:active::-webkit-slider-thumb {
   background: var(--danger-soft);
   border-color: var(--danger-border, var(--border-strong));
   color: var(--danger);
+}
+
+/* ---- Friendly grouped settings ---- */
+.settings {
+  min-height: 0;
+}
+
+.settings-tip {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.settings-tip strong {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-section {
+  flex: 0 0 auto;
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.settings-section-head:hover {
+  background: var(--surface-2);
+  color: var(--text-hover);
+}
+
+.settings-section-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.settings-section-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-chevron {
+  color: var(--text-3);
+  transition: transform 0.25s ease;
+}
+
+.settings-chevron-closed {
+  transform: rotate(-90deg);
+}
+
+.settings-section-body {
+  padding: 2px 2px 0;
+}
+
+/* Non-editable value line (e.g. single-display "Main monitor"). */
+.settings-static {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+/* Apply/Reset: disabled while the draft matches what's applied; the Apply
+   button gains a soft pulse while there are unsaved changes. */
+.settings-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.settings-btn:disabled:hover {
+  background: var(--surface-2);
+}
+
+.settings-btn-primary:disabled {
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+
+.settings-btn-dirty {
+  animation: apply-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes apply-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-strong);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
 }
 
 /* Display picker in the settings panel. */

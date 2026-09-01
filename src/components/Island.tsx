@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -270,6 +270,58 @@ function formatCallTime(ms: number): string {
  * app and a ticking elapsed timer. Replaces the now-playing/brand content for
  * the duration of the call, no interaction required.
  */
+/**
+ * Collapsible settings group — a labeled header with a chevron that hides or
+ * shows its rows. Keeps the panel scannable instead of one flat list.
+ */
+function SettingsSection({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="settings-section">
+      <button
+        type="button"
+        className="settings-section-head"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <span className="settings-section-titles">
+          <span className="settings-section-title">{title}</span>
+          {subtitle && <span className="settings-section-sub">{subtitle}</span>}
+        </span>
+        <svg
+          className={`settings-chevron${open ? "" : " settings-chevron-closed"}`}
+          viewBox="0 0 24 24"
+          width="12"
+          height="12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="settings-section-body">{children}</div>}
+    </div>
+  );
+}
+
 function CallPill({ app, elapsedMs }: { app: string; elapsedMs: number }) {
   return (
     <div className="call-mini">
@@ -326,6 +378,15 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const [draggable, setDraggable] = useState<boolean>(() => readDraggable());
   // Set while an OS window drag is in flight, so the hover-expand is skipped.
   const draggingRef = useRef(false);
+  // Which settings sections are expanded (default: all of them).
+  const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({
+    size: true,
+    appearance: true,
+    behavior: true,
+  });
+  // Brief "Applied ✓" confirmation on the Apply button after a save.
+  const [appliedFlash, setAppliedFlash] = useState(false);
+  const flashTimer = useRef<number | null>(null);
   // Custom collapsed size (settings sliders); null = derive from the display.
   const [appliedSize, setAppliedSize] = useState<IslandSize | null>(() => readSizePref());
   // Staged settings values, only applied (and persisted) when Apply is pressed.
@@ -579,25 +640,20 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
    * immediately visible, exactly like the old instant-apply shape switch.
    */
   const commitSettings = (d: SettingsDraft, opts?: { resetSizeToAuto?: boolean }) => {
-    // Normalize a stale draft monitor (e.g. a display unplugged while the
-    // panel was open) back to a selectable value before persisting it.
-    const monitor = monitorSelectValue(d.monitor) as MonitorPref;
-    const shapeChanged = d.shape !== shape;
-    const glassChanged = d.glass !== glass;
-    const opacityChanged = d.glassOpacity !== glassOpacity;
-    const blurChanged = d.glassBlur !== glassBlur;
-    const gradientChanged = d.gradient !== gradient;
-    const idleChanged = d.idleContent !== idleContent || d.idleText !== idleText;
-    const dragChanged = d.draggable !== draggable;
-    const themeChanged = d.theme !== themePref;
-    const accentChanged = d.accent !== readAccentPref();
-    const monitorChanged = monitor !== readMonitorPref();
-    const prevCustom = readSizePref();
-    // Resetting to auto clears the custom size, so it's only a "change" when
-    // a custom size is currently stored; otherwise compare values as usual.
-    const sizeChanged = opts?.resetSizeToAuto
-      ? prevCustom !== null
-      : !prevCustom || prevCustom.width !== d.size.width || prevCustom.height !== d.size.height;
+    const {
+      monitor,
+      shape: shapeChanged,
+      glass: glassChanged,
+      opacity: opacityChanged,
+      blur: blurChanged,
+      gradient: gradientChanged,
+      idle: idleChanged,
+      drag: dragChanged,
+      theme: themeChanged,
+      accent: accentChanged,
+      monitorChanged,
+      size: sizeChanged,
+    } = diffDraft(d, opts);
 
     // Everything is persisted under its existing key / manager.
     if (shapeChanged) {
@@ -704,6 +760,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const applySettings = () => {
     if (!draft) return;
     commitSettings(draft);
+    // Confirmation flash so it's obvious the save went through.
+    setAppliedFlash(true);
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setAppliedFlash(false), 1400);
   };
 
   /**
@@ -738,6 +798,55 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     }
     return "primary";
   };
+
+  /**
+   * Compare a staged draft against the currently applied config — the single
+   * source of truth for what Apply changes and whether there are unsaved edits.
+   */
+  const diffDraft = (d: SettingsDraft, opts?: { resetSizeToAuto?: boolean }) => {
+    // Normalize a stale draft monitor (e.g. a display unplugged while the
+    // panel was open) back to a selectable value before comparing/persisting.
+    const monitor = monitorSelectValue(d.monitor) as MonitorPref;
+    const prevCustom = readSizePref();
+    return {
+      monitor,
+      shape: d.shape !== shape,
+      glass: d.glass !== glass,
+      opacity: d.glassOpacity !== glassOpacity,
+      blur: d.glassBlur !== glassBlur,
+      gradient: d.gradient !== gradient,
+      idle: d.idleContent !== idleContent || d.idleText !== idleText,
+      drag: d.draggable !== draggable,
+      theme: d.theme !== themePref,
+      accent: d.accent !== readAccentPref(),
+      monitorChanged: monitor !== readMonitorPref(),
+      // Resetting to auto clears the custom size, so it's only a "change" when
+      // a custom size is currently stored; otherwise compare values as usual.
+      size: opts?.resetSizeToAuto
+        ? prevCustom !== null
+        : !prevCustom || prevCustom.width !== d.size.width || prevCustom.height !== d.size.height,
+    };
+  };
+
+  /** True while the staged draft differs from what's currently applied. */
+  const dirty = useMemo(() => {
+    if (!draft) return false;
+    const d = diffDraft(draft);
+    return (
+      d.shape ||
+      d.glass ||
+      d.opacity ||
+      d.blur ||
+      d.gradient ||
+      d.idle ||
+      d.drag ||
+      d.theme ||
+      d.accent ||
+      d.monitorChanged ||
+      d.size
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, draggable, themePref, monitors]);
 
   /** Send the current (or overridden) config to every island window. */
   const broadcastConfig = (override?: {
@@ -896,14 +1005,23 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             >
               <SettingsIcon />
             </button>
-            {settingsOpen && (
-              <span className="panel-title">{shape === "notch" ? "Notch mode" : "Pill mode"}</span>
-            )}
+            {settingsOpen && <span className="panel-title">Settings</span>}
           </div>
         </div>
 
         {settingsOpen && draft && (
           <div className="settings">
+            <p className="settings-tip">
+              Changes are staged until you press <strong>Apply</strong> —{" "}
+              <strong>Reset</strong> discards them.
+            </p>
+            <div className="settings-scroll">
+              <SettingsSection
+                title="Shape & size"
+                subtitle="Notch or pill, which screen, how big"
+                open={sectionOpen.size}
+                onToggle={() => setSectionOpen((s) => ({ ...s, size: !s.size }))}
+              >
             <div className="settings-row">
               <span className="settings-label">Mode</span>
               <div className="segmented">
@@ -929,9 +1047,9 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             </div>
-            {monitors.length > 1 && (
-              <div className="settings-row">
-                <span className="settings-label">Display</span>
+            <div className="settings-row">
+              <span className="settings-label">Display</span>
+              {monitors.length > 1 ? (
                 <select
                   className="settings-select"
                   value={monitorSelectValue(draft.monitor)}
@@ -946,8 +1064,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                   ))}
                   <option value="all">All monitors</option>
                 </select>
-              </div>
-            )}
+              ) : (
+                <span className="settings-static">Main monitor</span>
+              )}
+            </div>
             <div className="settings-row">
               <span className="settings-label">Size preset</span>
               <div className="settings-chips">
@@ -1000,6 +1120,13 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 }
               />
             </div>
+              </SettingsSection>
+              <SettingsSection
+                title="Appearance & theme"
+                subtitle="Style, glass, gradients and colors"
+                open={sectionOpen.appearance}
+                onToggle={() => setSectionOpen((s) => ({ ...s, appearance: !s.appearance }))}
+              >
             <div className="settings-row">
               <span className="settings-label">Appearance</span>
               <div className="segmented">
@@ -1074,58 +1201,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                   step="2"
                   value={draft.glassBlur}
                   onChange={(e) => setDraft({ ...draft, glassBlur: Number(e.target.value) })}
-                />
-              </div>
-            )}
-            <div className="settings-row">
-              <span className="settings-label">Drag to move</span>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={draft.draggable ? "seg-active" : ""}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDraft({ ...draft, draggable: true });
-                  }}
-                >
-                  On
-                </button>
-                <button
-                  type="button"
-                  className={!draft.draggable ? "seg-active" : ""}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDraft({ ...draft, draggable: false });
-                  }}
-                >
-                  Off
-                </button>
-              </div>
-            </div>
-            <div className="settings-row">
-              <span className="settings-label">When idle</span>
-              <select
-                className="settings-select"
-                value={draft.idleContent}
-                onChange={(e) =>
-                  setDraft({ ...draft, idleContent: e.target.value as IdleContent })
-                }
-              >
-                <option value="brand">Brand + clock</option>
-                <option value="clock">Clock only</option>
-                <option value="custom">Custom text</option>
-                <option value="blank">Nothing (dot only)</option>
-              </select>
-            </div>
-            {draft.idleContent === "custom" && (
-              <div className="settings-row">
-                <span className="settings-label">Idle text</span>
-                <input
-                  className="settings-text-input"
-                  value={draft.idleText}
-                  maxLength={40}
-                  placeholder="e.g. Lunch at 1"
-                  onChange={(e) => setDraft({ ...draft, idleText: e.target.value })}
                 />
               </div>
             )}
@@ -1222,10 +1297,72 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             )}
+              </SettingsSection>
+              <SettingsSection
+                title="Behavior"
+                subtitle="Movement and what the idle bar shows"
+                open={sectionOpen.behavior}
+                onToggle={() => setSectionOpen((s) => ({ ...s, behavior: !s.behavior }))}
+              >
+            <div className="settings-row">
+              <span className="settings-label">Drag to move</span>
+              <div className="segmented">
+                <button
+                  type="button"
+                  className={draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: true });
+                  }}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  className={!draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: false });
+                  }}
+                >
+                  Off
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <span className="settings-label">When idle</span>
+              <select
+                className="settings-select"
+                value={draft.idleContent}
+                onChange={(e) =>
+                  setDraft({ ...draft, idleContent: e.target.value as IdleContent })
+                }
+              >
+                <option value="brand">Brand + clock</option>
+                <option value="clock">Clock only</option>
+                <option value="custom">Custom text</option>
+                <option value="blank">Nothing (dot only)</option>
+              </select>
+            </div>
+            {draft.idleContent === "custom" && (
+              <div className="settings-row">
+                <span className="settings-label">Idle text</span>
+                <input
+                  className="settings-text-input"
+                  value={draft.idleText}
+                  maxLength={40}
+                  placeholder="e.g. Lunch at 1"
+                  onChange={(e) => setDraft({ ...draft, idleText: e.target.value })}
+                />
+              </div>
+            )}
+              </SettingsSection>
+            </div>
             <div className="settings-actions">
               <button
                 type="button"
                 className="settings-btn"
+                disabled={!dirty}
                 onClick={(e) => {
                   e.stopPropagation();
                   resetDraft();
@@ -1235,13 +1372,14 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               </button>
               <button
                 type="button"
-                className="settings-btn settings-btn-primary"
+                className={`settings-btn settings-btn-primary${dirty ? " settings-btn-dirty" : ""}`}
+                disabled={!dirty}
                 onClick={(e) => {
                   e.stopPropagation();
                   applySettings();
                 }}
               >
-                Apply
+                {appliedFlash ? "Applied ✓" : "Apply"}
               </button>
             </div>
             <button
