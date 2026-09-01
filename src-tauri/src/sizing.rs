@@ -22,6 +22,33 @@ pub fn update_notch_size(window: tauri::Window, width: f64, height: f64) -> Resu
         .map_err(|e| e.to_string())
 }
 
+/// Lock the notch window to the absolute top-center of the PRIMARY display:
+/// horizontally centered on the monitor and flush against its absolute top
+/// edge (y = monitor top, i.e. 0 for a primary display at the origin). The
+/// frontend can call this any time to re-assert placement; the boot path in
+/// lib.rs also calls it so the window never paints off-position.
+#[tauri::command]
+pub fn lock_to_primary_top_center(window: tauri::Window) -> Result<(), String> {
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    let mon = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.first().cloned());
+    let Some(mon) = mon else {
+        return Err("no monitor available".to_string());
+    };
+    // Top-center of the display: x = monitor center - half the window width,
+    // y = flush against the monitor's top edge.
+    let pos = mon.position(); // PhysicalPosition<i32>
+    let size = mon.size(); // PhysicalSize<u32>
+    let cur = window.outer_size().map_err(|e| e.to_string())?;
+    let x = pos.x + (size.width as i32 / 2) - (cur.width as i32 / 2);
+    window
+        .set_position(tauri::PhysicalPosition::new(x, pos.y))
+        .map_err(|e| e.to_string())
+}
+
 /// Move the notch window so it hugs the absolute top-center of the named
 /// display (offset 0, flush with the monitor's first pixel row). `monitor_name`
 /// is `"primary"`, a Windows device name like `\\.\DISPLAY1`, or a friendly

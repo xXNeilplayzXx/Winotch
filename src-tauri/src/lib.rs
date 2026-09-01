@@ -275,6 +275,7 @@ pub fn run() {
             launcher::launch_app,
             sizing::update_notch_size,
             sizing::move_notch_to_monitor,
+            sizing::lock_to_primary_top_center,
             stats::system_stats,
             quit_app,
             hide_island,
@@ -313,6 +314,13 @@ pub fn run() {
             mic::spawn(app.handle().clone());
             // Watch Windows theme/accent changes and emit them live.
             theme::spawn(app.handle().clone());
+            // Lock the main window to the absolute top-center of the primary
+            // display before it paints. Windows otherwise drops a fresh window
+            // at whatever default position it likes, which is how the notch
+            // shows up floating off the top-left of the screen at launch.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = sizing::lock_to_primary_top_center(win);
+            }
             // The transparent always-on-top window is only composited while the
             // app is active, so bring it to the foreground on launch (macOS).
             #[cfg(target_os = "macos")]

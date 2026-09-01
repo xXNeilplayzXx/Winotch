@@ -98,9 +98,6 @@ pub struct ConfigBroadcast {
     /// Custom idle text (only used with `idleContent: "custom"`).
     #[serde(default, rename = "idleText")]
     pub idle_text: Option<String>,
-    /// Whether the collapsed island can be dragged around by its webview.
-    #[serde(default)]
-    pub draggable: Option<bool>,
 }
 
 /// Broadcast a config change to ALL island windows, so multi-window mode stays

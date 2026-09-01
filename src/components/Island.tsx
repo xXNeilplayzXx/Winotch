@@ -34,11 +34,9 @@ import {
 } from "../lib/glass";
 import {
   GRADIENTS,
-  readDraggable,
   readGradient,
   readIdleContent,
   readIdleText,
-  saveDraggable,
   saveGradient,
   saveIdleContent,
   saveIdleText,
@@ -110,8 +108,6 @@ interface SettingsDraft {
   /** What the collapsed strip shows while idle. */
   idleContent: IdleContent;
   idleText: string;
-  /** Whether the collapsed island can be dragged around. */
-  draggable: boolean;
   theme: ThemePref;
   /** `system` (follow Windows) or an explicit `#rrggbb` accent hex. */
   accent: string;
@@ -397,17 +393,12 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   // What the collapsed strip shows while idle.
   const [idleContent, setIdleContent] = useState<IdleContent>(() => readIdleContent());
   const [idleText, setIdleText] = useState<string>(() => readIdleText());
-  // Whether the collapsed island can be dragged around.
-  const [draggable, setDraggable] = useState<boolean>(() => readDraggable());
-  // Set while an OS window drag is in flight, so the hover-expand is skipped.
-  const draggingRef = useRef(false);
   // Which settings sections are expanded (default: all of them).
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({
     shape: true,
     size: true,
     appearance: true,
     theme: true,
-    behavior: true,
     idle: true,
   });
   // Brief "Applied ✓" confirmation on the Apply button after a save.
@@ -579,7 +570,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       gradient?: GradientPref;
       idleContent?: IdleContent;
       idleText?: string;
-      draggable?: boolean;
       accent?: string;
     }>("winotch://config", (e) => {
       if (disposed) return;
@@ -591,7 +581,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       if (p.gradient !== undefined) setGradient(p.gradient);
       if (p.idleContent !== undefined) setIdleContent(p.idleContent);
       if (p.idleText !== undefined) setIdleText(p.idleText);
-      if (p.draggable !== undefined) setDraggable(p.draggable);
       if (p.accent !== undefined) themeManager.setAccentPref(p.accent);
       setShape(p.shape);
       setGlass(p.glass);
@@ -630,8 +619,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   }, [widgets.length]);
 
   const enter = () => {
-    // Skip the hover-expand while an OS window drag is in flight.
-    if (draggingRef.current) return;
     if (modeRef.current === "expanded") return;
     modeRef.current = "expanded";
     setMode("expanded");
@@ -661,7 +648,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       gradient,
       idleContent,
       idleText,
-      draggable,
       theme: themePref,
       accent: readAccentPref(),
       size: currentCollapsedSize(shape, monitors),
@@ -684,7 +670,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       blur: blurChanged,
       gradient: gradientChanged,
       idle: idleChanged,
-      drag: dragChanged,
       theme: themeChanged,
       accent: accentChanged,
       monitorChanged,
@@ -725,10 +710,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       saveIdleText(d.idleText);
       setIdleContent(d.idleContent);
       setIdleText(d.idleText);
-    }
-    if (dragChanged) {
-      saveDraggable(d.draggable);
-      setDraggable(d.draggable);
     }
     if (opts?.resetSizeToAuto) {
       saveSizePref(null);
@@ -787,7 +768,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       gradient: d.gradient,
       idleContent: d.idleContent,
       idleText: d.idleText,
-      draggable: d.draggable,
       accent: d.accent,
       size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
@@ -889,7 +869,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       gradient: "none",
       idleContent: "brand",
       idleText: "",
-      draggable: true,
       theme: "system",
       accent: ACCENT_SYSTEM,
       size: derivedCollapsedSize("notch", monitors, "primary"),
@@ -927,7 +906,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       blur: d.glassBlur !== glassBlur,
       gradient: d.gradient !== gradient,
       idle: d.idleContent !== idleContent || d.idleText !== idleText,
-      drag: d.draggable !== draggable,
       theme: d.theme !== themePref,
       accent: d.accent !== readAccentPref(),
       monitorChanged: monitor !== readMonitorPref(),
@@ -957,7 +935,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       d.size
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, draggable, themePref, monitors]);
+  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, themePref, monitors]);
 
   /** Send the current (or overridden) config to every island window. */
   const broadcastConfig = (override?: {
@@ -970,7 +948,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     gradient?: GradientPref;
     idleContent?: IdleContent;
     idleText?: string;
-    draggable?: boolean;
     accent?: string;
   }) => {
     void invoke("broadcast_config", {
@@ -984,7 +961,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         gradient: override?.gradient ?? gradient,
         idleContent: override?.idleContent ?? idleContent,
         idleText: override?.idleText ?? idleText,
-        draggable: override?.draggable ?? draggable,
         accent: override?.accent ?? readAccentPref(),
       },
     }).catch(() => {});
@@ -1012,7 +988,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         gradient,
         idleContent,
         idleText,
-        draggable,
         theme: themePref,
         accent: readAccentPref(),
         size: currentCollapsedSize(shape, monitors),
@@ -1073,21 +1048,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             x: Math.max(0, Math.min(e.clientX, window.innerWidth - 180)),
             y: Math.max(0, Math.min(e.clientY, window.innerHeight - 130)),
           });
-        }}
-        onPointerDown={(e) => {
-          // Drag-to-move: only from the collapsed bar, left button, and not on
-          // any interactive control. The OS moves the window; the hover-expand
-          // is suppressed while the drag is in flight so the bar doesn't grow
-          // under the cursor mid-drag.
-          if (e.button !== 0 || !draggable || modeRef.current !== "collapsed") return;
-          if ((e.target as HTMLElement | null)?.closest?.("button, input, select, textarea")) return;
-          draggingRef.current = true;
-          void getCurrentWindow()
-            .startDragging()
-            .catch(() => {})
-            .finally(() => {
-              draggingRef.current = false;
-            });
         }}
       >
       {gradient !== "none" && <div className={`island-grad grad-${gradient}`} aria-hidden />}
@@ -1476,38 +1436,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             )}
-              </SettingsSection>
-              <SettingsSection
-                title="Behavior"
-                subtitle="Dragging and window behavior"
-                open={sectionOpen.behavior}
-                onToggle={() => setSectionOpen((s) => ({ ...s, behavior: !s.behavior }))}
-              >
-            <div className="settings-row">
-              <span className="settings-label">Drag to move</span>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={draft.draggable ? "seg-active" : ""}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDraft({ ...draft, draggable: true });
-                  }}
-                >
-                  On
-                </button>
-                <button
-                  type="button"
-                  className={!draft.draggable ? "seg-active" : ""}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDraft({ ...draft, draggable: false });
-                  }}
-                >
-                  Off
-                </button>
-              </div>
-            </div>
               </SettingsSection>
               <SettingsSection
                 title="Idle"

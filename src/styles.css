@@ -166,7 +166,7 @@
 html,
 body,
 #root {
-  width: 100%;
+  width: 100vw;
   height: 100%;
   margin: 0;
   padding: 0;
@@ -202,8 +202,15 @@ body {
 /* ---- Island shell ---- */
 /* Full-viewport centering canvas. The OS window is a transparent envelope
    sized for the EXPANDED state; the .island element inside is sized by the
-   framer-motion spring (collapsed ⇄ expanded) and stays centered on top. */
+   framer-motion spring (collapsed ⇄ expanded) and stays centered on top.
+   The shell itself is pinned to the absolute top-center of the webview
+   (position: fixed + left 50% + translateX(-50%)) so the pill can never
+   drift sideways even if the window envelope is momentarily off-center. */
 .island-shell {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   width: 100%;
   height: 100%;
   display: flex;
