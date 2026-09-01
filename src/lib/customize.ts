@@ -1,6 +1,6 @@
-// Extra appearance preferences from the settings panel: background gradients
-// and what the collapsed strip shows while nothing is active. Each preference
-// is a small persisted localStorage value with a safe default.
+// Extra appearance preferences from the settings panel: background gradients,
+// drag-to-move, and what the collapsed strip shows while nothing is active.
+// Each preference is a small persisted localStorage value with a safe default.
 
 export const GRADIENT_KEY = "winotch.gradient";
 
@@ -30,6 +30,25 @@ export function readGradient(): GradientPref {
 export function saveGradient(pref: GradientPref) {
   try {
     localStorage.setItem(GRADIENT_KEY, GRADIENT_IDS.includes(pref) ? pref : "none");
+  } catch {
+    /* storage unavailable; keep session-only */
+  }
+}
+
+export const DRAG_KEY = "winotch.draggable";
+
+/** Whether drag-to-move is enabled. Opt-in: only an explicit "on" enables it. */
+export function readDraggable(): boolean {
+  try {
+    return localStorage.getItem(DRAG_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function saveDraggable(on: boolean) {
+  try {
+    localStorage.setItem(DRAG_KEY, on ? "on" : "off");
   } catch {
     /* storage unavailable; keep session-only */
   }

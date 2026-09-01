@@ -214,6 +214,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
               className={`widget-card${leaving.has(w.id) ? " widget-card-leaving" : ""}`}
               key={w.id}
               data-wid={w.id}
+              data-tauri-drag-region="false"
               initial={{ opacity: 0, y: 10, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: "easeIn" } }}

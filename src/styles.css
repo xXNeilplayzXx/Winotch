@@ -218,6 +218,17 @@ body {
   align-items: flex-start;
 }
 
+/* Drag mode: the whole island surface becomes a native drag region
+   (data-tauri-drag-region="deep"); interactive controls opt out with
+   data-tauri-drag-region="false" and never move the window. */
+.island--draggable {
+  cursor: grab;
+}
+
+.island--draggable:active {
+  cursor: grabbing;
+}
+
 .island {
   position: relative;
   /* Flush against the very top edge of the display — no gap above the pill. */

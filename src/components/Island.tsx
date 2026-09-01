@@ -34,9 +34,11 @@ import {
 } from "../lib/glass";
 import {
   GRADIENTS,
+  readDraggable,
   readGradient,
   readIdleContent,
   readIdleText,
+  saveDraggable,
   saveGradient,
   saveIdleContent,
   saveIdleText,
@@ -108,6 +110,8 @@ interface SettingsDraft {
   /** What the collapsed strip shows while idle. */
   idleContent: IdleContent;
   idleText: string;
+  /** Whether the collapsed island can be dragged around (drag mode). */
+  draggable: boolean;
   theme: ThemePref;
   /** `system` (follow Windows) or an explicit `#rrggbb` accent hex. */
   accent: string;
@@ -399,6 +403,8 @@ export function Island({
   // What the collapsed strip shows while idle.
   const [idleContent, setIdleContent] = useState<IdleContent>(() => readIdleContent());
   const [idleText, setIdleText] = useState<string>(() => readIdleText());
+  // Drag-to-move (native data-tauri-drag-region). Opt-in, default off.
+  const [draggable, setDraggable] = useState<boolean>(() => readDraggable());
   // Which settings sections are expanded (default: all of them).
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({
     general: true,
@@ -577,6 +583,7 @@ export function Island({
       gradient?: GradientPref;
       idleContent?: IdleContent;
       idleText?: string;
+      draggable?: boolean;
       accent?: string;
     }>("winotch://config", (e) => {
       if (disposed) return;
@@ -588,6 +595,7 @@ export function Island({
       if (p.gradient !== undefined) setGradient(p.gradient);
       if (p.idleContent !== undefined) setIdleContent(p.idleContent);
       if (p.idleText !== undefined) setIdleText(p.idleText);
+      if (p.draggable !== undefined) setDraggable(p.draggable);
       if (p.accent !== undefined) themeManager.setAccentPref(p.accent);
       setShape(p.shape);
       setGlass(p.glass);
@@ -655,6 +663,7 @@ export function Island({
       gradient,
       idleContent,
       idleText,
+      draggable,
       theme: themePref,
       accent: readAccentPref(),
       size: currentCollapsedSize(shape, monitors),
@@ -677,6 +686,7 @@ export function Island({
       blur: blurChanged,
       gradient: gradientChanged,
       idle: idleChanged,
+      drag: dragChanged,
       theme: themeChanged,
       accent: accentChanged,
       monitorChanged,
@@ -717,6 +727,10 @@ export function Island({
       saveIdleText(d.idleText);
       setIdleContent(d.idleContent);
       setIdleText(d.idleText);
+    }
+    if (dragChanged) {
+      saveDraggable(d.draggable);
+      setDraggable(d.draggable);
     }
     if (opts?.resetSizeToAuto) {
       saveSizePref(null);
@@ -775,6 +789,7 @@ export function Island({
       gradient: d.gradient,
       idleContent: d.idleContent,
       idleText: d.idleText,
+      draggable: d.draggable,
       accent: d.accent,
       size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
@@ -876,6 +891,7 @@ export function Island({
       gradient: "none",
       idleContent: "brand",
       idleText: "",
+      draggable: false,
       theme: "system",
       accent: ACCENT_SYSTEM,
       size: derivedCollapsedSize("notch", monitors, "primary"),
@@ -913,6 +929,7 @@ export function Island({
       blur: d.glassBlur !== glassBlur,
       gradient: d.gradient !== gradient,
       idle: d.idleContent !== idleContent || d.idleText !== idleText,
+      drag: d.draggable !== draggable,
       theme: d.theme !== themePref,
       accent: d.accent !== readAccentPref(),
       monitorChanged: monitor !== readMonitorPref(),
@@ -942,7 +959,7 @@ export function Island({
       d.size
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, themePref, monitors]);
+  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, draggable, themePref, monitors]);
 
   /** Send the current (or overridden) config to every island window. */
   const broadcastConfig = (override?: {
@@ -955,6 +972,7 @@ export function Island({
     gradient?: GradientPref;
     idleContent?: IdleContent;
     idleText?: string;
+    draggable?: boolean;
     accent?: string;
   }) => {
     void invoke("broadcast_config", {
@@ -968,6 +986,7 @@ export function Island({
         gradient: override?.gradient ?? gradient,
         idleContent: override?.idleContent ?? idleContent,
         idleText: override?.idleText ?? idleText,
+        draggable: override?.draggable ?? draggable,
         accent: override?.accent ?? readAccentPref(),
       },
     }).catch(() => {});
@@ -995,6 +1014,7 @@ export function Island({
         gradient,
         idleContent,
         idleText,
+        draggable,
         theme: themePref,
         accent: readAccentPref(),
         size: currentCollapsedSize(shape, monitors),
@@ -1033,7 +1053,8 @@ export function Island({
         ref={islandRef}
         className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${
           mediaLive ? " media-live" : ""
-        }${callLive ? " call-live" : ""}`}
+        }${callLive ? " call-live" : ""}${draggable ? " island--draggable" : ""}`}
+        data-tauri-drag-region={draggable ? "deep" : undefined}
         initial={false}
         animate={{
           width: mode === "collapsed" ? collapsedPx.width : expandedPx.width,
@@ -1138,6 +1159,7 @@ export function Island({
             <motion.div
               key="settings"
               className="settings"
+              data-tauri-drag-region="false"
               initial={{ opacity: 0, scale: 0.95, y: -8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: -6, transition: { duration: 0.15, ease: "easeIn" } }}
@@ -1166,6 +1188,31 @@ export function Island({
               >
                 Rerun Setup…
               </button>
+            </div>
+            <div className="settings-row">
+              <span className="settings-label">Drag mode</span>
+              <div className="segmented">
+                <button
+                  type="button"
+                  className={draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: true });
+                  }}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  className={!draft.draggable ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, draggable: false });
+                  }}
+                >
+                  Off
+                </button>
+              </div>
             </div>
               </SettingsSection>
               <SettingsSection
@@ -1554,6 +1601,7 @@ export function Island({
       {ctxMenu && (
         <div
           className="ctx-menu"
+          data-tauri-drag-region="false"
           style={{ left: ctxMenu.x, top: Math.max(0, Math.min(ctxMenu.y, window.innerHeight - 170)) }}
           onContextMenu={(e) => e.preventDefault()}
         >
