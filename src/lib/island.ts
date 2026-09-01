@@ -217,19 +217,25 @@ export interface AnimateOpts {
   settingsOpen?: boolean;
   /** Extra expanded height for stacked widget cards, in logical CSS px. */
   extraHeight?: number;
-  duration?: number;
 }
 
 /** Extra logical height for the expanded window while the settings are open. */
-const SETTINGS_HEIGHT_BONUS = 210;
+export const SETTINGS_HEIGHT_BONUS = 210;
 
 /**
- * Tween the window between collapsed and expanded sizes, anchoring the
- * horizontal center to the island's current center (the trigger pill) so the
- * panel never drifts left/right relative to it.
+ * The window is a transparent ENVELOPE that is large enough for the island in
+ * its fully expanded state — it must be, because the DOM (motion.div) owns the
+ * visible morph now. We never tween physical window geometry per frame (that
+ * stutters on Windows); instead this function moves the envelope in ONE call:
+ *
+ * - Expand: grow the envelope to the expanded size immediately (invisible —
+ *   the webview is transparent), then the React motion.div springs open.
+ * - Collapse: the DOM springs shut first (the caller keeps the envelope until
+ *   then, so the closing panel is never clipped), and after a short settle
+ *   delay the envelope shrinks back to the collapsed size — also one call.
  */
 export async function animateIsland(opts: AnimateOpts): Promise<void> {
-  const { shape, expanded, duration = 420 } = opts;
+  const { shape, expanded } = opts;
   const token = ++animationToken;
   const geo = await geometry();
   const base = targetState(shape, expanded, geo.sizes);
@@ -253,43 +259,41 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
   const outer = await appWindow.outerPosition(); // PhysicalPosition
   const inner = await appWindow.innerSize(); // PhysicalSize
   const anchorXPhys = outer.x + inner.width / 2;
+  const place = () =>
+    placeWindow(geo, anchorXPhys, target.size, target.topOffset);
 
-  const startLogical = {
-    width: inner.width / geo.scale,
-    height: inner.height / geo.scale,
-    // Derive the current top offset from where the window actually is, so the
-    // y-tween is correct no matter which shape/state produced it.
-    topOffset: (outer.y - geo.top) / geo.scale,
-  };
+  if (expanded) {
+    // Grow the transparent envelope first; the DOM spring follows.
+    await place();
+  } else {
+    // Let the DOM spring collapse first (see module comment), then settle the
+    // window back to the collapsed envelope in a single call. Token-guarded so
+    // a rapid re-expand cancels the pending shrink.
+    window.setTimeout(() => {
+      if (token !== animationToken) return;
+      void place().catch(() => {});
+    }, COLLAPSE_SETTLE_MS);
+  }
+}
 
-  return new Promise<void>((resolve) => {
-    const step = async () => {
-      if (token !== animationToken) {
-        resolve(); // superseded by a newer animation
-        return;
-      }
-      const t = Math.min(1, (performance.now() - (step as any)._start) / duration);
-      const e = easeInOutCubic(t);
-      await placeWindow(
-        geo,
-        anchorXPhys,
-        {
-          width: Math.round(startLogical.width + (target.size.width - startLogical.width) * e),
-          height: Math.round(startLogical.height + (target.size.height - startLogical.height) * e),
-        },
-        startLogical.topOffset + (target.topOffset - startLogical.topOffset) * e,
-      );
-      if (t < 1) {
-        requestAnimationFrame(step);
-      } else {
-        // Re-assert on-screen state after the move; macOS sometimes drops a moved
-        // always-on-top window from the compositor otherwise.
-        await appWindow.show();
-        await appWindow.setFocus();
-        resolve();
-      }
-    };
-    (step as any)._start = performance.now();
-    void step().catch(() => resolve());
-  });
+/** How long the DOM collapse spring runs before the envelope shrinks (ms). */
+export const COLLAPSE_SETTLE_MS = 420;
+
+/**
+ * Logical (CSS-pixel) size the DOM island should take in a given state — the
+ * single source of truth shared by the motion.div in Island.tsx and the window
+ * envelope above, so the visible element and the OS window always agree.
+ */
+export function logicalTargetSize(
+  shape: IslandShape,
+  expanded: boolean,
+  geo: { widthPoints: number; custom: IslandSize | null },
+  opts: { settingsOpen?: boolean; extraHeight?: number } = {},
+): Size {
+  const sizes = sizesForDisplay(geo.widthPoints, geo.custom);
+  const base = targetState(shape, expanded, sizes);
+  if (expanded) {
+    base.size.height += (opts.settingsOpen ? SETTINGS_HEIGHT_BONUS : 0) + (opts.extraHeight ?? 0);
+  }
+  return base.size;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import type { LauncherApp, LauncherSettings } from "../../lib/widgets";
 
@@ -111,7 +112,7 @@ export function LauncherWidget({ settings, edit, onSave }: LauncherWidgetProps) 
   return (
     <div className="launcher" data-err={launchErr || undefined}>
       {apps.map((a, i) => (
-        <button
+        <motion.button
           type="button"
           key={`${a.path}-${i}`}
           className="launcher-app"
@@ -122,10 +123,13 @@ export function LauncherWidget({ settings, edit, onSave }: LauncherWidgetProps) 
               .then(() => {})
               .catch(() => setLaunchErr(true));
           }}
+          whileHover={{ scale: 1.06, y: -2 }}
+          whileTap={{ scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
         >
           <span className="launcher-app-icon">{initial(a.label)}</span>
           <span className="launcher-app-label">{a.label}</span>
-        </button>
+        </motion.button>
       ))}
       {launchErr && <span className="widget-err">Couldn't launch “{apps[0]?.label}”.</span>}
     </div>

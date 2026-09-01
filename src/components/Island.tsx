@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   animateIsland,
   showIsland,
+  logicalTargetSize,
   sizesForDisplay,
   type IslandShape,
 } from "../lib/island";
@@ -57,6 +59,13 @@ import type { MediaState } from "./widgets/MediaWidget";
 
 type Mode = "collapsed" | "expanded";
 
+/**
+ * Apply-feedback motion kinds. The pulse after pressing Apply mirrors the
+ * setting that changed: size → grow/shrink, shape → tilt, theme/accent →
+ * shimmer, glass → fade; anything else → the base zoom-out puff.
+ */
+type ApplyAnimKind = "zoom" | "grow" | "shrink" | "morph" | "pulse" | "fade";
+
 /** Preset accent colors for the Color theme picker. */
 const ACCENT_PRESETS = [
   "#e9b949", // brand gold
@@ -75,6 +84,15 @@ const SIZE_PRESETS = [
   { label: "Standard", width: 300, height: 75 },
   { label: "Wide", width: 460, height: 95 },
 ];
+
+/**
+ * Shared spring feel for the island morph. Deliberately a soft spring so the
+ * notch "breathes" open like a Dynamic Island instead of snapping.
+ */
+const MORPH_SPRING = { type: "spring", stiffness: 300, damping: 30 } as const;
+
+/** Quick micro-interaction spring for buttons and controls. */
+const TAP_SPRING = { type: "spring", stiffness: 500, damping: 30 } as const;
 
 /** Pending settings values, staged by the controls until Apply is pressed. */
 interface SettingsDraft {
@@ -290,7 +308,7 @@ function SettingsSection({
 }) {
   return (
     <div className="settings-section">
-      <button
+      <motion.button
         type="button"
         className="settings-section-head"
         aria-expanded={open}
@@ -298,6 +316,8 @@ function SettingsSection({
           e.stopPropagation();
           onToggle();
         }}
+        whileTap={{ scale: 0.98 }}
+        transition={TAP_SPRING}
       >
         <span className="settings-section-titles">
           <span className="settings-section-title">{title}</span>
@@ -317,7 +337,7 @@ function SettingsSection({
         >
           <path d="M6 9l6 6 6-6" />
         </svg>
-      </button>
+      </motion.button>
       {open && <div className="settings-section-body">{children}</div>}
     </div>
   );
@@ -391,6 +411,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   // Brief "Applied ✓" confirmation on the Apply button after a save.
   const [appliedFlash, setAppliedFlash] = useState(false);
   const flashTimer = useRef<number | null>(null);
+  // Root element, targeted by the Apply feedback animation below.
+  const islandRef = useRef<HTMLDivElement | null>(null);
   // Custom collapsed size (settings sliders); null = derive from the display.
   const [appliedSize, setAppliedSize] = useState<IslandSize | null>(() => readSizePref());
   // Staged settings values, only applied (and persisted) when Apply is pressed.
@@ -611,7 +633,9 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     modeRef.current = "expanded";
     setMode("expanded");
     // Carry the settings-open bonus so a re-expansion while settings is still
-    // active keeps the taller window and nothing overflows.
+    // active keeps the taller window and nothing overflows. The visible morph
+    // is driven by the motion.div spring; the window envelope is sized in ONE
+    // shot (no per-frame window resizing).
     void animateIsland({ shape, expanded: true, settingsOpen, extraHeight: widgetExtra });
   };
 
@@ -764,14 +788,81 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     setDraft({ ...d, monitor, size: { ...d.size } });
   };
 
+  /**
+   * One-shot feedback on Apply: a quick zoom-out puff on the island content
+   * whose motion matches the setting that changed (see ApplyAnimKind). Uses the
+   * Web Animations API so it never fights the CSS mount animation on .island.
+   */
+  const playApplyAnimation = (kind: ApplyAnimKind) => {
+    const el = islandRef.current;
+    if (!el) return;
+    const dur = 520;
+    const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+    const sets: Record<ApplyAnimKind, Keyframe[]> = {
+      // Base zoom-out: content breathes down, then settles back.
+      zoom: [
+        { transform: "scale(0.98)", opacity: 1 },
+        { transform: "scale(0.965)", opacity: 0.88 },
+        { transform: "scale(1)", opacity: 1 },
+      ],
+      // Size increased: springy grow from smaller.
+      grow: [
+        { transform: "scale(0.93)", opacity: 0.9 },
+        { transform: "scale(1.012)", opacity: 1 },
+        { transform: "scale(1)" },
+      ],
+      // Size decreased: squash in, then breathe out at the new size.
+      shrink: [
+        { transform: "scale(1.02)" },
+        { transform: "scale(0.965)", opacity: 0.9 },
+        { transform: "scale(1)", opacity: 1 },
+      ],
+      // Shape switched (pill ↔ notch): a quick depth tilt.
+      morph: [
+        { transform: "perspective(320px) rotateX(0deg) scale(1)" },
+        { transform: "perspective(320px) rotateX(8deg) scale(0.97)", opacity: 0.95 },
+        { transform: "perspective(320px) rotateX(0deg) scale(1)" },
+      ],
+      // Theme/accent changed: brightness shimmer.
+      pulse: [
+        { filter: "brightness(1)" },
+        { filter: "brightness(1.18)" },
+        { filter: "brightness(1)" },
+      ],
+      // Glass appearance changed: soft fade through the surface.
+      fade: [
+        { opacity: 0.9 },
+        { opacity: 0.82 },
+        { opacity: 1 },
+      ],
+    };
+    el.animate(sets[kind], { duration: dur, easing: ease });
+  };
+
   /** Apply the staged draft (the settings panel's Apply button). */
   const applySettings = () => {
     if (!draft) return;
+    const d = diffDraft(draft);
+    // Current size read BEFORE commit (commit writes the new size to storage).
+    const cur = currentCollapsedSize(shape, monitors);
     commitSettings(draft);
     // Confirmation flash so it's obvious the save went through.
     setAppliedFlash(true);
     if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     flashTimer.current = window.setTimeout(() => setAppliedFlash(false), 1400);
+    // Correlated feedback: the motion mirrors the change being applied.
+    const kind: ApplyAnimKind = d.shape
+      ? "morph"
+      : d.size
+        ? d.size.width * d.size.height >= cur.width * cur.height
+          ? "grow"
+          : "shrink"
+        : d.theme || d.accent
+          ? "pulse"
+          : d.glass || d.opacity || d.blur || d.gradient
+            ? "fade"
+            : "zoom";
+    playApplyAnimation(kind);
   };
 
   /**
@@ -795,6 +886,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     };
     setDraft(defaults);
     commitSettings(defaults, { resetSizeToAuto: true });
+    // Restoring defaults is a reset: give the whole island a zoom-out puff.
+    playApplyAnimation("zoom");
   };
 
   /** Current pref, rewritten so it always matches a <select> option. */
@@ -919,42 +1012,74 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     void animateIsland({ shape, expanded: true, settingsOpen: next, extraHeight: widgetExtra });
   };
 
+  // DOM-driven sizing (single source of truth with the window envelope): the
+  // OS window is a transparent envelope large enough for the expanded state;
+  // the motion.div below springs between these logical sizes. Widths derive
+  // from the same display the envelope anchors to, so the element and window
+  // always agree and nothing clips or leaves a gap.
+  const islandMon = monitorForPref(monitors, readMonitorPref());
+  const islandWidthPts = islandMon ? Math.round(islandMon.width / islandMon.scale) : 1710;
+  const collapsedPx = currentCollapsedSize(shape, monitors);
+  const expandedPx = logicalTargetSize(
+    shape,
+    true,
+    { widthPoints: islandWidthPts, custom: readSizePref() },
+    { settingsOpen, extraHeight: widgetExtra },
+  );
+  const islandRadius =
+    shape === "notch"
+      ? mode === "expanded"
+        ? "0 0 30px 30px"
+        : "0 0 22px 22px"
+      : mode === "expanded"
+        ? "32px"
+        : "999px";
+
   return (
-    <div
-      className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${
-        mediaLive ? " media-live" : ""
-      }${callLive ? " call-live" : ""}`}
-      onMouseEnter={enter}
-      onMouseLeave={leave}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        // Right-click menu only shows while the panel is expanded; on the small
-        // collapsed bar a right-click does nothing (the tray icon still has
-        // Show / Hide / Quit).
-        if (modeRef.current !== "expanded") return;
-        // Keep the menu fully inside the small island window (menus can now
-        // have three items, so reserve ~130px of height).
-        setCtxMenu({
-          x: Math.max(0, Math.min(e.clientX, window.innerWidth - 180)),
-          y: Math.max(0, Math.min(e.clientY, window.innerHeight - 130)),
-        });
-      }}
-      onPointerDown={(e) => {
-        // Drag-to-move: only from the collapsed bar, left button, and not on
-        // any interactive control. The OS moves the window; the hover-expand
-        // is suppressed while the drag is in flight so the bar doesn't grow
-        // under the cursor mid-drag.
-        if (e.button !== 0 || !draggable || modeRef.current !== "collapsed") return;
-        if ((e.target as HTMLElement | null)?.closest?.("button, input, select, textarea")) return;
-        draggingRef.current = true;
-        void getCurrentWindow()
-          .startDragging()
-          .catch(() => {})
-          .finally(() => {
-            draggingRef.current = false;
+    <div className="island-shell">
+      <motion.div
+        ref={islandRef}
+        className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${
+          mediaLive ? " media-live" : ""
+        }${callLive ? " call-live" : ""}`}
+        initial={false}
+        animate={{
+          width: mode === "collapsed" ? collapsedPx.width : expandedPx.width,
+          height: mode === "collapsed" ? collapsedPx.height : expandedPx.height,
+          borderRadius: islandRadius,
+        }}
+        transition={MORPH_SPRING}
+        onMouseEnter={enter}
+        onMouseLeave={leave}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // Right-click menu only shows while the panel is expanded; on the small
+          // collapsed bar a right-click does nothing (the tray icon still has
+          // Show / Hide / Quit).
+          if (modeRef.current !== "expanded") return;
+          // Keep the menu fully inside the small island window (menus can now
+          // have three items, so reserve ~130px of height).
+          setCtxMenu({
+            x: Math.max(0, Math.min(e.clientX, window.innerWidth - 180)),
+            y: Math.max(0, Math.min(e.clientY, window.innerHeight - 130)),
           });
-      }}
-    >
+        }}
+        onPointerDown={(e) => {
+          // Drag-to-move: only from the collapsed bar, left button, and not on
+          // any interactive control. The OS moves the window; the hover-expand
+          // is suppressed while the drag is in flight so the bar doesn't grow
+          // under the cursor mid-drag.
+          if (e.button !== 0 || !draggable || modeRef.current !== "collapsed") return;
+          if ((e.target as HTMLElement | null)?.closest?.("button, input, select, textarea")) return;
+          draggingRef.current = true;
+          void getCurrentWindow()
+            .startDragging()
+            .catch(() => {})
+            .finally(() => {
+              draggingRef.current = false;
+            });
+        }}
+      >
       {gradient !== "none" && <div className={`island-grad grad-${gradient}`} aria-hidden />}
       <header className="island-strip">
         {/* Status dot: always visible. Grey idle, red mic in use, green on a
@@ -1004,23 +1129,43 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         </div>
       </header>
 
-      <section className="island-panel">
+      <AnimatePresence>
+        {mode === "expanded" && (
+          <motion.section
+            key="panel"
+            className="island-panel"
+            initial={{ opacity: 0, y: 14, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98, transition: { duration: 0.16, ease: "easeIn" } }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+          >
         <div className="panel-head">
           <div className="panel-head-left">
-            <button
+            <motion.button
               type="button"
               className={`icon-btn ${settingsOpen ? "icon-btn-active" : ""}`}
               title="Settings"
               onClick={toggleSettings}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.88 }}
+              transition={TAP_SPRING}
             >
               <SettingsIcon />
-            </button>
+            </motion.button>
             {settingsOpen && <span className="panel-title">Settings</span>}
           </div>
         </div>
 
-        {settingsOpen && draft && (
-          <div className="settings">
+        <AnimatePresence>
+          {settingsOpen && draft && (
+            <motion.div
+              key="settings"
+              className="settings"
+              initial={{ opacity: 0, scale: 0.95, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -6, transition: { duration: 0.15, ease: "easeIn" } }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            >
             <p className="settings-tip">
               Changes are staged until you press <strong>Apply</strong> —{" "}
               <strong>Reset</strong> discards them.
@@ -1390,7 +1535,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               </SettingsSection>
             </div>
             <div className="settings-actions">
-              <button
+              <motion.button
                 type="button"
                 className="settings-btn"
                 disabled={!dirty}
@@ -1398,10 +1543,13 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                   e.stopPropagation();
                   resetDraft();
                 }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                transition={TAP_SPRING}
               >
                 Reset
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 type="button"
                 className={`settings-btn settings-btn-primary${dirty ? " settings-btn-dirty" : ""}`}
                 disabled={!dirty}
@@ -1409,25 +1557,33 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                   e.stopPropagation();
                   applySettings();
                 }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                transition={TAP_SPRING}
               >
                 {appliedFlash ? "Applied ✓" : "Apply"}
-              </button>
+              </motion.button>
             </div>
-            <button
+            <motion.button
               type="button"
               className="settings-reset-default"
               onClick={(e) => {
                 e.stopPropagation();
                 applyDefaults();
               }}
+              whileTap={{ scale: 0.97 }}
+              transition={TAP_SPRING}
             >
               Reset to default
-            </button>
-          </div>
-        )}
+            </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <WidgetStack widgets={widgets} media={media} onChange={updateWidgetList} />
-      </section>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       {ctxMenu && (
         <div
@@ -1478,6 +1634,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
           </button>
         </div>
       )}
+      </motion.div>
     </div>
   );
 }

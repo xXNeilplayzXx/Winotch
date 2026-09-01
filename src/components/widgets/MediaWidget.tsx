@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 
 /** Snapshot of the active media session (Windows SMTC feed; null = idle). */
@@ -109,20 +110,39 @@ export function MediaWidget({ media }: { media: MediaState | null }) {
       )}
 
       <div className="np-controls">
-        <button type="button" className="np-ctl" title="Previous" onClick={mediaAct("media_previous")}>
+        <motion.button
+          type="button"
+          className="np-ctl"
+          title="Previous"
+          onClick={mediaAct("media_previous")}
+          whileHover={{ scale: 1.15 }}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        >
           <PrevIcon />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
           type="button"
           className="np-ctl np-ctl-main"
           title={media.playing ? "Pause" : "Play"}
           onClick={mediaAct("media_play_pause")}
+          whileHover={{ scale: 1.12 }}
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
         >
           {media.playing ? <PauseIcon /> : <PlayIcon />}
-        </button>
-        <button type="button" className="np-ctl" title="Next" onClick={mediaAct("media_next")}>
+        </motion.button>
+        <motion.button
+          type="button"
+          className="np-ctl"
+          title="Next"
+          onClick={mediaAct("media_next")}
+          whileHover={{ scale: 1.15 }}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        >
           <NextIcon />
-        </button>
+        </motion.button>
       </div>
     </div>
   );

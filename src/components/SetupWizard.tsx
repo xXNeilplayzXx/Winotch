@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import type { IslandShape } from "../lib/island";
 import {
   getMonitors,
@@ -94,7 +95,12 @@ export function SetupWizard({ requireShape, initialShape, onDone }: SetupWizardP
   };
 
   return (
-    <div className="setup setup--paged">
+    <motion.div
+      className="setup setup--paged"
+      initial={{ opacity: 0, scale: 0.95, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+    >
       <div className="setup-head">
         <span className="setup-logo">W</span>
         <h1>Winotch</h1>
@@ -318,6 +324,6 @@ export function SetupWizard({ requireShape, initialShape, onDone }: SetupWizardP
           </div>
         </>
       )}
-    </div>
+    </motion.div>
   );
 }

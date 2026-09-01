@@ -198,10 +198,23 @@ body {
 }
 
 /* ---- Island shell ---- */
-.island {
-  position: relative;
+/* Full-viewport centering canvas. The OS window is a transparent envelope
+   sized for the EXPANDED state; the .island element inside is sized by the
+   framer-motion spring (collapsed ⇄ expanded) and stays centered on top. */
+.island-shell {
   width: 100%;
   height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.island {
+  position: relative;
+  /* DOM-driven: framer-motion sets width/height inline; fallback while the
+     first paint hasn't happened yet. */
+  width: 320px;
+  height: 68px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -516,7 +529,6 @@ body {
   display: flex;
   flex-direction: column;
   padding: 1px 2px;
-  animation: settings-slide 0.26s ease both;
 }
 
 @keyframes settings-slide {
@@ -1418,27 +1430,30 @@ body {
   border-radius: 14px;
   background: var(--card-bg);
   border: 1px solid var(--hairline);
-  /* Entrance: plays when a card first mounts (add-widget, initial render). */
-  animation: widget-card-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Entrance is driven by framer-motion (initial/animate on the card). */
 }
 
 @keyframes widget-card-in {
-  from {
+  0% {
     opacity: 0;
-    transform: translateY(-6px) scale(0.97);
+    transform: translateY(-10px) scale(0.92);
+    box-shadow: 0 0 0 0 transparent;
   }
-  to {
+  60% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.03);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
-/* Mid-removal: fade + shrink, then the FLIP effect slides the rest up. */
+/* Mid-removal: framer-motion plays the exit (fade/shrink); this class just
+   makes the card inert so it can't be re-interacted with while leaving. */
 .widget-card-leaving {
-  opacity: 0;
-  transform: scale(0.94);
-  animation: none;
-  transition: opacity 0.28s ease, transform 0.28s ease;
   pointer-events: none;
 }
 
@@ -2129,6 +2144,35 @@ input[type="range"]:active::-webkit-slider-thumb {
   50% {
     box-shadow: 0 0 0 5px transparent;
   }
+}
+
+/* ---- Micro-interactions ----
+   Press/hover feedback for controls not covered by framer-motion (segmented
+   options, chips, selects, inputs): quick + tactile, no layout shift. */
+.segmented button,
+.preset-chip,
+.setup-chip,
+.launcher-chip,
+.widget-btn,
+.settings-select,
+.settings-text-input,
+.widget-input {
+  transition: transform 0.14s ease, filter 0.16s ease, background-color 0.16s ease,
+    border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.segmented button:not(:disabled):active,
+.preset-chip:active,
+.setup-chip:active,
+.launcher-chip:active,
+.widget-btn:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.settings-select:hover,
+.settings-text-input:hover,
+.widget-input:hover {
+  border-color: var(--accent-soft);
 }
 
 /* Display picker in the settings panel. */

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { uid, WIDGET_LABELS, WIDGET_TYPES } from "../lib/widgets";
 import type {
   LauncherSettings,
@@ -143,22 +144,35 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
     },
   ) => {
     update(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    // Give the edited card a tiny pop so the save is visible inline.
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-wid="${id}"]`)
+      ?.animate(
+        [{ transform: "scale(0.985)" }, { transform: "scale(1)" }],
+        { duration: 280, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
   };
+
+  // Spring shared by card entrances (staggered) and control taps.
+  const spring = { type: "spring", stiffness: 380, damping: 30 } as const;
 
   return (
     <div className="panel-widgets" ref={listRef}>
       <div className="widget-stack-head">
         <span className="widget-label">Widgets</span>
-        <button
+        <motion.button
           type="button"
           className={`icon-btn ${addOpen ? "icon-btn-active" : ""}`}
           title="Add widget"
           onClick={() => setAddOpen((v) => !v)}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.88 }}
+          transition={spring}
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-        </button>
+        </motion.button>
       </div>
 
       {addOpen && (
@@ -167,10 +181,17 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
             <span className="add-menu-empty">All widgets added</span>
           ) : (
             availableTypes.map((t) => (
-              <button type="button" key={t} onClick={() => addWidget(t)}>
+              <motion.button
+                type="button"
+                key={t}
+                onClick={() => addWidget(t)}
+                whileHover={{ x: 3 }}
+                whileTap={{ scale: 0.97 }}
+                transition={spring}
+              >
                 <span className="add-menu-plus">＋</span>
                 {WIDGET_LABELS[t]}
-              </button>
+              </motion.button>
             ))
           )}
         </div>
@@ -183,55 +204,68 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
         </div>
       )}
 
-      {widgets.map((w, i) => {
-        const editable =
-          w.type === "weather" || w.type === "launcher" || w.type === "notes" || w.type === "system";
-        const edit = configureAll || editingId === w.id;
-        return (
-          <div
-            className={`widget-card${leaving.has(w.id) ? " widget-card-leaving" : ""}`}
-            key={w.id}
-            data-wid={w.id}
-          >
+      <AnimatePresence>
+        {widgets.map((w, i) => {
+          const editable =
+            w.type === "weather" || w.type === "launcher" || w.type === "notes" || w.type === "system";
+          const edit = configureAll || editingId === w.id;
+          return (
+            <motion.div
+              className={`widget-card${leaving.has(w.id) ? " widget-card-leaving" : ""}`}
+              key={w.id}
+              data-wid={w.id}
+              initial={{ opacity: 0, y: 10, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: "easeIn" } }}
+              transition={{ ...spring, delay: i * 0.055 }}
+            >
             <div className="widget-bar">
               <span className="widget-label">{WIDGET_LABELS[w.type]}</span>
               <div className="widget-ctrls">
                 {editable && !configureAll && (
-                  <button
+                  <motion.button
                     type="button"
                     className={`widget-ctl${editingId === w.id ? " widget-ctl-on" : ""}`}
                     title="Settings"
                     onClick={() => setEditingId(editingId === w.id ? null : w.id)}
+                    whileTap={{ scale: 0.85 }}
+                    transition={spring}
                   >
                     <GearIcon />
-                  </button>
+                  </motion.button>
                 )}
-                <button
+                <motion.button
                   type="button"
                   className="widget-ctl"
                   title="Move up"
                   disabled={i === 0}
                   onClick={() => moveWidget(w.id, -1)}
+                  whileTap={{ scale: 0.85 }}
+                  transition={spring}
                 >
                   ↑
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   type="button"
                   className="widget-ctl"
                   title="Move down"
                   disabled={i === widgets.length - 1}
                   onClick={() => moveWidget(w.id, 1)}
+                  whileTap={{ scale: 0.85 }}
+                  transition={spring}
                 >
                   ↓
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   type="button"
                   className="widget-ctl widget-ctl-remove"
                   title="Remove widget"
                   onClick={() => removeWidget(w.id)}
+                  whileTap={{ scale: 0.85 }}
+                  transition={spring}
                 >
                   ✕
-                </button>
+                </motion.button>
               </div>
             </div>
             <div className="widget-body">
@@ -267,9 +301,10 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                 />
               )}
             </div>
-          </div>
-        );
-      })}
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }
