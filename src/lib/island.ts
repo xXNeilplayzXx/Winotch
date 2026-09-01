@@ -277,8 +277,10 @@ export async function animateIsland(opts: AnimateOpts): Promise<void> {
   }
 }
 
-/** How long the DOM collapse spring runs before the envelope shrinks (ms). */
-export const COLLAPSE_SETTLE_MS = 420;
+/** How long the DOM collapse spring runs before the envelope shrinks (ms).
+ * Kept comfortably above the island morph spring's visual settle time so the
+ * closing panel is never clipped by the shrinking envelope. */
+export const COLLAPSE_SETTLE_MS = 800;
 
 /**
  * Logical (CSS-pixel) size the DOM island should take in a given state — the

@@ -86,10 +86,12 @@ const SIZE_PRESETS = [
 ];
 
 /**
- * Shared spring feel for the island morph. Deliberately a soft spring so the
- * notch "breathes" open like a Dynamic Island instead of snapping.
+ * Shared spring feel for the island morph. Deliberately a soft, slow spring so
+ * the notch "breathes" open and closed like a Dynamic Island instead of
+ * snapping or feeling rushed (stiffness/damping tuned down from 300/30 to
+ * 170/24 for a noticeably slower settle).
  */
-const MORPH_SPRING = { type: "spring", stiffness: 300, damping: 30 } as const;
+const MORPH_SPRING = { type: "spring", stiffness: 170, damping: 24 } as const;
 
 /** Quick micro-interaction spring for buttons and controls. */
 const TAP_SPRING = { type: "spring", stiffness: 500, damping: 30 } as const;
@@ -668,9 +670,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
 
   /**
    * Persist and apply a concrete settings object, then re-place the OS window
-   * when the geometry (shape / size / monitor) changed. Theme and appearance
-   * apply in place; geometry changes collapse the island so the new bar is
-   * immediately visible, exactly like the old instant-apply shape switch.
+   * when the geometry (shape / size / monitor) changed. Every change applies
+   * IN PLACE: the island stays expanded and the settings panel stays open, and
+   * the motion.div simply springs to the new geometry under the cursor, so
+   * Apply never kicks the user out of the notch.
    */
   const commitSettings = (d: SettingsDraft, opts?: { resetSizeToAuto?: boolean }) => {
     const {
@@ -741,32 +744,36 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
 
     const reposition = shapeChanged || sizeChanged || monitorChanged;
     if (reposition) {
-      // Collapse so the user immediately sees the new bar size/shape/monitor.
-      modeRef.current = "collapsed";
-      setMode("collapsed");
-      setSettingsOpen(false);
-      setDraft(null);
+      // Apply in place: keep the island expanded and the settings panel open,
+      // and simply re-place the window envelope to the new geometry. The
+      // motion.div springs to the new size under the cursor (driven by the
+      // state updates above), and the panel stays open so tweaks can continue.
       if (monitor === "all") {
         void invoke("spawn_island_windows").catch(() => {});
       } else {
         void invoke("close_island_windows").catch(() => {});
       }
       clearMonitorCache();
-      void showIsland(d.shape)
-        .then(() => {
-          if (monitor !== "all") {
-            // Re-assert placement on the chosen display (backend geometry).
-            void invoke("move_notch_to_monitor", {
-              monitorName: monitor === "primary" ? "primary" : monitor.slice(4),
-            }).catch(() => {});
-          }
-          // Re-assert the exact logical size (backend geometry).
-          void invoke("update_notch_size", {
-            width: d.size.width,
-            height: d.size.height,
+      void (async () => {
+        if (monitor !== "all") {
+          // Move the window to the chosen display (backend geometry).
+          await invoke("move_notch_to_monitor", {
+            monitorName: monitor === "primary" ? "primary" : monitor.slice(4),
           }).catch(() => {});
-        })
-        .catch(() => {});
+        }
+        // Size the envelope to the new expanded geometry in one shot (the
+        // webview is transparent, so this is invisible); the DOM spring
+        // morphs in place. The settings-open bonus keeps the panel unclipped.
+        // Note: update_notch_size is deliberately NOT called here — it would
+        // physically shrink the window to the collapsed size and clip the
+        // panel; the collapsed size is re-asserted when the user leaves.
+        await animateIsland({
+          shape: d.shape,
+          expanded: true,
+          settingsOpen: true,
+          extraHeight: widgetExtra,
+        }).catch(() => {});
+      })();
     } else {
       // Theme/appearance-only change: nothing to move. Keep the panel open
       // (and the draft — it now equals the applied config).
