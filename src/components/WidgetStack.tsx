@@ -77,7 +77,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
       el.getAnimations().forEach((a) => a.cancel());
       el.animate(
         [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
-        { duration: 250, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        { duration: 380, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
       );
       // Brief accent flash so the cards that just moved feel "picked up".
       el.animate(
@@ -86,7 +86,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
           { backgroundColor: "var(--accent-soft)" },
           { backgroundColor: "var(--card-bg)" },
         ],
-        { duration: 420, easing: "ease-out" },
+        { duration: 560, easing: "ease-out" },
       );
     });
   });
@@ -109,6 +109,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
     flipBefore.current = captureRects();
     setLeaving((prev) => new Set(prev).add(id));
     if (editingId === id) setEditingId(null);
+    // Keep in step with the .widget-card-leaving transition (0.28s in CSS).
     window.setTimeout(() => {
       setLeaving((prev) => {
         const next = new Set(prev);
@@ -116,7 +117,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
         return next;
       });
       update(widgets.filter((w) => w.id !== id));
-    }, 190);
+    }, 280);
   };
 
   const moveWidget = (id: string, dir: -1 | 1) => {

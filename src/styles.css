@@ -209,7 +209,7 @@ body {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-island);
   cursor: default;
-  animation: island-in 0.28s ease;
+  animation: island-in 0.4s ease;
 }
 
 /* The two modes are genuinely different layouts:
@@ -512,7 +512,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 1px 2px;
-  animation: settings-slide 0.18s ease both;
+  animation: settings-slide 0.26s ease both;
 }
 
 @keyframes settings-slide {
@@ -827,7 +827,7 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  animation: island-in 0.25s ease;
+  animation: island-in 0.35s ease;
 }
 
 .npm-art {
@@ -903,7 +903,7 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  animation: island-in 0.25s ease;
+  animation: island-in 0.35s ease;
 }
 
 .callm-icon {
@@ -980,7 +980,7 @@ body {
   box-shadow: var(--shadow-setup);
   text-align: center;
   overflow-y: auto;
-  animation: setup-in 0.28s ease;
+  animation: setup-in 0.38s ease;
 }
 
 @keyframes setup-in {
@@ -1415,7 +1415,7 @@ body {
   background: var(--card-bg);
   border: 1px solid var(--hairline);
   /* Entrance: plays when a card first mounts (add-widget, initial render). */
-  animation: widget-card-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: widget-card-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes widget-card-in {
@@ -1434,7 +1434,7 @@ body {
   opacity: 0;
   transform: scale(0.94);
   animation: none;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.28s ease, transform 0.28s ease;
   pointer-events: none;
 }
 
@@ -1513,7 +1513,7 @@ body {
   background: var(--menu-bg);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-menu);
-  animation: menu-pop 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: menu-pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   transform-origin: top center;
 }
 

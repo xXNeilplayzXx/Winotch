@@ -229,7 +229,7 @@ const SETTINGS_HEIGHT_BONUS = 210;
  * panel never drifts left/right relative to it.
  */
 export async function animateIsland(opts: AnimateOpts): Promise<void> {
-  const { shape, expanded, duration = 300 } = opts;
+  const { shape, expanded, duration = 420 } = opts;
   const token = ++animationToken;
   const geo = await geometry();
   const base = targetState(shape, expanded, geo.sizes);
