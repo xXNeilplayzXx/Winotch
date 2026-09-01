@@ -1,4 +1,3 @@
-#[cfg(target_os = "macos")]
 use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -33,6 +32,7 @@ mod media;
 mod mic;
 mod monitors;
 mod sizing;
+mod stats;
 mod theme;
 mod tray;
 
@@ -270,6 +270,7 @@ pub fn run() {
             launcher::launch_app,
             sizing::update_notch_size,
             sizing::move_notch_to_monitor,
+            stats::system_stats,
             quit_app,
             hide_island,
             restart_app,
@@ -288,6 +289,16 @@ pub fn run() {
                     macos::allow_top_edge(ns);
                     macos::float_above_all(ns);
                 }
+            }
+            // Windows WebView2 can composite an opaque default background on
+            // top of a transparent window, which paints grey/black corners
+            // around the rounded island. Pin the webview background to fully
+            // transparent on every island window; together with decorations:
+            // false + shadow: false (config + monitors.rs) only the rounded
+            // pill itself remains visible.
+            #[cfg(target_os = "windows")]
+            for (_, w) in app.webview_windows() {
+                let _ = w.set_background_color(tauri::Color::TRANSPARENT);
             }
             // Start the platform media watcher (SMTC on Windows; no-op elsewhere).
             media::spawn(app.handle().clone());

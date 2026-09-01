@@ -23,6 +23,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+sysinfo = { version = "0.33", features = ["component", "network"] }
 
 # macOS-only: lift the menu-bar clamp so the island can hug the absolute top
 # edge like real notch hardware (see src/macos.rs).
@@ -44,6 +45,7 @@ windows = { version = "0.58", features = [
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
   "Win32_System_Com",
+  "Win32_System_Power",
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",

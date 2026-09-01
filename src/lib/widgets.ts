@@ -4,7 +4,7 @@
 // app launcher). The layout is a persisted list of instances under
 // `winotch.widgets`; each instance is one widget type with its own settings.
 
-export type WidgetType = "clock" | "media" | "notes" | "weather" | "launcher";
+export type WidgetType = "clock" | "media" | "notes" | "weather" | "launcher" | "system";
 
 export interface WeatherSettings {
   /** Display name, e.g. "Berlin, Germany". */
@@ -27,17 +27,23 @@ export interface NotesSettings {
   text: string;
 }
 
+export interface SystemSettings {
+  /** Show the live CPU/RAM/battery chips on the collapsed bar. Default true. */
+  mini: boolean;
+}
+
 export interface WidgetInstance {
   id: string;
   type: WidgetType;
   weather?: WeatherSettings;
   launcher?: LauncherSettings;
   notes?: NotesSettings;
+  system?: SystemSettings;
 }
 
 export const WIDGETS_KEY = "winotch.widgets";
 
-export const WIDGET_TYPES: WidgetType[] = ["media", "clock", "notes", "weather", "launcher"];
+export const WIDGET_TYPES: WidgetType[] = ["media", "clock", "notes", "weather", "launcher", "system"];
 
 export const WIDGET_LABELS: Record<WidgetType, string> = {
   media: "Media control",
@@ -45,6 +51,7 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   notes: "Notes",
   weather: "Weather",
   launcher: "App launcher",
+  system: "System stats",
 };
 
 export function uid(): string {

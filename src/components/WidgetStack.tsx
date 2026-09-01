@@ -3,6 +3,7 @@ import { uid, WIDGET_LABELS, WIDGET_TYPES } from "../lib/widgets";
 import type {
   LauncherSettings,
   NotesSettings,
+  SystemSettings,
   WeatherSettings,
   WidgetInstance,
   WidgetType,
@@ -12,6 +13,7 @@ import { MediaWidget, type MediaState } from "./widgets/MediaWidget";
 import { NotesWidget } from "./widgets/NotesWidget";
 import { WeatherWidget } from "./widgets/WeatherWidget";
 import { LauncherWidget } from "./widgets/LauncherWidget";
+import { SystemWidget } from "./widgets/SystemWidget";
 
 interface WidgetStackProps {
   widgets: WidgetInstance[];
@@ -133,7 +135,12 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
 
   const saveSettings = (
     id: string,
-    patch: { weather?: WeatherSettings; launcher?: LauncherSettings; notes?: NotesSettings },
+    patch: {
+      weather?: WeatherSettings;
+      launcher?: LauncherSettings;
+      notes?: NotesSettings;
+      system?: SystemSettings;
+    },
   ) => {
     update(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
@@ -177,7 +184,8 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
       )}
 
       {widgets.map((w, i) => {
-        const editable = w.type === "weather" || w.type === "launcher" || w.type === "notes";
+        const editable =
+          w.type === "weather" || w.type === "launcher" || w.type === "notes" || w.type === "system";
         const edit = configureAll || editingId === w.id;
         return (
           <div
@@ -249,6 +257,13 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                   settings={w.notes}
                   edit={edit}
                   onSave={(notes) => saveSettings(w.id, { notes })}
+                />
+              )}
+              {w.type === "system" && (
+                <SystemWidget
+                  settings={w.system}
+                  edit={edit}
+                  onSave={(system) => saveSettings(w.id, { system })}
                 />
               )}
             </div>

@@ -211,6 +211,12 @@ mod win {
                 .visible(false)
                 .build()
                 .map_err(|e| e.to_string())?;
+            // Same opaque-background guard as the main window (see lib.rs): pin
+            // the webview background to fully transparent so the OS never
+            // paints corners behind the rounded island.
+            if let Some(win) = app.get_webview_window(&label) {
+                let _ = win.set_background_color(tauri::Color::TRANSPARENT);
+            }
         }
         Ok(())
     }

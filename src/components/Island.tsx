@@ -17,6 +17,7 @@ import {
   type MonitorPref,
 } from "../lib/monitors";
 import { readSizePref, saveSizePref, type IslandSize } from "../lib/size";
+import { SysMiniBar } from "./widgets/SystemWidget";
 import {
   applyGlassBlur,
   applyGlassOpacity,
@@ -422,6 +423,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const hasMediaWidget = widgets.some((w) => w.type === "media");
   const mediaLive = Boolean(media?.playing) && hasMediaWidget;
   const callLive = Boolean(call?.on_call);
+  // The System-stats widget turns the collapsed bar into a live CPU/RAM/battery
+  // mini readout (call and media still take priority over it). The per-widget
+  // "mini" toggle lets users keep the brand+clock instead.
+  const showSysMini = widgets.some((w) => w.type === "system" && w.system?.mini !== false);
   // Status-dot state: grey idle, red mic in use, green on call, blue both.
   const dotState: "both" | "mic" | "call" | "idle" =
     micOn && callLive ? "both" : micOn ? "mic" : callLive ? "call" : "idle";
@@ -976,6 +981,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             />
           ) : mediaLive && media?.title ? (
             <MiniNowPlaying media={media} />
+          ) : showSysMini ? (
+            <SysMiniBar />
           ) : (
             <>
               <div className="island-brand">
