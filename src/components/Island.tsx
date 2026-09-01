@@ -5,7 +5,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   animateIsland,
-  showIsland,
   logicalTargetSize,
   sizesForDisplay,
   type IslandShape,
