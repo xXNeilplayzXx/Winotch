@@ -1,6 +1,8 @@
 /* ---- Base ---- */
 :root {
   color-scheme: dark;
+  /* Allow CSS to interpolate between px and auto heights (height spring). */
+  interpolate-size: allow-keywords;
   --strip-height: 64px;
 
   /* Central theme tokens. ThemeManager (lib/theme.ts) overlays the live
@@ -211,6 +213,9 @@ body {
 
 .island {
   position: relative;
+  /* Flush against the very top edge of the display — no gap above the pill. */
+  top: 0;
+  margin: 0;
   /* DOM-driven: framer-motion sets width/height inline; fallback while the
      first paint hasn't happened yet. */
   width: 320px;
@@ -219,6 +224,11 @@ body {
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
+  /* Grow downward from the top edge; GPU-composited, no flicker mid-morph. */
+  transform-origin: top center;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  will-change: transform, width, height;
   background: var(--bg-island);
   /* Hairline border; the NOTCH shape drops its top edge so it merges with the
      screen bezel like real hardware. The Pill shape keeps a full border — it
@@ -253,14 +263,26 @@ body {
   border-radius: 0 0 30px 30px;
 }
 
+/* Idle/collapsed state is a slim, native-looking bar (sizesForDisplay caps the
+   logical height at 36px too, so the OS window agrees). The expanded state is
+   content-driven and never clipped. */
+.island.mode-collapsed {
+  height: 36px;
+  max-height: 36px;
+}
+
+.island.mode-expanded {
+  height: auto;
+}
+
 @keyframes island-in {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scale(1);
   }
 }
 

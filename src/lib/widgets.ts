@@ -28,8 +28,13 @@ export interface NotesSettings {
 }
 
 export interface SystemSettings {
-  /** Show the live CPU/RAM/battery chips on the collapsed bar. Default true. */
-  mini: boolean;
+  /** Per-metric visibility toggles for the card and the collapsed mini bar.
+   *  Undefined means the metric is shown (default). */
+  cpu?: boolean;
+  mem?: boolean;
+  net?: boolean;
+  temp?: boolean;
+  batt?: boolean;
 }
 
 export interface WidgetInstance {

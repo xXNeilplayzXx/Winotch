@@ -445,10 +445,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const hasMediaWidget = widgets.some((w) => w.type === "media");
   const mediaLive = Boolean(media?.playing) && hasMediaWidget;
   const callLive = Boolean(call?.on_call);
-  // The System-stats widget turns the collapsed bar into a live CPU/RAM/battery
-  // mini readout (call and media still take priority over it). The per-widget
-  // "mini" toggle lets users keep the brand+clock instead.
-  const showSysMini = widgets.some((w) => w.type === "system" && w.system?.mini !== false);
+  // The collapsed bar becomes a live CPU/RAM/battery mini readout when the
+  // "When idle" setting is System stats (call and media still take priority).
+  // Per-metric visibility comes from the first System widget's settings.
+  const showSysMini = idleContent === "system";
+  const sysSettings = widgets.find((w) => w.type === "system")?.system;
   // Status-dot state: grey idle, red mic in use, green on call, blue both.
   const dotState: "both" | "mic" | "call" | "idle" =
     micOn && callLive ? "both" : micOn ? "mic" : callLive ? "call" : "idle";
@@ -1109,7 +1110,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
           ) : mediaLive && media?.title ? (
             <MiniNowPlaying media={media} />
           ) : showSysMini ? (
-            <SysMiniBar />
+            <SysMiniBar settings={sysSettings} />
           ) : (
             <>
               <div className="island-brand">
@@ -1519,6 +1520,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <option value="brand">Brand + clock</option>
                 <option value="clock">Clock only</option>
                 <option value="custom">Custom text</option>
+                <option value="system">System stats</option>
                 <option value="blank">Nothing (dot only)</option>
               </select>
             </div>

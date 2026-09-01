@@ -297,7 +297,9 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                 <SystemWidget
                   settings={w.system}
                   edit={edit}
-                  onSave={(system) => saveSettings(w.id, { system })}
+                  onSave={(system) =>
+                    saveSettings(w.id, { system: { ...(w.system ?? {}), ...system } })
+                  }
                 />
               )}
             </div>

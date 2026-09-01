@@ -118,26 +118,43 @@ export function SystemWidget({
   }, []);
 
   if (edit) {
-    const mini = settings?.mini !== false;
+    const metrics: { key: keyof SystemSettings; label: string }[] = [
+      { key: "cpu", label: "CPU" },
+      { key: "mem", label: "Memory" },
+      { key: "net", label: "Network" },
+      { key: "temp", label: "Temperature" },
+      { key: "batt", label: "Battery" },
+    ];
+    const patch = (key: keyof SystemSettings, value: boolean) => {
+      onSave?.({ ...(settings ?? {}), [key]: value });
+    };
     return (
       <div className="widget-edit">
-        <p className="widget-edit-hint">Collapsed bar</p>
-        <div className="segmented segmented-full">
-          <button
-            type="button"
-            className={mini ? "seg-active" : ""}
-            onClick={() => onSave?.({ mini: true })}
-          >
-            Mini stats
-          </button>
-          <button
-            type="button"
-            className={mini ? "" : "seg-active"}
-            onClick={() => onSave?.({ mini: false })}
-          >
-            Clock
-          </button>
-        </div>
+        <p className="widget-edit-hint">Which metrics to show</p>
+        {metrics.map((m) => {
+          const on = settings?.[m.key] !== false;
+          return (
+            <div className="settings-row" key={m.key}>
+              <span className="settings-label">{m.label}</span>
+              <div className="segmented">
+                <button
+                  type="button"
+                  className={on ? "seg-active" : ""}
+                  onClick={() => patch(m.key, true)}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  className={on ? "" : "seg-active"}
+                  onClick={() => patch(m.key, false)}
+                >
+                  Off
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -150,33 +167,37 @@ export function SystemWidget({
 
   return (
     <div className="sys-card">
-      <StatRow
-        icon={<CpuIcon />}
-        label="CPU"
-        value={`${cpu}%`}
-        pct={cpu}
-      />
-      <StatRow
-        icon={<MemoryIcon />}
-        label="Memory"
-        value={`${stats.memUsedGb.toFixed(1)} / ${stats.memTotalGb.toFixed(0)} GB`}
-        pct={memPct}
-      />
-      {stats.network && (
+      {settings?.cpu !== false && (
+        <StatRow
+          icon={<CpuIcon />}
+          label="CPU"
+          value={`${cpu}%`}
+          pct={cpu}
+        />
+      )}
+      {settings?.mem !== false && (
+        <StatRow
+          icon={<MemoryIcon />}
+          label="Memory"
+          value={`${stats.memUsedGb.toFixed(1)} / ${stats.memTotalGb.toFixed(0)} GB`}
+          pct={memPct}
+        />
+      )}
+      {settings?.net !== false && stats.network && (
         <StatRow
           icon={<NetIcon />}
           label="Network"
           value={`↓ ${formatRate(stats.network.downBytesPerSec)}  ↑ ${formatRate(stats.network.upBytesPerSec)}`}
         />
       )}
-      {stats.tempC != null && (
+      {settings?.temp !== false && stats.tempC != null && (
         <StatRow
           icon={<TempIcon />}
           label="Temperature"
           value={`${Math.round(stats.tempC)}°C`}
         />
       )}
-      {battery && battery.pct < 255 && (
+      {settings?.batt !== false && battery && battery.pct < 255 && (
         <StatRow
           icon={<BatteryIcon charging={battery.charging} />}
           label="Battery"
@@ -194,7 +215,7 @@ export function SystemWidget({
  * idle brand+clock the moment a System widget is part of the layout (call and
  * media still take priority). Same poller as the card above.
  */
-export function SysMiniBar() {
+export function SysMiniBar({ settings }: { settings?: SystemSettings }) {
   const stats = useSystemStats();
   if (!stats) return null;
 
@@ -203,15 +224,19 @@ export function SysMiniBar() {
 
   return (
     <div className="sys-mini">
-      <span className="sysm-chip" title={`CPU ${Math.round(stats.cpu)}%`}>
-        <CpuIcon size={11} />
-        {Math.round(stats.cpu)}%
-      </span>
-      <span className="sysm-chip" title={`Memory ${memPct}%`}>
-        <MemoryIcon size={11} />
-        {memPct}%
-      </span>
-      {battery && battery.pct < 255 && (
+      {settings?.cpu !== false && (
+        <span className="sysm-chip" title={`CPU ${Math.round(stats.cpu)}%`}>
+          <CpuIcon size={11} />
+          {Math.round(stats.cpu)}%
+        </span>
+      )}
+      {settings?.mem !== false && (
+        <span className="sysm-chip" title={`Memory ${memPct}%`}>
+          <MemoryIcon size={11} />
+          {memPct}%
+        </span>
+      )}
+      {settings?.batt !== false && battery && battery.pct < 255 && (
         <span
           className={`sysm-chip sysm-chip-bat${battery.charging ? "" : ""}`}
           data-charging={battery.charging || undefined}

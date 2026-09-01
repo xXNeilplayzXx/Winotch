@@ -56,11 +56,12 @@ export function saveDraggable(on: boolean) {
 export const IDLE_KEY = "winotch.idleContent";
 export const IDLE_TEXT_KEY = "winotch.idleText";
 
-export type IdleContent = "brand" | "clock" | "custom" | "blank";
+export type IdleContent = "brand" | "clock" | "custom" | "system" | "blank";
 
-const IDLE_IDS = ["brand", "clock", "custom", "blank"];
+const IDLE_IDS = ["brand", "clock", "custom", "system", "blank"];
 
-/** What the collapsed strip shows while idle: brand+clock, clock only, custom text, or just the dot. */
+/** What the collapsed strip shows while idle: brand+clock, clock only, custom
+ * text, live system-stats mini bar, or just the dot. */
 export function readIdleContent(): IdleContent {
   try {
     const v = localStorage.getItem(IDLE_KEY);

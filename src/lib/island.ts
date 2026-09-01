@@ -37,6 +37,11 @@ export interface IslandSizes {
   expanded: Size;
 }
 
+/** Maximum idle/collapsed height (logical px) — the pill reads as a slim,
+ *  native status bar rather than a chunky capsule. The expanded state is
+ *  unaffected and grows to its full content height. */
+export const COLLAPSED_MAX_HEIGHT = 36;
+
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
@@ -54,11 +59,11 @@ export function sizesForDisplay(widthPoints: number, custom?: IslandSize | null)
   const sizes: IslandSizes = {
     pillCollapsed: {
       width: clamp(Math.round(widthPoints * 0.16), 240, 420),
-      height: clamp(Math.round(widthPoints * 0.032), 44, 84),
+      height: Math.min(clamp(Math.round(widthPoints * 0.032), 44, 84), COLLAPSED_MAX_HEIGHT),
     },
     notchCollapsed: {
       width: clamp(Math.round(widthPoints * 0.12), 260, 460),
-      height: clamp(Math.round(widthPoints * 0.036), 52, 104),
+      height: Math.min(clamp(Math.round(widthPoints * 0.036), 52, 104), COLLAPSED_MAX_HEIGHT),
     },
     expanded: {
       width: clamp(Math.round(widthPoints * 0.18), 300, 480),
@@ -66,8 +71,8 @@ export function sizesForDisplay(widthPoints: number, custom?: IslandSize | null)
     },
   };
   if (custom && custom.width > 0 && custom.height > 0) {
-    sizes.pillCollapsed = { width: custom.width, height: custom.height };
-    sizes.notchCollapsed = { width: custom.width, height: custom.height };
+    sizes.pillCollapsed = { width: custom.width, height: Math.min(custom.height, COLLAPSED_MAX_HEIGHT) };
+    sizes.notchCollapsed = { width: custom.width, height: Math.min(custom.height, COLLAPSED_MAX_HEIGHT) };
     sizes.expanded.width = Math.max(sizes.expanded.width, custom.width);
     sizes.expanded.height = Math.max(sizes.expanded.height, custom.height);
   }
