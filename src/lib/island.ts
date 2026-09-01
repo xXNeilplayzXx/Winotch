@@ -20,6 +20,7 @@ import {
   resolveMonitor,
   type MonitorInfo,
 } from "./monitors";
+import { readSizePref, type IslandSize } from "./size";
 
 const appWindow = getCurrentWindow();
 
@@ -43,9 +44,14 @@ function clamp(v: number, min: number, max: number): number {
 /**
  * Sizes as fractions of the display width (points), clamped so the island is
  * never comically large on a big monitor nor minuscule on a small one.
+ *
+ * When a custom size is set (settings sliders), it overrides the collapsed
+ * size in BOTH shapes; the expanded panel always grows to at least match the
+ * custom width/height so a wide or tall notch never animates into a smaller
+ * window.
  */
-export function sizesForDisplay(widthPoints: number): IslandSizes {
-  return {
+export function sizesForDisplay(widthPoints: number, custom?: IslandSize | null): IslandSizes {
+  const sizes: IslandSizes = {
     pillCollapsed: {
       width: clamp(Math.round(widthPoints * 0.16), 240, 420),
       height: clamp(Math.round(widthPoints * 0.032), 44, 84),
@@ -59,6 +65,13 @@ export function sizesForDisplay(widthPoints: number): IslandSizes {
       height: clamp(Math.round(widthPoints * 0.14), 240, 340),
     },
   };
+  if (custom && custom.width > 0 && custom.height > 0) {
+    sizes.pillCollapsed = { width: custom.width, height: custom.height };
+    sizes.notchCollapsed = { width: custom.width, height: custom.height };
+    sizes.expanded.width = Math.max(sizes.expanded.width, custom.width);
+    sizes.expanded.height = Math.max(sizes.expanded.height, custom.height);
+  }
+  return sizes;
 }
 
 /**
@@ -122,7 +135,7 @@ async function geometry(): Promise<Geometry> {
       }
     : await currentMonitor().catch(() => null);
   if (!mon) {
-    return { scale: 1, top: 0, centerX: 0, sizes: sizesForDisplay(1710) };
+    return { scale: 1, top: 0, centerX: 0, sizes: sizesForDisplay(1710, readSizePref()) };
   }
   const scale = mon.scaleFactor ?? 1;
   const centerX = mon.position.x + mon.size.width / 2;
@@ -132,7 +145,7 @@ async function geometry(): Promise<Geometry> {
     scale,
     top,
     centerX,
-    sizes: sizesForDisplay(widthPoints),
+    sizes: sizesForDisplay(widthPoints, readSizePref()),
   };
 }
 
@@ -208,7 +221,7 @@ export interface AnimateOpts {
 }
 
 /** Extra logical height for the expanded window while the settings are open. */
-const SETTINGS_HEIGHT_BONUS = 96;
+const SETTINGS_HEIGHT_BONUS = 210;
 
 /**
  * Tween the window between collapsed and expanded sizes, anchoring the

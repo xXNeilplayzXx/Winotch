@@ -23,6 +23,7 @@ fn hide_island(app: tauri::AppHandle) {
 mod launcher;
 mod media;
 mod monitors;
+mod sizing;
 mod theme;
 mod tray;
 
@@ -255,6 +256,8 @@ pub fn run() {
             monitors::close_island_windows,
             monitors::broadcast_config,
             launcher::launch_app,
+            sizing::update_notch_size,
+            sizing::move_notch_to_monitor,
             quit_app,
             hide_island,
             theme::get_system_theme,

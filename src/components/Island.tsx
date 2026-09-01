@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { animateIsland, showIsland, type IslandShape } from "../lib/island";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  animateIsland,
+  showIsland,
+  sizesForDisplay,
+  type IslandShape,
+} from "../lib/island";
 import {
   clearMonitorCache,
   getMonitors,
@@ -10,6 +16,7 @@ import {
   type MonitorInfo,
   type MonitorPref,
 } from "../lib/monitors";
+import { readSizePref, saveSizePref, type IslandSize } from "../lib/size";
 import { readThemePref, themeManager, type ThemePref } from "../lib/theme";
 import { readWidgets, saveWidgets, type WidgetInstance } from "../lib/widgets";
 import { WidgetStack } from "./WidgetStack";
@@ -17,6 +24,51 @@ import { Clock } from "./widgets/Clock";
 import type { MediaState } from "./widgets/MediaWidget";
 
 type Mode = "collapsed" | "expanded";
+
+/** Pending settings values, staged by the controls until Apply is pressed. */
+interface SettingsDraft {
+  shape: IslandShape;
+  monitor: MonitorPref;
+  glass: boolean;
+  theme: ThemePref;
+  size: IslandSize;
+}
+
+/**
+ * Resolve, against the already-loaded monitor list, the display this window
+ * anchors to (mirrors `resolveActiveMonitor` in island.ts, but synchronous so
+ * the settings can seed slider defaults from state it already holds).
+ */
+function monitorForPref(list: MonitorInfo[], pref: MonitorPref): MonitorInfo | null {
+  if (pref === "all") {
+    const m = /^island-(\d+)$/.exec(getCurrentWindow().label);
+    const idx = m ? parseInt(m[1], 10) : 0;
+    return list[Math.min(idx, list.length - 1)] ?? null;
+  }
+  if (pref.startsWith("mon:")) {
+    return list.find((mm) => mm.device === pref.slice(4)) ?? null;
+  }
+  return list.find((mm) => mm.isPrimary) ?? list[0] ?? null;
+}
+
+/** The collapsed size currently in effect: the custom pref, else derived. */
+function currentCollapsedSize(shape: IslandShape, list: MonitorInfo[]): IslandSize {
+  const custom = readSizePref();
+  const size =
+    custom ??
+    (() => {
+      const mon = monitorForPref(list, readMonitorPref());
+      const widthPoints = mon ? Math.round(mon.width / (mon.scale || 1)) : 1710;
+      const sizes = sizesForDisplay(widthPoints);
+      return shape === "notch" ? sizes.notchCollapsed : sizes.pillCollapsed;
+    })();
+  // Snap to the slider steps (width 10, height 5) so the label and the thumb
+  // always agree when the panel opens, whether the size is custom or derived.
+  return {
+    width: Math.round(size.width / 10) * 10,
+    height: Math.round(size.height / 5) * 5,
+  };
+}
 
 function MusicNote({ size = 20 }: { size?: number }) {
   return (
@@ -124,6 +176,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     }
   });
   const [themePref, setThemePref] = useState<ThemePref>(() => readThemePref());
+  // Custom collapsed size (settings sliders); null = derive from the display.
+  const [appliedSize, setAppliedSize] = useState<IslandSize | null>(() => readSizePref());
+  // Staged settings values, only applied (and persisted) when Apply is pressed.
+  const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const modeRef = useRef<Mode>("collapsed");
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -203,19 +259,22 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ shape: IslandShape; glass: boolean; widgets?: WidgetInstance[] }>(
-      "winotch://config",
-      (e) => {
-        if (disposed) return;
-        const p = e.payload;
-        if (p.widgets) setWidgets(p.widgets);
-        setShape(p.shape);
-        setGlass(p.glass);
-        if (modeRef.current === "collapsed") {
-          void animateIsland({ shape: p.shape, expanded: false });
-        }
-      },
-    )
+    void listen<{
+      shape: IslandShape;
+      glass: boolean;
+      widgets?: WidgetInstance[];
+      size?: IslandSize | null;
+    }>("winotch://config", (e) => {
+      if (disposed) return;
+      const p = e.payload;
+      if (p.widgets) setWidgets(p.widgets);
+      if (p.size !== undefined) setAppliedSize(p.size ?? null);
+      setShape(p.shape);
+      setGlass(p.glass);
+      if (modeRef.current === "collapsed") {
+        void animateIsland({ shape: p.shape, expanded: false });
+      }
+    })
       .then((u) => {
         if (disposed) u();
         else unlisten = u;
@@ -240,16 +299,6 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widgets.length]);
 
-  const changeGlass = (next: boolean) => {
-    setGlass(next);
-    try {
-      localStorage.setItem("winotch.glass", next ? "on" : "off");
-    } catch {
-      /* storage unavailable; keep session-only */
-    }
-    broadcastConfig({ glass: next });
-  };
-
   const enter = () => {
     if (modeRef.current === "expanded") return;
     modeRef.current = "expanded";
@@ -266,44 +315,103 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     void animateIsland({ shape, expanded: false });
   };
 
-  const changeShape = (next: IslandShape) => {
-    setShape(next);
-    try {
-      localStorage.setItem("winotch.shape", next);
-    } catch {
-      /* storage unavailable; keep session-only */
+  /** Discard the draft and re-seed it from the currently applied config. */
+  const resetDraft = () => {
+    if (!draft) return;
+    setDraft({
+      shape,
+      monitor: readMonitorPref(),
+      glass,
+      theme: themePref,
+      size: currentCollapsedSize(shape, monitors),
+    });
+  };
+
+  /**
+   * Apply the staged draft: persist every setting, then re-place the OS window
+   * when the geometry (shape / size / monitor) changed. Theme and appearance
+   * apply in place; geometry changes collapse the island so the new bar is
+   * immediately visible, exactly like the old instant-apply shape switch.
+   */
+  const applySettings = () => {
+    if (!draft) return;
+    // Normalize a stale draft monitor (e.g. a display unplugged while the
+    // panel was open) back to a selectable value before persisting it.
+    const monitor = monitorSelectValue(draft.monitor) as MonitorPref;
+    const shapeChanged = draft.shape !== shape;
+    const glassChanged = draft.glass !== glass;
+    const themeChanged = draft.theme !== themePref;
+    const monitorChanged = monitor !== readMonitorPref();
+    const prevCustom = readSizePref();
+    const sizeChanged =
+      !prevCustom ||
+      prevCustom.width !== draft.size.width ||
+      prevCustom.height !== draft.size.height;
+
+    // Everything is persisted under its existing key / manager.
+    if (shapeChanged) {
+      setShape(draft.shape);
+      try {
+        localStorage.setItem("winotch.shape", draft.shape);
+      } catch {
+        /* storage unavailable; keep session-only */
+      }
     }
-    setSettingsOpen(false);
-    // Re-shape immediately in BOTH states: the CSS class flips the container
-    // layout (carved notch vs floating capsule) at once, and the window animates
-    // to the new geometry — a fresh silhouette when collapsed, a re-anchor
-    // (notch flush to the top, pill floating just below) when expanded.
-    const expanded = modeRef.current === "expanded";
-    // changeShape closes the settings panel, so drop its height bonus too.
-    void animateIsland({ shape: next, expanded, settingsOpen: false });
-    broadcastConfig({ shape: next });
-  };
+    if (glassChanged) {
+      setGlass(draft.glass);
+      try {
+        localStorage.setItem("winotch.glass", draft.glass ? "on" : "off");
+      } catch {
+        /* storage unavailable; keep session-only */
+      }
+    }
+    saveSizePref({ width: draft.size.width, height: draft.size.height });
+    setAppliedSize({ width: draft.size.width, height: draft.size.height });
+    saveMonitorPref(monitor);
+    setThemePref(draft.theme);
+    if (themeChanged) themeManager.setPref(draft.theme);
 
-  /** Switch the app theme (Light / Dark / System Default), applied instantly. */
-  const changeTheme = (next: ThemePref) => {
-    setThemePref(next);
-    themeManager.setPref(next);
-  };
-
-  /** Move the island to a different display (or all displays). */
-  const changeMonitor = (next: MonitorPref) => {
-    saveMonitorPref(next);
-    // Re-anchor collapsed on the new display; the user can hover to expand.
-    modeRef.current = "collapsed";
-    setMode("collapsed");
-    setSettingsOpen(false);
-    if (next === "all") {
-      void invoke("spawn_island_windows").catch(() => {});
+    const reposition = shapeChanged || sizeChanged || monitorChanged;
+    if (reposition) {
+      // Collapse so the user immediately sees the new bar size/shape/monitor.
+      modeRef.current = "collapsed";
+      setMode("collapsed");
+      setSettingsOpen(false);
+      setDraft(null);
+      if (monitor === "all") {
+        void invoke("spawn_island_windows").catch(() => {});
+      } else {
+        void invoke("close_island_windows").catch(() => {});
+      }
+      clearMonitorCache();
+      void showIsland(draft.shape)
+        .then(() => {
+          if (monitor !== "all") {
+            // Re-assert placement on the chosen display (backend geometry).
+            void invoke("move_notch_to_monitor", {
+              monitorName: monitor === "primary" ? "primary" : monitor.slice(4),
+            }).catch(() => {});
+          }
+          // Re-assert the exact logical size (backend geometry).
+          void invoke("update_notch_size", {
+            width: draft.size.width,
+            height: draft.size.height,
+          }).catch(() => {});
+        })
+        .catch(() => {});
     } else {
-      void invoke("close_island_windows").catch(() => {});
+      // Theme/appearance-only change: nothing to move. Keep the panel open
+      // (and the draft — it now equals the applied config).
     }
-    clearMonitorCache();
-    void showIsland(shape);
+
+    broadcastConfig({
+      shape: draft.shape,
+      glass: draft.glass,
+      size: { width: draft.size.width, height: draft.size.height },
+    });
+    // Keep the seeded draft aligned with what was just applied (monitor
+    // normalization, size snap) so a follow-up Apply is a true no-op.
+    setDraft({ ...draft, monitor, size: { ...draft.size } });
   };
 
   /** Current pref, rewritten so it always matches a <select> option. */
@@ -321,12 +429,14 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     shape?: IslandShape;
     glass?: boolean;
     widgets?: WidgetInstance[];
+    size?: IslandSize | null;
   }) => {
     void invoke("broadcast_config", {
       config: {
         shape: override?.shape ?? shape,
         glass: override?.glass ?? glass,
         widgets: override?.widgets ?? widgets,
+        size: override?.size !== undefined ? override.size : appliedSize,
       },
     }).catch(() => {});
   };
@@ -341,6 +451,17 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     e.stopPropagation();
     const next = !settingsOpen;
     setSettingsOpen(next);
+    if (next) {
+      // Seed the draft from the currently applied configuration so sliders and
+      // selects always open showing the real values.
+      setDraft({
+        shape,
+        monitor: readMonitorPref(),
+        glass,
+        theme: themePref,
+        size: currentCollapsedSize(shape, monitors),
+      });
+    }
     // Grow the expanded window while settings are visible so nothing overflows.
     void animateIsland({ shape, expanded: true, settingsOpen: next, extraHeight: widgetExtra });
   };
@@ -393,27 +514,27 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
           </div>
         </div>
 
-        {settingsOpen && (
+        {settingsOpen && draft && (
           <div className="settings">
             <div className="settings-row">
               <span className="settings-label">Mode</span>
               <div className="segmented">
                 <button
                   type="button"
-                  className={shape === "notch" ? "seg-active" : ""}
+                  className={draft.shape === "notch" ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeShape("notch");
+                    setDraft({ ...draft, shape: "notch" });
                   }}
                 >
                   Notch
                 </button>
                 <button
                   type="button"
-                  className={shape === "pill" ? "seg-active" : ""}
+                  className={draft.shape === "pill" ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeShape("pill");
+                    setDraft({ ...draft, shape: "pill" });
                   }}
                 >
                   Pill
@@ -425,8 +546,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <span className="settings-label">Display</span>
                 <select
                   className="settings-select"
-                  value={monitorSelectValue(readMonitorPref())}
-                  onChange={(e) => changeMonitor(e.target.value as MonitorPref)}
+                  value={monitorSelectValue(draft.monitor)}
+                  onChange={(e) =>
+                    setDraft({ ...draft, monitor: e.target.value as MonitorPref })
+                  }
                 >
                   {monitors.map((m) => (
                     <option key={m.device} value={m.isPrimary ? "primary" : `mon:${m.device}`}>
@@ -437,25 +560,57 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </select>
               </div>
             )}
+            <div className="settings-row settings-row-slider">
+              <div className="settings-slider-head">
+                <span className="settings-label">Notch Width</span>
+                <span className="settings-slider-value">{draft.size.width}px</span>
+              </div>
+              <input
+                type="range"
+                min="150"
+                max="800"
+                step="10"
+                value={draft.size.width}
+                onChange={(e) =>
+                  setDraft({ ...draft, size: { ...draft.size, width: Number(e.target.value) } })
+                }
+              />
+            </div>
+            <div className="settings-row settings-row-slider">
+              <div className="settings-slider-head">
+                <span className="settings-label">Notch Height</span>
+                <span className="settings-slider-value">{draft.size.height}px</span>
+              </div>
+              <input
+                type="range"
+                min="30"
+                max="200"
+                step="5"
+                value={draft.size.height}
+                onChange={(e) =>
+                  setDraft({ ...draft, size: { ...draft.size, height: Number(e.target.value) } })
+                }
+              />
+            </div>
             <div className="settings-row">
               <span className="settings-label">Appearance</span>
               <div className="segmented">
                 <button
                   type="button"
-                  className={!glass ? "seg-active" : ""}
+                  className={!draft.glass ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeGlass(false);
+                    setDraft({ ...draft, glass: false });
                   }}
                 >
                   Solid
                 </button>
                 <button
                   type="button"
-                  className={glass ? "seg-active" : ""}
+                  className={draft.glass ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeGlass(true);
+                    setDraft({ ...draft, glass: true });
                   }}
                 >
                   Glass
@@ -468,10 +623,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <button
                   type="button"
                   title="Force the light theme everywhere"
-                  className={themePref === "light" ? "seg-active" : ""}
+                  className={draft.theme === "light" ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeTheme("light");
+                    setDraft({ ...draft, theme: "light" });
                   }}
                 >
                   Light
@@ -479,10 +634,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <button
                   type="button"
                   title="Force the dark theme everywhere"
-                  className={themePref === "dark" ? "seg-active" : ""}
+                  className={draft.theme === "dark" ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeTheme("dark");
+                    setDraft({ ...draft, theme: "dark" });
                   }}
                 >
                   Dark
@@ -490,15 +645,37 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <button
                   type="button"
                   title="Follow the Windows theme, live"
-                  className={themePref === "system" ? "seg-active" : ""}
+                  className={draft.theme === "system" ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    changeTheme("system");
+                    setDraft({ ...draft, theme: "system" });
                   }}
                 >
                   System Default
                 </button>
               </div>
+            </div>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="settings-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetDraft();
+                }}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  applySettings();
+                }}
+              >
+                Apply
+              </button>
             </div>
           </div>
         )}

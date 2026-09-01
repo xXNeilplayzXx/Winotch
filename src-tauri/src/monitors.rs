@@ -62,15 +62,24 @@ pub fn close_island_windows(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Custom collapsed island size carried by a config broadcast (logical px).
+#[derive(Clone, Copy, Serialize, serde::Deserialize)]
+pub struct ConfigSize {
+    pub width: f64,
+    pub height: f64,
+}
+
 /// Payload for keeping every island window in sync (shape, appearance,
-/// widget layout). `widgets` is opaque JSON so the Rust side doesn't need to
-/// know the frontend's widget model.
+/// widget layout, custom size). `widgets` is opaque JSON so the Rust side
+/// doesn't need to know the frontend's widget model.
 #[derive(Clone, Serialize, serde::Deserialize)]
 pub struct ConfigBroadcast {
     pub shape: String,
     pub glass: bool,
     #[serde(default)]
     pub widgets: Option<serde_json::Value>,
+    #[serde(default)]
+    pub size: Option<ConfigSize>,
 }
 
 /// Broadcast a config change to ALL island windows, so multi-window mode stays
