@@ -7,10 +7,15 @@ Built with Tauri 2 (Rust + React).
 ## Features
 
 - **Notch or Pill mode** — a carved notch flush with the screen top, or a floating capsule; switch any time in settings
-- **Live media widget** — reads the Windows System Media Transport Controls (SMTC), so Spotify, Chrome/Edge YouTube, and other media apps automatically swap the pill into a mini player with title, artist, album art, progress, and play/pause + skip controls
+- **Choose your display** — pick the main monitor, any specific display (shown by its real name), or **All monitors** (one island per screen); configurable in the first-run wizard and in settings
+- **Custom display picker** — choose “Custom setup” in the wizard to click any screen on a visual monitor map
+- **Widgets** — stack, reorder, and remove widgets in the expanded panel (＋ to add, ✕/↑/↓ on each card): media control, clock, weather, and an app launcher. Media/weather/launcher each carry their own inline settings (media playback comes from the Windows SMTC feed; weather uses Open-Meteo with no API key; the launcher quick-launches apps by path or name)
+- **Live media widget** — the media control reads the Windows SMTC feed, so Spotify, Chrome/Edge YouTube, and other media apps automatically swap the collapsed pill into a mini player with title, artist, album art, progress, and play/pause + skip controls
 - **Liquid glass mode** — translucent, blurred appearance (toggleable against solid dark)
-- **Hover to expand** — the widget grows into a full panel with settings (mode, appearance)
-- **Always on top, zero scrollbars** — fixed-shape window that hugs the absolute top edge of the display
+- **Theme system** — **Light / Dark / System Default** in the settings panel. Light and Dark force every surface (notch, settings, menus, wizard) to that theme instantly; System Default follows the Windows app theme **live** — flip Windows between light/dark (no restart) and the island re-skins itself. The choice persists across launches (`winotch.theme`)
+- **Windows accent integration** — the island's highlight color follows your Windows accent color (`DWM\ColorizationColor`), updated live whenever you change accent; the accent underlines (media progress, live dot) are derived to match the underline Windows draws beneath active taskbar icons (accent blended into the taskbar surface per theme)
+- **Hover to expand** — the widget grows into a full panel with settings (mode, appearance, display, theme)
+- **Always on top, zero scrollbars** — fixed-shape windows that hug the absolute top edge of their display
 
 ## Download (Windows)
 
@@ -25,7 +30,7 @@ Grab the latest build from the Releases page:
 1. Download `winotch.exe` (a single file — no zip, no DLLs).
 2. Double-click `winotch.exe`.
 3. If Windows SmartScreen shows *"Windows protected your PC"* (the build is unsigned), click **More info → Run anyway**. Full unblocking steps, antivirus false-positive handling, and code-signing options are in [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md).
-4. Hover the pill at the top-center of your screen. Use the ⚙ button in the expanded panel to switch modes and appearance.
+4. On first launch a two-page setup wizard opens (no scrolling): **page 1** picks the island's look — theme (Light/Dark/System Default), type (Notch vs Pill), and feel (Glass vs Solid); **page 2** picks where it lives when you have more than one screen (main, a specific display, all displays, or pick one on the map) and lets you arrange your **widgets** before the island launches (add, remove, reorder, and set up weather/launcher right there). Then hover the pill at the top-center of the chosen screen. Use the ⚙ button in the expanded panel to change theme, mode, appearance, or display at any time; use ＋ on the Widgets bar to add widgets and the arrows/✕ on each card to rearrange or remove them.
 
 **Requirements**
 

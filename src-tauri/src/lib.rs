@@ -7,7 +7,24 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Exit the app (used by the island's right-click "Close Winotch" menu).
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+/// Hide every island window (right-click "Hide Winotch"). The tray icon is
+/// how it comes back: click it or use its Show item.
+#[tauri::command]
+fn hide_island(app: tauri::AppHandle) {
+    tray::hide_island(&app);
+}
+
+mod launcher;
 mod media;
+mod monitors;
+mod theme;
+mod tray;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -233,8 +250,19 @@ pub fn run() {
             media::media_play_pause,
             media::media_next,
             media::media_previous,
+            monitors::get_monitors,
+            monitors::spawn_island_windows,
+            monitors::close_island_windows,
+            monitors::broadcast_config,
+            launcher::launch_app,
+            quit_app,
+            hide_island,
+            theme::get_system_theme,
         ])
         .setup(|app| {
+            // System tray: lets the user hide/show the island or quit, and
+            // restores it after a right-click "Hide Winotch".
+            let _ = tray::setup(app.handle());
             // macOS clamps ordinary windows below the menu bar; override that so
             // the island can sit flush at Y=0 like real notch hardware, and pin
             // it to the highest window layer so it floats above every app.
@@ -247,6 +275,8 @@ pub fn run() {
             }
             // Start the platform media watcher (SMTC on Windows; no-op elsewhere).
             media::spawn(app.handle().clone());
+            // Watch Windows theme/accent changes and emit them live.
+            theme::spawn(app.handle().clone());
             // The transparent always-on-top window is only composited while the
             // app is active, so bring it to the foreground on launch (macOS).
             #[cfg(target_os = "macos")]

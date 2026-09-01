@@ -2,11 +2,143 @@
 :root {
   color-scheme: dark;
   --strip-height: 64px;
+
+  /* Central theme tokens. ThemeManager (lib/theme.ts) overlays the live
+     Windows accent + derived taskbar-underline color via inline CSS vars, and
+     swaps the whole palette by toggling [data-theme] on <html>. Everything
+     below the base block references these tokens — no hardcoded colors. */
   --accent: #e9b949;
+  --accent-underline: #e9b949;
+  --accent-soft: rgba(233, 185, 73, 0.16);
+  --accent-soft-hover: rgba(233, 185, 73, 0.28);
+  --accent-strong: rgba(233, 185, 73, 0.35);
+  --accent-wash: rgba(233, 185, 73, 0.09);
+
   --text: rgba(255, 255, 255, 0.92);
   --text-2: rgba(255, 255, 255, 0.55);
   --text-3: rgba(255, 255, 255, 0.34);
+  --text-hover: rgba(255, 255, 255, 0.85);
   --hairline: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --surface-3: rgba(255, 255, 255, 0.13);
+  --surface-hover: rgba(255, 255, 255, 0.1);
+
+  --bg-island: linear-gradient(180deg, #121214, #0b0b0d);
+  --bg-setup: linear-gradient(165deg, #17181d, #0b0b0e 70%);
+  --bg-tile: rgba(255, 255, 255, 0.03);
+  --bg-tile-hover: rgba(255, 255, 255, 0.06);
+  --card-bg: rgba(255, 255, 255, 0.035);
+  --card-bg-glass: rgba(255, 255, 255, 0.05);
+  --art-bg: linear-gradient(150deg, #23252b, #14151a 70%);
+  --logo-bg: linear-gradient(150deg, #2a2c34, #17181d);
+  --launcher-icon-bg: linear-gradient(150deg, #2a2d36, #191b21);
+  --menu-bg: rgba(24, 26, 32, 0.97);
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --select-bg: rgba(255, 255, 255, 0.1);
+  --select-hover: rgba(255, 255, 255, 0.16);
+  --chip-bg: rgba(255, 255, 255, 0.04);
+  --chip-border: rgba(255, 255, 255, 0.1);
+  --chip-hover: rgba(255, 255, 255, 0.1);
+
+  --glass-bg: linear-gradient(165deg, rgba(26, 28, 34, 0.5) 0%, rgba(10, 12, 16, 0.62) 55%, rgba(7, 9, 13, 0.68) 100%);
+  --glass-border: rgba(255, 255, 255, 0.13);
+  --glass-shine: linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 32%, rgba(255, 255, 255, 0) 55%);
+
+  --shadow-island: 0 10px 28px rgba(0, 0, 0, 0.38);
+  --shadow-menu: 0 12px 28px rgba(0, 0, 0, 0.45);
+  --shadow-setup: 0 24px 60px rgba(0, 0, 0, 0.45);
+
+  --track: rgba(255, 255, 255, 0.09);
+  --dot: rgba(255, 255, 255, 0.25);
+  --player-btn: rgba(255, 255, 255, 0.78);
+  --player-btn-hover: #fff;
+  --player-ctl-hover: rgba(255, 255, 255, 0.08);
+
+  --map-bg: rgba(255, 255, 255, 0.04);
+  --map-border: rgba(255, 255, 255, 0.08);
+  --map-mon: rgba(255, 255, 255, 0.1);
+  --map-mon-border: rgba(255, 255, 255, 0.22);
+  --map-mon-hover: rgba(255, 255, 255, 0.18);
+
+  --screen: linear-gradient(180deg, #20232b, #14161c);
+  --screen-cut: #04060a;
+  --on-accent: #141005;
+  --map-picked-color: #fff;
+
+  --danger: #ff9b9b;
+  --danger-hover: #ffb4b4;
+  --danger-soft: rgba(214, 69, 69, 0.16);
+  --danger-border: rgba(214, 69, 69, 0.5);
+}
+
+/* Light theme — forced by ThemeManager via [data-theme], or picked as "Light"
+   in the wizard / settings. Swaps every token above instantly, so the notch,
+   settings, flyouts, popups and wizard all re-skin with no restart. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --text: rgba(15, 17, 24, 0.92);
+  --text-2: rgba(15, 17, 24, 0.56);
+  --text-3: rgba(15, 17, 24, 0.38);
+  --text-hover: rgba(15, 17, 24, 0.8);
+  --hairline: rgba(0, 0, 0, 0.08);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.2);
+
+  --surface: rgba(0, 0, 0, 0.045);
+  --surface-2: rgba(0, 0, 0, 0.07);
+  --surface-3: rgba(0, 0, 0, 0.12);
+  --surface-hover: rgba(0, 0, 0, 0.09);
+
+  --bg-island: linear-gradient(180deg, #f4f4f7, #e7e7ec);
+  --bg-setup: linear-gradient(165deg, #f6f6fa, #e9e9ef 70%);
+  --bg-tile: rgba(255, 255, 255, 0.6);
+  --bg-tile-hover: rgba(255, 255, 255, 0.85);
+  --card-bg: rgba(255, 255, 255, 0.65);
+  --card-bg-glass: rgba(255, 255, 255, 0.7);
+  --art-bg: linear-gradient(150deg, #ededf1, #dddde3 70%);
+  --logo-bg: linear-gradient(150deg, #ffffff, #e9e9ef);
+  --launcher-icon-bg: linear-gradient(150deg, #ffffff, #e6e6ec);
+  --menu-bg: rgba(255, 255, 255, 0.97);
+  --input-bg: rgba(255, 255, 255, 0.8);
+  --select-bg: rgba(0, 0, 0, 0.06);
+  --select-hover: rgba(0, 0, 0, 0.1);
+  --chip-bg: rgba(255, 255, 255, 0.7);
+  --chip-border: rgba(0, 0, 0, 0.1);
+  --chip-hover: rgba(255, 255, 255, 0.9);
+
+  --glass-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, rgba(250, 250, 252, 0.65) 55%, rgba(240, 240, 246, 0.72) 100%);
+  --glass-border: rgba(0, 0, 0, 0.12);
+  --glass-shine: linear-gradient(115deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.12) 32%, rgba(255, 255, 255, 0) 55%);
+
+  --shadow-island: 0 10px 28px rgba(0, 0, 0, 0.16);
+  --shadow-menu: 0 12px 28px rgba(0, 0, 0, 0.18);
+  --shadow-setup: 0 24px 60px rgba(0, 0, 0, 0.2);
+
+  --track: rgba(0, 0, 0, 0.1);
+  --dot: rgba(0, 0, 0, 0.3);
+  --player-btn: rgba(15, 17, 24, 0.75);
+  --player-btn-hover: #101016;
+  --player-ctl-hover: rgba(0, 0, 0, 0.07);
+
+  --map-bg: rgba(0, 0, 0, 0.05);
+  --map-border: rgba(0, 0, 0, 0.09);
+  --map-mon: rgba(0, 0, 0, 0.06);
+  --map-mon-border: rgba(0, 0, 0, 0.25);
+  --map-mon-hover: rgba(0, 0, 0, 0.12);
+
+  --screen: linear-gradient(180deg, #d9d9e0, #c8c8d0);
+  --screen-cut: #ffffff;
+  --map-picked-color: #101016;
+
+  --danger: #c24949;
+  --danger-hover: #d56a6a;
+  --danger-soft: rgba(194, 73, 73, 0.12);
+  --danger-border: rgba(194, 73, 73, 0.45);
 }
 
 * {
@@ -54,12 +186,12 @@ body {
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
-  background: linear-gradient(180deg, #121214, #0b0b0d);
+  background: var(--bg-island);
   /* Hairline on the sides/bottom only — the top edge merges with the screen
      bezel like real hardware, so no seam line at Y=0. */
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
   border-top: none;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-island);
   cursor: default;
   animation: island-in 0.28s ease;
 }
@@ -130,12 +262,12 @@ body {
   height: 9px;
   flex: 0 0 9px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--dot);
   transition: background 0.3s ease;
 }
 
 .island.media-live .island-dot {
-  background: var(--accent);
+  background: var(--accent-underline);
   animation: dot-breathe 2.4s ease-in-out infinite;
 }
 
@@ -152,7 +284,7 @@ body {
 .island-name {
   font-size: 14px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -174,7 +306,7 @@ body {
 .clock-time {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.88);
+  color: var(--text);
 }
 
 .clock-date {
@@ -198,7 +330,7 @@ body {
   flex: 0 0 52px;
   border-radius: 11px;
   overflow: hidden;
-  background: linear-gradient(150deg, #23252b, #14151a 70%);
+  background: var(--art-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -274,6 +406,25 @@ body {
   color: var(--text-3);
 }
 
+.panel-head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.widget-stack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+  flex: 0 0 auto;
+}
+
+.widget-stack-head .icon-btn {
+  width: 20px;
+  height: 20px;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -291,8 +442,8 @@ body {
 
 .icon-btn:hover,
 .icon-btn-active {
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.8);
+  background: var(--surface-2);
+  color: var(--text-hover);
 }
 
 /* ---- Settings (quiet rows, hairline dividers) ---- */
@@ -300,6 +451,18 @@ body {
   display: flex;
   flex-direction: column;
   padding: 1px 2px;
+  animation: settings-slide 0.18s ease both;
+}
+
+@keyframes settings-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .settings-row {
@@ -325,7 +488,7 @@ body {
   gap: 2px;
   padding: 2px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-2);
 }
 
 .segmented button {
@@ -341,11 +504,11 @@ body {
 }
 
 .segmented button:hover {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-hover);
 }
 
 .segmented button.seg-active {
-  background: rgba(255, 255, 255, 0.13);
+  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -392,7 +555,7 @@ body {
   width: 100%;
   height: 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -400,7 +563,7 @@ body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--accent-underline);
   transition: width 0.4s linear;
 }
 
@@ -431,14 +594,14 @@ body {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--player-btn);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
 .np-ctl:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--player-ctl-hover);
+  color: var(--player-btn-hover);
 }
 
 .np-ctl:active {
@@ -448,13 +611,13 @@ body {
 .np-ctl-main {
   width: 34px;
   height: 34px;
-  background: rgba(233, 185, 73, 0.16);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .np-ctl-main:hover {
-  background: rgba(233, 185, 73, 0.26);
-  color: #f4cd6e;
+  background: var(--accent-soft-hover);
+  color: var(--accent);
 }
 
 .np-ctl-sm {
@@ -469,11 +632,11 @@ body {
 
 /* ---- Liquid glass mode ---- */
 .island.glass {
-  background: linear-gradient(165deg, rgba(26, 28, 34, 0.5) 0%, rgba(10, 12, 16, 0.62) 55%, rgba(7, 9, 13, 0.68) 100%);
+  background: var(--glass-bg);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   backdrop-filter: blur(14px) saturate(140%);
-  border-color: rgba(255, 255, 255, 0.13);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-island);
 }
 
 .island::after {
@@ -481,7 +644,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 32%, rgba(255, 255, 255, 0) 55%);
+  background: var(--glass-shine);
   pointer-events: none;
 }
 
@@ -501,7 +664,7 @@ body {
   flex: 0 0 30px;
   border-radius: 8px;
   overflow: hidden;
-  background: linear-gradient(150deg, #23252b, #14151a 70%);
+  background: var(--art-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -555,8 +718,894 @@ body {
   left: 0;
   bottom: 0;
   height: 2px;
-  background: var(--accent);
+  background: var(--accent-underline);
   opacity: 0.75;
   border-radius: 999px;
   transition: width 0.4s linear;
+}
+
+/* ---- First-run setup wizard ---- */
+.setup {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 30px 30px 24px;
+  background: var(--bg-setup);
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-setup);
+  text-align: center;
+  overflow-y: auto;
+  animation: setup-in 0.28s ease;
+}
+
+@keyframes setup-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.setup-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  background: var(--logo-bg);
+  border: 1px solid var(--border);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.setup-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.setup-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.setup-section {
+  margin: 4px 0 0;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.setup-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* ---- Setup wizard: two compact pages, never scroll ---- */
+.setup--paged {
+  overflow: hidden;
+}
+
+.setup--paged .setup-cta {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+
+/* Full-width segmented controls (Theme, Feel) on the wizard page. */
+.segmented-full {
+  display: flex;
+  width: 100%;
+}
+
+.segmented-full button {
+  flex: 1;
+  white-space: nowrap;
+}
+
+/* Compact Notch/Pill type cards with a small screen mock. */
+.setup-tile-type {
+  padding: 10px 12px 11px;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.setup-tile-type strong {
+  font-size: 12.5px;
+}
+
+.setup-tile-type small {
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.setup-preview-mini {
+  position: relative;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 34px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--screen);
+  overflow: hidden;
+}
+
+.setup-preview-mini-notch .setup-cut {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 16px;
+  background: var(--screen-cut);
+  border-radius: 0 0 8px 8px;
+}
+
+.setup-preview-mini-pill .setup-cap {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 14px;
+  background: var(--screen-cut);
+  border-radius: 999px;
+}
+
+/* Display picker as compact chips on the second page. */
+.setup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.setup-chip {
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.setup-chip:hover {
+  background: var(--chip-hover);
+  color: var(--text);
+}
+
+.setup-chip.setup-picked {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--text);
+}
+
+/* Footer row: Back + Get started. */
+.setup-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.setup-foot .setup-cta {
+  flex: 1;
+  width: auto;
+  margin: 0;
+}
+
+.setup-back {
+  flex: 0 0 auto;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.setup-back:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* The widget stack takes the remaining room and scrolls internally. */
+.setup .panel-widgets {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* ---- Monitor step ---- */
+.setup-monitor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+
+.setup-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 12px 13px;
+  min-height: 56px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-tile);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+
+.setup-tile:hover {
+  background: var(--bg-tile-hover);
+  border-color: var(--border-strong);
+}
+
+.setup-tile:active {
+  transform: scale(0.98);
+}
+
+.setup-tile.setup-picked {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.setup-tile strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-tile small {
+  font-size: 10.5px;
+  color: var(--text-2);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Custom setup: clickable screen-layout map. */
+.setup-map {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  border-radius: 13px;
+  background: var(--map-bg);
+  border: 1px solid var(--map-border);
+  overflow: hidden;
+}
+
+.setup-map-mon {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  border: 1px solid var(--map-mon-border);
+  border-radius: 6px;
+  background: var(--map-mon);
+  color: var(--text-hover);
+  font-size: 9px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.setup-map-mon span {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-map-mon:hover {
+  background: var(--map-mon-hover);
+}
+
+.setup-map-mon.setup-picked {
+  border-color: var(--accent);
+  background: var(--accent-strong);
+  color: var(--map-picked-color);
+}
+
+.setup-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-tile);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+
+.setup-option:hover {
+  background: var(--bg-tile-hover);
+  border-color: var(--border-strong);
+}
+
+.setup-option:active {
+  transform: scale(0.98);
+}
+
+.setup-option.setup-picked {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+/* Mock screen edge with the shape silhouette, so the choice is visual. */
+.setup-preview {
+  position: relative;
+  flex: 0 0 108px;
+  height: 62px;
+  border-radius: 10px;
+  background: var(--screen);
+  overflow: hidden;
+}
+
+/* Notch: a recess hanging from the preview's top edge. */
+.setup-preview-notch .setup-cut {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 26px;
+  background: var(--screen-cut);
+  border-radius: 0 0 12px 12px;
+}
+
+/* Pill: a floating capsule just below the top. */
+.setup-preview-pill .setup-cap {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 24px;
+  background: var(--screen-cut);
+  border-radius: 999px;
+}
+
+.setup-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.setup-meta strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.setup-meta small {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.setup-cta {
+  width: 100%;
+  padding: 11px 0;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.setup-cta:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.setup-cta:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- Widget cards ---- */
+.panel-widgets {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.widget-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 12px 10px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--hairline);
+  /* Entrance: plays when a card first mounts (add-widget, initial render). */
+  animation: widget-card-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes widget-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Mid-removal: fade + shrink, then the FLIP effect slides the rest up. */
+.widget-card-leaving {
+  opacity: 0;
+  transform: scale(0.94);
+  animation: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.island.glass .widget-card {
+  background: var(--card-bg-glass);
+}
+
+.widget-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 16px;
+}
+
+.widget-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.widget-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.widget-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.widget-ctl:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-hover);
+}
+
+.widget-ctl:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.widget-ctl-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.widget-ctl-remove:hover {
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+
+.widget-body {
+  min-height: 0;
+}
+
+/* Add-widget dropdown under the panel head. */
+.add-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 11px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  animation: menu-pop 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: scaleY(0.94) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+.add-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.add-menu button:hover {
+  background: var(--surface-2);
+}
+
+.add-menu-plus {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.add-menu-empty {
+  padding: 7px 10px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Widget edit forms (weather city, launcher apps). */
+.widget-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.widget-edit-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.widget-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.widget-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.widget-input:focus {
+  border-color: var(--accent-strong);
+}
+
+.widget-input-sm {
+  flex: 0 1 34%;
+}
+
+.widget-btn {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.widget-btn:hover {
+  background: var(--accent-soft-hover);
+}
+
+.widget-btn-danger {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.widget-btn-danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+
+.widget-err {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--danger);
+}
+
+/* ---- Weather widget ---- */
+.weather {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.weather-emoji {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.weather-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weather-temp {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.weather-city {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weather-side {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weather-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.weather-range {
+  font-size: 10px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* ---- App launcher widget ---- */
+.launcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.launcher-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 46px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: transform 0.1s ease, color 0.15s ease;
+}
+
+.launcher-app:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.launcher-app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--launcher-icon-bg);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.launcher[data-err] .launcher-app-icon {
+  border-color: var(--danger-border);
+}
+
+.launcher-app-label {
+  font-size: 9.5px;
+  max-width: 52px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launcher-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.launcher-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.launcher-row-name {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.launcher-row-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launcher-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.launcher-chip {
+  padding: 4px 9px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text-2);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.launcher-chip:hover {
+  background: var(--chip-hover);
+  color: var(--text);
+}
+
+/* ---- Right-click context menu ---- */
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ctx-item-danger {
+  color: var(--danger);
+}
+
+.ctx-item-danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+
+/* Display picker in the settings panel. */
+.settings-select {
+  min-width: 0;
+  max-width: 150px;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--select-bg);
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-select:hover {
+  background: var(--select-hover);
 }

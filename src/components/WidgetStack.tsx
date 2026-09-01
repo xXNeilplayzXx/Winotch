@@ -1,0 +1,250 @@
+import { useLayoutEffect, useRef, useState } from "react";
+import { uid, WIDGET_LABELS, WIDGET_TYPES } from "../lib/widgets";
+import type {
+  LauncherSettings,
+  WeatherSettings,
+  WidgetInstance,
+  WidgetType,
+} from "../lib/widgets";
+import { Clock } from "./widgets/Clock";
+import { MediaWidget, type MediaState } from "./widgets/MediaWidget";
+import { WeatherWidget } from "./widgets/WeatherWidget";
+import { LauncherWidget } from "./widgets/LauncherWidget";
+
+interface WidgetStackProps {
+  widgets: WidgetInstance[];
+  media: MediaState | null;
+  /** Called whenever the layout changes (add/remove/reorder/settings). */
+  onChange: (next: WidgetInstance[]) => void;
+  /** Setup-wizard mode: every configurable widget starts open for editing. */
+  configureAll?: boolean;
+}
+
+function GearIcon({ size = 11 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
+    </svg>
+  );
+}
+
+/**
+ * The island's widget grid. Renders every widget as a card with add (＋ menu),
+ * reorder (↑/↓), remove (✕), and — for weather / app launcher — inline
+ * settings (⚙). Shared with the setup wizard so widgets can be arranged
+ * BEFORE the island launches.
+ */
+export function WidgetStack({ widgets, media, onChange, configureAll = false }: WidgetStackProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  /** Cards mid-removal: they fade/scales out before dropping out of the list. */
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
+
+  // FLIP reorder/remove animation: positions captured before a layout change,
+  // then every card that moved animates from its old spot to the new one (the
+  // swapped/remaining cards slide too, so the whole list stays fluid).
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const flipBefore = useRef<Map<string, { top: number; left: number }> | null>(null);
+
+  const captureRects = (): Map<string, { top: number; left: number }> => {
+    const map = new Map<string, { top: number; left: number }>();
+    listRef.current?.querySelectorAll<HTMLElement>("[data-wid]").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      map.set(el.dataset.wid ?? "", { top: r.top, left: r.left });
+    });
+    return map;
+  };
+
+  // Runs right after the DOM reflects a (potential) reorder; no-op otherwise.
+  useLayoutEffect(() => {
+    const before = flipBefore.current;
+    if (!before) return;
+    flipBefore.current = null;
+    const after = captureRects();
+    listRef.current?.querySelectorAll<HTMLElement>("[data-wid]").forEach((el) => {
+      const key = el.dataset.wid ?? "";
+      const oldPos = before.get(key);
+      const newPos = after.get(key);
+      if (!oldPos || !newPos || (oldPos.top === newPos.top && oldPos.left === newPos.left)) {
+        return;
+      }
+      const dx = oldPos.left - newPos.left;
+      const dy = oldPos.top - newPos.top;
+      // Drop any still-running animation from a previous reorder, then slide.
+      el.getAnimations().forEach((a) => a.cancel());
+      el.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: 250, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
+      // Brief accent flash so the cards that just moved feel "picked up".
+      el.animate(
+        // Theme tokens so the flash follows the current accent + theme.
+        [
+          { backgroundColor: "var(--accent-soft)" },
+          { backgroundColor: "var(--card-bg)" },
+        ],
+        { duration: 420, easing: "ease-out" },
+      );
+    });
+  });
+
+  const availableTypes = WIDGET_TYPES.filter((t) => !widgets.some((w) => w.type === t));
+
+  const update = (next: WidgetInstance[]) => onChange(next);
+
+  const addWidget = (type: WidgetType) => {
+    if (widgets.some((w) => w.type === type)) return;
+    update([...widgets, { id: uid(), type }]);
+    setAddOpen(false);
+  };
+
+  const removeWidget = (id: string) => {
+    if (leaving.has(id)) return;
+    // Capture positions, mark the card as leaving (it fades/scales out via
+    // CSS), then drop it from the list — the FLIP effect above slides the
+    // remaining cards up into the gap, so removal looks continuous.
+    flipBefore.current = captureRects();
+    setLeaving((prev) => new Set(prev).add(id));
+    if (editingId === id) setEditingId(null);
+    window.setTimeout(() => {
+      setLeaving((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      update(widgets.filter((w) => w.id !== id));
+    }, 190);
+  };
+
+  const moveWidget = (id: string, dir: -1 | 1) => {
+    const i = widgets.findIndex((w) => w.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= widgets.length) return;
+    // Capture pre-move positions so the cards can animate to their new spots.
+    flipBefore.current = captureRects();
+    const next = [...widgets];
+    [next[i], next[j]] = [next[j], next[i]];
+    update(next);
+  };
+
+  const saveSettings = (
+    id: string,
+    patch: { weather?: WeatherSettings; launcher?: LauncherSettings },
+  ) => {
+    update(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  };
+
+  return (
+    <div className="panel-widgets" ref={listRef}>
+      <div className="widget-stack-head">
+        <span className="widget-label">Widgets</span>
+        <button
+          type="button"
+          className={`icon-btn ${addOpen ? "icon-btn-active" : ""}`}
+          title="Add widget"
+          onClick={() => setAddOpen((v) => !v)}
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      </div>
+
+      {addOpen && (
+        <div className="add-menu">
+          {availableTypes.length === 0 ? (
+            <span className="add-menu-empty">All widgets added</span>
+          ) : (
+            availableTypes.map((t) => (
+              <button type="button" key={t} onClick={() => addWidget(t)}>
+                <span className="add-menu-plus">＋</span>
+                {WIDGET_LABELS[t]}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {widgets.length === 0 && (
+        <div className="panel-empty">
+          <p>No widgets</p>
+          <span>Press ＋ to add one</span>
+        </div>
+      )}
+
+      {widgets.map((w, i) => {
+        const editable = w.type === "weather" || w.type === "launcher";
+        const edit = configureAll || editingId === w.id;
+        return (
+          <div
+            className={`widget-card${leaving.has(w.id) ? " widget-card-leaving" : ""}`}
+            key={w.id}
+            data-wid={w.id}
+          >
+            <div className="widget-bar">
+              <span className="widget-label">{WIDGET_LABELS[w.type]}</span>
+              <div className="widget-ctrls">
+                {editable && !configureAll && (
+                  <button
+                    type="button"
+                    className={`widget-ctl${editingId === w.id ? " widget-ctl-on" : ""}`}
+                    title="Settings"
+                    onClick={() => setEditingId(editingId === w.id ? null : w.id)}
+                  >
+                    <GearIcon />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="widget-ctl"
+                  title="Move up"
+                  disabled={i === 0}
+                  onClick={() => moveWidget(w.id, -1)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="widget-ctl"
+                  title="Move down"
+                  disabled={i === widgets.length - 1}
+                  onClick={() => moveWidget(w.id, 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="widget-ctl widget-ctl-remove"
+                  title="Remove widget"
+                  onClick={() => removeWidget(w.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="widget-body">
+              {w.type === "media" && <MediaWidget media={media} />}
+              {w.type === "clock" && <Clock expanded />}
+              {w.type === "weather" && (
+                <WeatherWidget
+                  settings={w.weather}
+                  edit={edit}
+                  onSave={(weather) => saveSettings(w.id, { weather })}
+                  onEditDone={configureAll ? undefined : () => setEditingId(null)}
+                />
+              )}
+              {w.type === "launcher" && (
+                <LauncherWidget
+                  settings={w.launcher}
+                  edit={edit}
+                  onSave={(launcher) => saveSettings(w.id, { launcher })}
+                />
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
