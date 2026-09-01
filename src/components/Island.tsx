@@ -191,6 +191,61 @@ function MiniNowPlaying({ media }: { media: MediaState }) {
   );
 }
 
+/** Shape of the Rust call://state payload (calls.rs). */
+interface CallState {
+  on_call: boolean;
+  app?: string | null;
+}
+
+function MicIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+    </svg>
+  );
+}
+
+/** Elapsed call time as `m:ss` (or `h:mm:ss` past an hour). */
+function formatCallTime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/**
+ * Collapsed live pill shown while a call is detected: green mic, the hosting
+ * app and a ticking elapsed timer. Replaces the now-playing/brand content for
+ * the duration of the call, no interaction required.
+ */
+function CallPill({ app, elapsedMs }: { app: string; elapsedMs: number }) {
+  return (
+    <div className="call-mini">
+      <span className="callm-icon" aria-hidden>
+        <MicIcon size={14} />
+      </span>
+      <span className="callm-text">
+        <span className="callm-app">{app}</span>
+        <span className="callm-status">On call · {formatCallTime(elapsedMs)}</span>
+      </span>
+      <span className="callm-live" aria-hidden title="In a call" />
+    </div>
+  );
+}
+
 export function Island({ initialShape = "notch" }: { initialShape?: IslandShape }) {
   const [mode, setMode] = useState<Mode>("collapsed");
   const [shape, setShape] = useState<IslandShape>(initialShape);
@@ -206,6 +261,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     return list;
   });
   const [media, setMedia] = useState<MediaState | null>(null);
+  const [call, setCall] = useState<CallState | null>(null);
+  // Ticking clock behind the call pill's elapsed timer.
+  const [callNow, setCallNow] = useState(0);
+  const callStartRef = useRef<number | null>(null);
   const [glass, setGlass] = useState<boolean>(() => {
     try {
       return localStorage.getItem("winotch.glass") !== "off";
@@ -247,6 +306,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
 
   const hasMediaWidget = widgets.some((w) => w.type === "media");
   const mediaLive = Boolean(media?.playing) && hasMediaWidget;
+  const callLive = Boolean(call?.on_call);
 
   // Place the island collapsed for the current shape, then reveal on mount.
   useEffect(() => {
@@ -292,6 +352,44 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       unlisten?.();
     };
   }, []);
+
+  // Live call feed: pull initial state, then follow call://state events.
+  // Off Windows the watcher is a no-op, so this stays off.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void invoke<CallState | null>("call_get_state")
+      .then((s) => {
+        if (!disposed) setCall(s ?? null);
+      })
+      .catch(() => {});
+    void listen<CallState | null>("call://state", (e) => {
+      if (!disposed) setCall(e.payload ?? null);
+    })
+      .then((u) => {
+        if (disposed) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Tick the elapsed timer once a second while the call pill is showing;
+  // the start instant is anchored the first time the call is seen.
+  useEffect(() => {
+    if (!call?.on_call) {
+      callStartRef.current = null;
+      setCallNow(0);
+      return;
+    }
+    if (callStartRef.current === null) callStartRef.current = Date.now();
+    setCallNow(Date.now());
+    const id = window.setInterval(() => setCallNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [call?.on_call]);
 
   // Cross-window sync for multi-monitor mode: when shape/appearance/widgets
   // change on one island (Rust relays it to EVERY window), the others conform.
@@ -564,7 +662,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     <div
       className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${
         mediaLive ? " media-live" : ""
-      }`}
+      }${callLive ? " call-live" : ""}`}
       onMouseEnter={enter}
       onMouseLeave={leave}
       onContextMenu={(e) => {
@@ -578,7 +676,12 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       }}
     >
       <header className="island-strip">
-        {mediaLive && media?.title ? (
+        {callLive ? (
+          <CallPill
+            app={call?.app ?? "Call"}
+            elapsedMs={Math.max(0, callNow - (callStartRef.current ?? callNow))}
+          />
+        ) : mediaLive && media?.title ? (
           <MiniNowPlaying media={media} />
         ) : (
           <>

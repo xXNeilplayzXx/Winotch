@@ -20,6 +20,7 @@ fn hide_island(app: tauri::AppHandle) {
     tray::hide_island(&app);
 }
 
+mod calls;
 mod launcher;
 mod media;
 mod monitors;
@@ -247,6 +248,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            calls::call_get_state,
             media::media_get_state,
             media::media_play_pause,
             media::media_next,
@@ -278,6 +280,8 @@ pub fn run() {
             }
             // Start the platform media watcher (SMTC on Windows; no-op elsewhere).
             media::spawn(app.handle().clone());
+            // Start the call-activity watcher (audio sessions on Windows).
+            calls::spawn(app.handle().clone());
             // Watch Windows theme/accent changes and emit them live.
             theme::spawn(app.handle().clone());
             // The transparent always-on-top window is only composited while the

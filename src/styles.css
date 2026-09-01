@@ -58,6 +58,9 @@
 
   --track: rgba(255, 255, 255, 0.09);
   --dot: rgba(255, 255, 255, 0.25);
+  --call-color: #34d399;
+  --call-soft: rgba(52, 211, 153, 0.16);
+  --call-ring: rgba(52, 211, 153, 0.45);
   --player-btn: rgba(255, 255, 255, 0.78);
   --player-btn-hover: #fff;
   --player-ctl-hover: rgba(255, 255, 255, 0.08);
@@ -125,6 +128,9 @@
 
   --track: rgba(0, 0, 0, 0.1);
   --dot: rgba(0, 0, 0, 0.3);
+  --call-color: #059669;
+  --call-soft: rgba(5, 150, 105, 0.15);
+  --call-ring: rgba(5, 150, 105, 0.4);
   --player-btn: rgba(15, 17, 24, 0.75);
   --player-btn-hover: #101016;
   --player-ctl-hover: rgba(0, 0, 0, 0.07);
@@ -726,6 +732,75 @@ body {
   opacity: 0.75;
   border-radius: 999px;
   transition: width 0.4s linear;
+}
+
+/* ---- Collapsed call pill (auto live activity) ---- */
+.call-mini {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  animation: island-in 0.25s ease;
+}
+
+.callm-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: var(--call-soft);
+  color: var(--call-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.callm-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.callm-app {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.callm-status {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* Pulsing live beacon at the pill's right edge. */
+.callm-live {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--call-color);
+  animation: call-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes call-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--call-ring);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
 }
 
 /* ---- First-run setup wizard ---- */
