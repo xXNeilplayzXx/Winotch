@@ -105,8 +105,13 @@ mod cpp_runtime {
     #[export_name = "?nothrow@std@@3Unothrow_t@1@B"]
     pub static NOTHROW: u8 = 0;
 
-    // MSVC /GS stack-cookie support: a zeroed cookie makes the save/compare
-    // in the loader's guarded functions pass trivially.
+    // MSVC /GS stack-cookie support. On the GNU toolchain the MSVC CRT is
+    // absent, so define a zeroed cookie (the save/compare in the loader's
+    // guarded functions passes trivially). On MSVC builds the CRT owns this
+    // symbol: tauri statically links the VC runtime by default
+    // (staticVCRuntime), and libcmt's gs_cookie.obj already defines
+    // `__security_cookie` — defining it here too is LNK2005.
+    #[cfg(target_env = "gnu")]
     #[export_name = "__security_cookie"]
     pub static SECURITY_COOKIE: u64 = 0;
 
