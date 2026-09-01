@@ -3,18 +3,18 @@
 A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top edge of your screen and expands on hover into a media player, weather, clock, app launcher, and settings panel. Inspired by macOS notch apps like boring.notch and [notchy.dev](https://notchy.dev). Built with Tauri 2 (Rust + React).
 
 <p align="center">
-  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.3/winotch.exe">
+  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe">
     <img alt="Download winotch.exe for Windows" src="https://img.shields.io/badge/Download%20winotch.exe%20for%20Windows-0078d7?style=for-the-badge" />
   </a>
 </p>
 
-> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v0.2.3** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
+> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v0.2.5** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
 
 ---
 
 ## 🪟 For non-technical people (3 steps)
 
-1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.3/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
+1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
 2. **Double-click `winotch.exe`.** If Windows pops up *"Windows protected your PC"*, click **More info**, then **Run anyway**. (We haven't bought a code-signing certificate yet, so Windows doesn't trust the file — it's safe, we promise.)
 3. **Answer the 2-page setup**, click **Get started**, and the notch appears at the top-center of your screen. Move your mouse over it to expand it.
 
@@ -28,6 +28,7 @@ Done. To remove Winotch later, just delete the `.exe`.
 
 - **Two-page setup wizard (no scrolling)** — page 1 picks the look: theme (Light/Dark/System Default), type (Notch vs Pill), feel (Glass vs Solid). Page 2 picks where it lives and arranges your widgets before the island ever launches
 - **Notch or Pill mode** — a carved notch flush with the screen top, or a floating capsule; switch any time in settings
+- **Sized to your screen (or not)** — width/height sliders in settings set an exact notch size (150–800 × 30–200 px), staged in a draft and applied with Apply (or discarded with Reset)
 - **Theme system** — Light and Dark force every surface (notch, settings, menus, wizard) instantly; **System Default** follows your Windows app theme **live** — flip Windows between light/dark with no restart and the island re-skins itself
 - **Windows accent integration** — the notch's highlight follows your Windows accent color automatically, including the small underline beneath active taskbar icons; changes apply live
 - **Choose your display** — main monitor, any specific display (shown by its real name), **All monitors** (one island per screen), or pick one on a visual map of your screen layout
@@ -46,7 +47,7 @@ Grab the latest build from the Releases page:
 
 **https://github.com/xXNeilplayzXx/Winotch/releases**
 
-Direct download for v0.2.3: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.3/winotch.exe**
+Direct download for v0.2.5: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe**
 
 ## Install
 
