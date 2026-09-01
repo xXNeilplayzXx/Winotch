@@ -45,9 +45,14 @@ pub struct SystemStats {
 }
 
 struct SysState {
-    /// One process-wide instance so `sysinfo` can track CPU-usage history,
-    /// listed networks and component sensors between polls.
+    /// One process-wide instance so `sysinfo` can track CPU-usage history
+    /// between polls.
     sys: sysinfo::System,
+    /// Network interfaces and their cumulative counters (sysinfo >= 0.30 keeps
+    /// Networks/Components as standalone types, refreshed separately).
+    networks: sysinfo::Networks,
+    /// Thermal component sensors.
+    components: sysinfo::Components,
     /// (received, transmitted) cumulative bytes per interface at the last poll.
     nets: Vec<(String, u64, u64)>,
     at: Instant,
@@ -57,9 +62,9 @@ static STATE: OnceLock<Mutex<SysState>> = OnceLock::new();
 
 fn state() -> &'static Mutex<SysState> {
     STATE.get_or_init(|| Mutex::new(SysState {
-        // new_all() lists networks and thermal components too, so the first
-        // refresh below can walk them without a separate list refresh.
         sys: sysinfo::System::new_all(),
+        networks: sysinfo::Networks::new_with_refreshed_list(),
+        components: sysinfo::Components::new_with_refreshed_list(),
         nets: Vec::new(),
         at: Instant::now(),
     }))
@@ -85,13 +90,13 @@ fn network_throughput(state: &mut SysState) -> Option<NetworkStats> {
     let mut d_down = 0.0f64;
     let mut d_up = 0.0f64;
     let mut cur: Vec<(String, u64, u64)> = Vec::new();
-    for (name, data) in state.sys.networks().iter() {
+    for (name, data) in state.networks.iter() {
         if is_virtual_interface(name) {
             continue;
         }
         let r = data.received();
         let t = data.transmitted();
-        cur.push((name.clone(), r, t));
+        cur.push((name.to_string(), r, t));
         if let Some((_, pr, pt)) = state.nets.iter().find(|(n, _, _)| n == name) {
             d_down += r.saturating_sub(*pr) as f64;
             d_up += t.saturating_sub(*pt) as f64;
@@ -108,11 +113,11 @@ fn network_throughput(state: &mut SysState) -> Option<NetworkStats> {
 
 /// CPU temperature in °C: prefer a CPU-ish sensor (package/tctl/tdie/soc),
 /// otherwise the hothest component. None when nothing is exposed.
-fn cpu_temperature(sys: &sysinfo::System) -> Option<f32> {
-    if sys.components().is_empty() {
+fn cpu_temperature(components: &sysinfo::Components) -> Option<f32> {
+    if components.is_empty() {
         return None;
     }
-    let preferred = sys.components().iter().find(|c| {
+    let preferred = components.iter().find(|c| {
         let l = c.label().to_ascii_lowercase();
         l.contains("cpu")
             || l.contains("package")
@@ -121,16 +126,15 @@ fn cpu_temperature(sys: &sysinfo::System) -> Option<f32> {
             || l.contains("soc")
             || l.contains("die")
     });
-    let t = preferred
-        .map(|c| c.temperature())
+    preferred
+        .and_then(|c| c.temperature())
         .or_else(|| {
-            sys.components()
+            components
                 .iter()
-                .map(|c| c.temperature())
+                .filter_map(|c| c.temperature())
                 .reduce(f32::max)
         })
-        .filter(|t| t.is_finite() && *t > 0.0 && *t < 200.0);
-    t
+        .filter(|t| t.is_finite() && *t > 0.0 && *t < 200.0)
 }
 
 /// Battery snapshot (pct 0..100 + charging state), or None when the machine has
@@ -141,7 +145,7 @@ fn battery_status() -> Option<BatteryStats> {
         use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
         let mut status = SYSTEM_POWER_STATUS::default();
         // SAFETY: SYSTEM_POWER_STATUS is a plain C struct the OS fills in.
-        if !unsafe { GetSystemPowerStatus(&mut status) }.as_bool() {
+        if !unsafe { GetSystemPowerStatus(&mut status) }.is_ok() {
             return None;
         }
         // 255 = "unknown / not on battery" per the SYSTEM_POWER_STATUS docs.
@@ -183,18 +187,20 @@ fn battery_status() -> Option<BatteryStats> {
 #[tauri::command]
 pub fn system_stats() -> SystemStats {
     let mut guard = state().lock().unwrap_or_else(|p| p.into_inner());
-    let sys = &mut guard.sys;
-    sys.refresh_cpu_usage();
-    sys.refresh_memory();
-    sys.refresh_networks();
-    sys.refresh_components();
+    {
+        let sys = &mut guard.sys;
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+    }
+    guard.networks.refresh(true);
+    guard.components.refresh(true);
     let gib = 1024.0 * 1024.0 * 1024.0;
     SystemStats {
-        cpu: sys.global_cpu_usage(),
-        mem_used_gb: sys.used_memory() as f32 / gib,
-        mem_total_gb: sys.total_memory() as f32 / gib,
+        cpu: guard.sys.global_cpu_usage(),
+        mem_used_gb: guard.sys.used_memory() as f32 / gib,
+        mem_total_gb: guard.sys.total_memory() as f32 / gib,
         network: network_throughput(&mut guard),
-        temp_c: cpu_temperature(sys),
+        temp_c: cpu_temperature(&guard.components),
         battery: battery_status(),
     }
 }

@@ -298,7 +298,7 @@ pub fn run() {
             // pill itself remains visible.
             #[cfg(target_os = "windows")]
             for (_, w) in app.webview_windows() {
-                let _ = w.set_background_color(tauri::Color::TRANSPARENT);
+                let _ = w.set_background_color(tauri::window::Color(0, 0, 0, 0));
             }
             // Start the platform media watcher (SMTC on Windows; no-op elsewhere).
             media::spawn(app.handle().clone());
