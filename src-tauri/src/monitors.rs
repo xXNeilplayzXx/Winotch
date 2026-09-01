@@ -215,7 +215,7 @@ mod win {
             // the webview background to fully transparent so the OS never
             // paints corners behind the rounded island.
             if let Some(win) = app.get_webview_window(&label) {
-                let _ = win.set_background_color(tauri::window::Color(0, 0, 0, 0));
+                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
             }
         }
         Ok(())
