@@ -51,23 +51,33 @@ function monitorForPref(list: MonitorInfo[], pref: MonitorPref): MonitorInfo | n
   return list.find((mm) => mm.isPrimary) ?? list[0] ?? null;
 }
 
-/** The collapsed size currently in effect: the custom pref, else derived. */
-function currentCollapsedSize(shape: IslandShape, list: MonitorInfo[]): IslandSize {
-  const custom = readSizePref();
-  const size =
-    custom ??
-    (() => {
-      const mon = monitorForPref(list, readMonitorPref());
-      const widthPoints = mon ? Math.round(mon.width / (mon.scale || 1)) : 1710;
-      const sizes = sizesForDisplay(widthPoints);
-      return shape === "notch" ? sizes.notchCollapsed : sizes.pillCollapsed;
-    })();
-  // Snap to the slider steps (width 10, height 5) so the label and the thumb
-  // always agree when the panel opens, whether the size is custom or derived.
+/** Snap to the slider steps (width 10, height 5) so label and thumb agree. */
+function snapToSliderSteps(size: IslandSize): IslandSize {
   return {
     width: Math.round(size.width / 10) * 10,
     height: Math.round(size.height / 5) * 5,
   };
+}
+
+/** The auto-derived collapsed size for a shape on the given display pref. */
+function derivedCollapsedSize(
+  shape: IslandShape,
+  list: MonitorInfo[],
+  pref: MonitorPref,
+): IslandSize {
+  const mon = monitorForPref(list, pref);
+  const widthPoints = mon ? Math.round(mon.width / (mon.scale || 1)) : 1710;
+  const sizes = sizesForDisplay(widthPoints);
+  const size = shape === "notch" ? sizes.notchCollapsed : sizes.pillCollapsed;
+  return snapToSliderSteps(size);
+}
+
+/** The collapsed size currently in effect: the custom pref, else derived. */
+function currentCollapsedSize(shape: IslandShape, list: MonitorInfo[]): IslandSize {
+  const custom = readSizePref();
+  return custom
+    ? snapToSliderSteps(custom)
+    : derivedCollapsedSize(shape, list, readMonitorPref());
 }
 
 function MusicNote({ size = 20 }: { size?: number }) {
@@ -328,48 +338,53 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   };
 
   /**
-   * Apply the staged draft: persist every setting, then re-place the OS window
+   * Persist and apply a concrete settings object, then re-place the OS window
    * when the geometry (shape / size / monitor) changed. Theme and appearance
    * apply in place; geometry changes collapse the island so the new bar is
    * immediately visible, exactly like the old instant-apply shape switch.
    */
-  const applySettings = () => {
-    if (!draft) return;
+  const commitSettings = (d: SettingsDraft, opts?: { resetSizeToAuto?: boolean }) => {
     // Normalize a stale draft monitor (e.g. a display unplugged while the
     // panel was open) back to a selectable value before persisting it.
-    const monitor = monitorSelectValue(draft.monitor) as MonitorPref;
-    const shapeChanged = draft.shape !== shape;
-    const glassChanged = draft.glass !== glass;
-    const themeChanged = draft.theme !== themePref;
+    const monitor = monitorSelectValue(d.monitor) as MonitorPref;
+    const shapeChanged = d.shape !== shape;
+    const glassChanged = d.glass !== glass;
+    const themeChanged = d.theme !== themePref;
     const monitorChanged = monitor !== readMonitorPref();
     const prevCustom = readSizePref();
-    const sizeChanged =
-      !prevCustom ||
-      prevCustom.width !== draft.size.width ||
-      prevCustom.height !== draft.size.height;
+    // Resetting to auto clears the custom size, so it's only a "change" when
+    // a custom size is currently stored; otherwise compare values as usual.
+    const sizeChanged = opts?.resetSizeToAuto
+      ? prevCustom !== null
+      : !prevCustom || prevCustom.width !== d.size.width || prevCustom.height !== d.size.height;
 
     // Everything is persisted under its existing key / manager.
     if (shapeChanged) {
-      setShape(draft.shape);
+      setShape(d.shape);
       try {
-        localStorage.setItem("winotch.shape", draft.shape);
+        localStorage.setItem("winotch.shape", d.shape);
       } catch {
         /* storage unavailable; keep session-only */
       }
     }
     if (glassChanged) {
-      setGlass(draft.glass);
+      setGlass(d.glass);
       try {
-        localStorage.setItem("winotch.glass", draft.glass ? "on" : "off");
+        localStorage.setItem("winotch.glass", d.glass ? "on" : "off");
       } catch {
         /* storage unavailable; keep session-only */
       }
     }
-    saveSizePref({ width: draft.size.width, height: draft.size.height });
-    setAppliedSize({ width: draft.size.width, height: draft.size.height });
+    if (opts?.resetSizeToAuto) {
+      saveSizePref(null);
+      setAppliedSize(null);
+    } else {
+      saveSizePref({ width: d.size.width, height: d.size.height });
+      setAppliedSize({ width: d.size.width, height: d.size.height });
+    }
     saveMonitorPref(monitor);
-    setThemePref(draft.theme);
-    if (themeChanged) themeManager.setPref(draft.theme);
+    setThemePref(d.theme);
+    if (themeChanged) themeManager.setPref(d.theme);
 
     const reposition = shapeChanged || sizeChanged || monitorChanged;
     if (reposition) {
@@ -384,7 +399,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         void invoke("close_island_windows").catch(() => {});
       }
       clearMonitorCache();
-      void showIsland(draft.shape)
+      void showIsland(d.shape)
         .then(() => {
           if (monitor !== "all") {
             // Re-assert placement on the chosen display (backend geometry).
@@ -394,8 +409,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
           }
           // Re-assert the exact logical size (backend geometry).
           void invoke("update_notch_size", {
-            width: draft.size.width,
-            height: draft.size.height,
+            width: d.size.width,
+            height: d.size.height,
           }).catch(() => {});
         })
         .catch(() => {});
@@ -405,13 +420,35 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     }
 
     broadcastConfig({
-      shape: draft.shape,
-      glass: draft.glass,
-      size: { width: draft.size.width, height: draft.size.height },
+      shape: d.shape,
+      glass: d.glass,
+      size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
     // Keep the seeded draft aligned with what was just applied (monitor
     // normalization, size snap) so a follow-up Apply is a true no-op.
-    setDraft({ ...draft, monitor, size: { ...draft.size } });
+    setDraft({ ...d, monitor, size: { ...d.size } });
+  };
+
+  /** Apply the staged draft (the settings panel's Apply button). */
+  const applySettings = () => {
+    if (!draft) return;
+    commitSettings(draft);
+  };
+
+  /**
+   * Restore factory defaults immediately: Notch mode, auto-derived size,
+   * primary monitor, Glass appearance, System Default theme.
+   */
+  const applyDefaults = () => {
+    const defaults: SettingsDraft = {
+      shape: "notch",
+      monitor: "primary",
+      glass: true,
+      theme: "system",
+      size: derivedCollapsedSize("notch", monitors, "primary"),
+    };
+    setDraft(defaults);
+    commitSettings(defaults, { resetSizeToAuto: true });
   };
 
   /** Current pref, rewritten so it always matches a <select> option. */
@@ -677,6 +714,16 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 Apply
               </button>
             </div>
+            <button
+              type="button"
+              className="settings-reset-default"
+              onClick={(e) => {
+                e.stopPropagation();
+                applyDefaults();
+              }}
+            >
+              Reset to default
+            </button>
           </div>
         )}
 

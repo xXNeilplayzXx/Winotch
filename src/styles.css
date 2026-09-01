@@ -1676,6 +1676,26 @@ input[type="range"]:active::-webkit-slider-thumb {
   background: var(--accent-underline);
 }
 
+/* Full-width "Reset to default" link under Apply / Reset. */
+.settings-reset-default {
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-reset-default:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger-border, var(--border-strong));
+  color: var(--danger);
+}
+
 /* Display picker in the settings panel. */
 .settings-select {
   min-width: 0;
