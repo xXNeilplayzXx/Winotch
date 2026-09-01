@@ -851,10 +851,12 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     flashTimer.current = window.setTimeout(() => setAppliedFlash(false), 1400);
     // Correlated feedback: the motion mirrors the change being applied.
+    // d.size is a boolean change-flag; compare the staged draft's actual
+    // dimensions against the applied size to pick grow vs. shrink.
     const kind: ApplyAnimKind = d.shape
       ? "morph"
       : d.size
-        ? d.size.width * d.size.height >= cur.width * cur.height
+        ? draft.size.width * draft.size.height >= cur.width * cur.height
           ? "grow"
           : "shrink"
         : d.theme || d.accent
