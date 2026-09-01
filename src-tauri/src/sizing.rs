@@ -28,7 +28,7 @@ pub fn update_notch_size(window: tauri::Window, width: f64, height: f64) -> Resu
 /// frontend can call this any time to re-assert placement; the boot path in
 /// lib.rs also calls it so the window never paints off-position.
 #[tauri::command]
-pub fn lock_to_primary_top_center(window: tauri::Window) -> Result<(), String> {
+pub fn lock_to_primary_top_center(window: tauri::WebviewWindow) -> Result<(), String> {
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let mon = window
         .primary_monitor()

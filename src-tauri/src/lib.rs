@@ -318,7 +318,7 @@ pub fn run() {
             // display before it paints. Windows otherwise drops a fresh window
             // at whatever default position it likes, which is how the notch
             // shows up floating off the top-left of the screen at launch.
-            if let Some(win) = app.get_window("main") {
+            if let Some(win) = app.get_webview_window("main") {
                 let _ = sizing::lock_to_primary_top_center(win);
             }
             // The transparent always-on-top window is only composited while the
