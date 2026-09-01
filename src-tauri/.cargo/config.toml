@@ -1,7 +1,10 @@
-# Force the llvm-mingw static libunwind (shipped in src-tauri/static/) instead
-# of the toolchain's libunwind.dll import lib, so the release exe needs no
-# companion DLL. `-L` is appended before the toolchain dirs, and lld finds
-# libunwind.a there first. (Note: `${CARGO_MANIFEST_DIR}` is NOT expanded in
-# rustflags, hence the absolute path — this cross-build only runs on this box.)
+# Statically link the CRT and unwind runtime for the Windows GNU/llvm-mingw
+# cross-builds so the release exe runs on stock Windows with no companion
+# DLLs (no libunwind.dll, libgcc, or libwinpthread). The static libunwind.a
+# itself is committed in src-tauri/static and wired up from build.rs via a
+# rustc-link-search, so no machine-specific paths are needed here.
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [target.x86_64-pc-windows-gnullvm]
-rustflags = ["-C", "link-arg=-L/Volumes/NotchDev/notchy/src-tauri/static"]
+rustflags = ["-C", "target-feature=+crt-static"]
