@@ -23,13 +23,31 @@ import {
   saveGlassOpacity,
   GLASS_OPACITY_DEFAULT,
 } from "../lib/glass";
-import { readThemePref, themeManager, type ThemePref } from "../lib/theme";
+import {
+  ACCENT_SYSTEM,
+  readAccentPref,
+  readThemePref,
+  themeManager,
+  type ThemePref,
+} from "../lib/theme";
 import { readWidgets, saveWidgets, type WidgetInstance } from "../lib/widgets";
 import { WidgetStack } from "./WidgetStack";
 import { Clock } from "./widgets/Clock";
 import type { MediaState } from "./widgets/MediaWidget";
 
 type Mode = "collapsed" | "expanded";
+
+/** Preset accent colors for the Color theme picker. */
+const ACCENT_PRESETS = [
+  "#e9b949", // brand gold
+  "#2f6fed", // blue
+  "#10b981", // green
+  "#06b6d4", // cyan
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#ef4444", // red
+  "#f97316", // orange
+];
 
 /** Pending settings values, staged by the controls until Apply is pressed. */
 interface SettingsDraft {
@@ -39,6 +57,8 @@ interface SettingsDraft {
   /** Liquid-glass opacity percent (only meaningful in glass mode). */
   glassOpacity: number;
   theme: ThemePref;
+  /** `system` (follow Windows) or an explicit `#rrggbb` accent hex. */
+  accent: string;
   size: IslandSize;
 }
 
@@ -284,12 +304,14 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       widgets?: WidgetInstance[];
       size?: IslandSize | null;
       glassOpacity?: number;
+      accent?: string;
     }>("winotch://config", (e) => {
       if (disposed) return;
       const p = e.payload;
       if (p.widgets) setWidgets(p.widgets);
       if (p.size !== undefined) setAppliedSize(p.size ?? null);
       if (p.glassOpacity !== undefined) setGlassOpacity(p.glassOpacity);
+      if (p.accent !== undefined) themeManager.setAccentPref(p.accent);
       setShape(p.shape);
       setGlass(p.glass);
       if (modeRef.current === "collapsed") {
@@ -350,6 +372,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       glass,
       glassOpacity,
       theme: themePref,
+      accent: readAccentPref(),
       size: currentCollapsedSize(shape, monitors),
     });
   };
@@ -368,6 +391,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     const glassChanged = d.glass !== glass;
     const opacityChanged = d.glassOpacity !== glassOpacity;
     const themeChanged = d.theme !== themePref;
+    const accentChanged = d.accent !== readAccentPref();
     const monitorChanged = monitor !== readMonitorPref();
     const prevCustom = readSizePref();
     // Resetting to auto clears the custom size, so it's only a "change" when
@@ -407,6 +431,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     saveMonitorPref(monitor);
     setThemePref(d.theme);
     if (themeChanged) themeManager.setPref(d.theme);
+    if (accentChanged) themeManager.setAccentPref(d.accent);
 
     const reposition = shapeChanged || sizeChanged || monitorChanged;
     if (reposition) {
@@ -445,6 +470,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       shape: d.shape,
       glass: d.glass,
       glassOpacity: d.glassOpacity,
+      accent: d.accent,
       size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
     // Keep the seeded draft aligned with what was just applied (monitor
@@ -469,6 +495,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       glass: true,
       glassOpacity: GLASS_OPACITY_DEFAULT,
       theme: "system",
+      accent: ACCENT_SYSTEM,
       size: derivedCollapsedSize("notch", monitors, "primary"),
     };
     setDraft(defaults);
@@ -492,6 +519,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     widgets?: WidgetInstance[];
     size?: IslandSize | null;
     glassOpacity?: number;
+    accent?: string;
   }) => {
     void invoke("broadcast_config", {
       config: {
@@ -500,6 +528,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         widgets: override?.widgets ?? widgets,
         size: override?.size !== undefined ? override.size : appliedSize,
         glassOpacity: override?.glassOpacity ?? glassOpacity,
+        accent: override?.accent ?? readAccentPref(),
       },
     }).catch(() => {});
   };
@@ -523,6 +552,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         glass,
         glassOpacity,
         theme: themePref,
+        accent: readAccentPref(),
         size: currentCollapsedSize(shape, monitors),
       });
     }
@@ -735,8 +765,63 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 >
                   System Default
                 </button>
+                <button
+                  type="button"
+                  title="Customize the accent colors"
+                  className={draft.theme === "color" ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, theme: "color" });
+                  }}
+                >
+                  Color
+                </button>
               </div>
             </div>
+            {draft.theme === "color" && (
+              <div className="settings-row settings-row-slider">
+                <div className="settings-slider-head">
+                  <span className="settings-label">Accent color</span>
+                  <span className="settings-slider-value">
+                    {draft.accent === ACCENT_SYSTEM ? "Windows accent" : draft.accent.toUpperCase()}
+                  </span>
+                </div>
+                <div className="settings-swatches">
+                  {ACCENT_PRESETS.map((hex) => (
+                    <button
+                      key={hex}
+                      type="button"
+                      title={hex}
+                      className={`settings-swatch${draft.accent === hex ? " settings-swatch-active" : ""}`}
+                      style={{ background: hex }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDraft({ ...draft, accent: hex });
+                      }}
+                    />
+                  ))}
+                  <label className="settings-swatch settings-swatch-custom" title="Custom color">
+                    <input
+                      type="color"
+                      value={draft.accent === ACCENT_SYSTEM ? ACCENT_PRESETS[0] : draft.accent}
+                      onChange={(e) => setDraft({ ...draft, accent: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className={`settings-accent-system${
+                    draft.accent === ACCENT_SYSTEM ? " settings-accent-system-active" : ""
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, accent: ACCENT_SYSTEM });
+                  }}
+                >
+                  Use Windows accent
+                </button>
+              </div>
+            )}
             <div className="settings-actions">
               <button
                 type="button"

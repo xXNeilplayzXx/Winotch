@@ -29,7 +29,7 @@ Done. To remove Winotch later, just delete the `.exe`.
 - **Two-page setup wizard (no scrolling)** — page 1 picks the look: theme (Light/Dark/System Default), type (Notch vs Pill), feel (Glass vs Solid). Page 2 picks where it lives and arranges your widgets before the island ever launches
 - **Notch or Pill mode** — a carved notch flush with the screen top, or a floating capsule; switch any time in settings
 - **Sized to your screen (or not)** — width/height sliders in settings set an exact notch size (150–800 × 30–200 px), staged in a draft and applied with Apply (or discarded with Reset)
-- **Theme system** — Light and Dark force every surface (notch, settings, menus, wizard) instantly; **System Default** follows your Windows app theme **live** — flip Windows between light/dark with no restart and the island re-skins itself
+- **Theme system** — Light and Dark force every surface (notch, settings, menus, wizard) instantly; **System Default** follows your Windows app theme **live** — flip Windows between light/dark with no restart and the island re-skins itself; a **Color** theme unlocks preset accent swatches, a custom color picker, and a Follow-Windows accent option
 - **Windows accent integration** — the notch's highlight follows your Windows accent color automatically, including the small underline beneath active taskbar icons; changes apply live
 - **Choose your display** — main monitor, any specific display (shown by its real name), **All monitors** (one island per screen), or pick one on a visual map of your screen layout
 - **Widgets** — stack, reorder (with animations), and remove: media control, clock, weather (Open-Meteo, no API key), and an app launcher. Add with ＋, edit weather city / launcher apps with the ⚙ on each card

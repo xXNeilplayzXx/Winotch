@@ -1680,6 +1680,73 @@ input[type="range"]:active::-webkit-slider-thumb {
   background: var(--accent-underline);
 }
 
+/* Accent-color theming (the "Color" theme picker). */
+.settings-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.settings-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.settings-swatch:hover {
+  transform: scale(1.1);
+}
+
+.settings-swatch-active {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.settings-swatch-custom {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+}
+
+.settings-swatch-custom input[type="color"] {
+  position: absolute;
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-accent-system {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-accent-system:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.settings-accent-system-active {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--accent-strong);
+}
+
 /* Full-width "Reset to default" link under Apply / Reset. */
 .settings-reset-default {
   margin-top: 6px;

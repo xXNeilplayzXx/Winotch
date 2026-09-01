@@ -83,6 +83,9 @@ pub struct ConfigBroadcast {
     /// Liquid-glass opacity percent (only meaningful in glass mode).
     #[serde(default, rename = "glassOpacity")]
     pub glass_opacity: Option<f64>,
+    /// Accent preference: `system` (follow Windows) or an explicit hex.
+    #[serde(default)]
+    pub accent: Option<String>,
 }
 
 /// Broadcast a config change to ALL island windows, so multi-window mode stays
