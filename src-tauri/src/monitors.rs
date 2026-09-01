@@ -80,6 +80,9 @@ pub struct ConfigBroadcast {
     pub widgets: Option<serde_json::Value>,
     #[serde(default)]
     pub size: Option<ConfigSize>,
+    /// Liquid-glass opacity percent (only meaningful in glass mode).
+    #[serde(default, rename = "glassOpacity")]
+    pub glass_opacity: Option<f64>,
 }
 
 /// Broadcast a config change to ALL island windows, so multi-window mode stays

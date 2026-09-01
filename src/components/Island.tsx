@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,6 +17,12 @@ import {
   type MonitorPref,
 } from "../lib/monitors";
 import { readSizePref, saveSizePref, type IslandSize } from "../lib/size";
+import {
+  applyGlassOpacity,
+  readGlassOpacity,
+  saveGlassOpacity,
+  GLASS_OPACITY_DEFAULT,
+} from "../lib/glass";
 import { readThemePref, themeManager, type ThemePref } from "../lib/theme";
 import { readWidgets, saveWidgets, type WidgetInstance } from "../lib/widgets";
 import { WidgetStack } from "./WidgetStack";
@@ -30,6 +36,8 @@ interface SettingsDraft {
   shape: IslandShape;
   monitor: MonitorPref;
   glass: boolean;
+  /** Liquid-glass opacity percent (only meaningful in glass mode). */
+  glassOpacity: number;
   theme: ThemePref;
   size: IslandSize;
 }
@@ -186,6 +194,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     }
   });
   const [themePref, setThemePref] = useState<ThemePref>(() => readThemePref());
+  // Liquid-glass opacity percent; applies live as a CSS variable.
+  const [glassOpacity, setGlassOpacity] = useState<number>(() => readGlassOpacity());
   // Custom collapsed size (settings sliders); null = derive from the display.
   const [appliedSize, setAppliedSize] = useState<IslandSize | null>(() => readSizePref());
   // Staged settings values, only applied (and persisted) when Apply is pressed.
@@ -268,17 +278,18 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   // The emitting window is expanded and skips the animation (it already did).
   useEffect(() => {
     let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen<{
+    let unlisten: (() => void) | undefined;      void listen<{
       shape: IslandShape;
       glass: boolean;
       widgets?: WidgetInstance[];
       size?: IslandSize | null;
+      glassOpacity?: number;
     }>("winotch://config", (e) => {
       if (disposed) return;
       const p = e.payload;
       if (p.widgets) setWidgets(p.widgets);
       if (p.size !== undefined) setAppliedSize(p.size ?? null);
+      if (p.glassOpacity !== undefined) setGlassOpacity(p.glassOpacity);
       setShape(p.shape);
       setGlass(p.glass);
       if (modeRef.current === "collapsed") {
@@ -295,6 +306,11 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       unlisten?.();
     };
   }, []);
+
+  // Re-skin the island the instant the glass opacity changes (both themes).
+  useLayoutEffect(() => {
+    applyGlassOpacity(glassOpacity);
+  }, [glassOpacity]);
 
   // Grow/shrink the expanded window when the widget count changes.
   const firstWidgetsRender = useRef(true);
@@ -332,6 +348,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       shape,
       monitor: readMonitorPref(),
       glass,
+      glassOpacity,
       theme: themePref,
       size: currentCollapsedSize(shape, monitors),
     });
@@ -349,6 +366,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     const monitor = monitorSelectValue(d.monitor) as MonitorPref;
     const shapeChanged = d.shape !== shape;
     const glassChanged = d.glass !== glass;
+    const opacityChanged = d.glassOpacity !== glassOpacity;
     const themeChanged = d.theme !== themePref;
     const monitorChanged = monitor !== readMonitorPref();
     const prevCustom = readSizePref();
@@ -374,6 +392,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       } catch {
         /* storage unavailable; keep session-only */
       }
+    }
+    if (opacityChanged) {
+      saveGlassOpacity(d.glassOpacity);
+      setGlassOpacity(d.glassOpacity); // effect re-skins --glass-opacity
     }
     if (opts?.resetSizeToAuto) {
       saveSizePref(null);
@@ -422,6 +444,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     broadcastConfig({
       shape: d.shape,
       glass: d.glass,
+      glassOpacity: d.glassOpacity,
       size: opts?.resetSizeToAuto ? null : { width: d.size.width, height: d.size.height },
     });
     // Keep the seeded draft aligned with what was just applied (monitor
@@ -444,6 +467,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       shape: "notch",
       monitor: "primary",
       glass: true,
+      glassOpacity: GLASS_OPACITY_DEFAULT,
       theme: "system",
       size: derivedCollapsedSize("notch", monitors, "primary"),
     };
@@ -467,6 +491,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
     glass?: boolean;
     widgets?: WidgetInstance[];
     size?: IslandSize | null;
+    glassOpacity?: number;
   }) => {
     void invoke("broadcast_config", {
       config: {
@@ -474,6 +499,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         glass: override?.glass ?? glass,
         widgets: override?.widgets ?? widgets,
         size: override?.size !== undefined ? override.size : appliedSize,
+        glassOpacity: override?.glassOpacity ?? glassOpacity,
       },
     }).catch(() => {});
   };
@@ -495,6 +521,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
         shape,
         monitor: readMonitorPref(),
         glass,
+        glassOpacity,
         theme: themePref,
         size: currentCollapsedSize(shape, monitors),
       });
@@ -654,6 +681,24 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             </div>
+            {draft.glass && (
+              <div className="settings-row settings-row-slider">
+                <div className="settings-slider-head">
+                  <span className="settings-label">Glass opacity</span>
+                  <span className="settings-slider-value">{draft.glassOpacity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  step="5"
+                  value={draft.glassOpacity}
+                  onChange={(e) =>
+                    setDraft({ ...draft, glassOpacity: Number(e.target.value) })
+                  }
+                />
+              </div>
+            )}
             <div className="settings-row">
               <span className="settings-label">Theme</span>
               <div className="segmented segmented-3">

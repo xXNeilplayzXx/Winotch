@@ -34,7 +34,7 @@ Done. To remove Winotch later, just delete the `.exe`.
 - **Choose your display** — main monitor, any specific display (shown by its real name), **All monitors** (one island per screen), or pick one on a visual map of your screen layout
 - **Widgets** — stack, reorder (with animations), and remove: media control, clock, weather (Open-Meteo, no API key), and an app launcher. Add with ＋, edit weather city / launcher apps with the ⚙ on each card
 - **Live media widget** — reads the Windows SMTC feed, so Spotify, Chrome/Edge YouTube and other media apps automatically swap the collapsed pill into a mini player with title, artist, album art, progress, and play/pause + skip
-- **Liquid glass mode** — translucent, blurred appearance (or solid dark)
+- **Liquid glass mode** — translucent, blurred appearance (or solid dark), with a glass-opacity slider (10–100%) that only appears while Glass is selected
 - **Right-click the notch** — **Hide Winotch** or **Close Winotch**; a system-tray icon (Show / Hide / Quit) brings it back anytime
 - **Hover to expand** — grows into a full panel with settings (theme, mode, appearance, display)
 - **Always on top, zero scrollbars** — fixed-shape windows that hug the absolute top edge of their display
