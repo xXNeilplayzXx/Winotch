@@ -3,18 +3,18 @@
 A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top edge of your screen and expands on hover into a media player, weather, clock, app launcher, and settings panel. Inspired by macOS notch apps like boring.notch and [notchy.dev](https://notchy.dev). Built with Tauri 2 (Rust + React).
 
 <p align="center">
-  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe">
+  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.6/winotch.exe">
     <img alt="Download winotch.exe for Windows" src="https://img.shields.io/badge/Download%20winotch.exe%20for%20Windows-0078d7?style=for-the-badge" />
   </a>
 </p>
 
-> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v0.2.5** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
+> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v0.2.6** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
 
 ---
 
 ## 🪟 For non-technical people (3 steps)
 
-1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
+1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.6/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
 2. **Double-click `winotch.exe`.** If Windows pops up *"Windows protected your PC"* (SmartScreen — we haven't bought a code-signing certificate yet, so Windows doesn't trust the file), click **More info**, then **Run anyway**. If Windows Defender blocks it again or quarantines the file, add an exclusion (below). See [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md) for the full walkthrough.
 3. **Answer the 2-page setup**, click **Get started**, and the notch appears at the top-center of your screen. Move your mouse over it to expand it.
 
@@ -53,7 +53,7 @@ Grab the latest build from the Releases page:
 
 **https://github.com/xXNeilplayzXx/Winotch/releases**
 
-Direct download for v0.2.5: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.5/winotch.exe**
+Direct download for v0.2.5: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.6/winotch.exe**
 
 ## Install
 
