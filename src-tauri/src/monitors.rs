@@ -199,7 +199,7 @@ mod win {
             // Geometry is applied by the frontend (showIsland) after mount; the
             // size here is just a placeholder so the window exists before its
             // webview asks for one.
-            WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
                 .title("Winotch")
                 .inner_size(mon.width as f64, mon.height as f64)
                 .resizable(false)
