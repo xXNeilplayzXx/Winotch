@@ -380,9 +380,12 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const draggingRef = useRef(false);
   // Which settings sections are expanded (default: all of them).
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({
+    shape: true,
     size: true,
     appearance: true,
+    theme: true,
     behavior: true,
+    idle: true,
   });
   // Brief "Applied ✓" confirmation on the Apply button after a save.
   const [appliedFlash, setAppliedFlash] = useState(false);
@@ -1017,10 +1020,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             </p>
             <div className="settings-scroll">
               <SettingsSection
-                title="Shape & size"
-                subtitle="Notch or pill, which screen, how big"
-                open={sectionOpen.size}
-                onToggle={() => setSectionOpen((s) => ({ ...s, size: !s.size }))}
+                title="Shape"
+                subtitle="Notch or pill, and which screen"
+                open={sectionOpen.shape}
+                onToggle={() => setSectionOpen((s) => ({ ...s, shape: !s.shape }))}
               >
             <div className="settings-row">
               <span className="settings-label">Mode</span>
@@ -1068,6 +1071,13 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 <span className="settings-static">Main monitor</span>
               )}
             </div>
+              </SettingsSection>
+              <SettingsSection
+                title="Size"
+                subtitle="Exactly how wide and tall"
+                open={sectionOpen.size}
+                onToggle={() => setSectionOpen((s) => ({ ...s, size: !s.size }))}
+              >
             <div className="settings-row">
               <span className="settings-label">Size preset</span>
               <div className="settings-chips">
@@ -1122,8 +1132,8 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
             </div>
               </SettingsSection>
               <SettingsSection
-                title="Appearance & theme"
-                subtitle="Style, glass, gradients and colors"
+                title="Appearance"
+                subtitle="Surface, glass and gradients"
                 open={sectionOpen.appearance}
                 onToggle={() => setSectionOpen((s) => ({ ...s, appearance: !s.appearance }))}
               >
@@ -1204,6 +1214,13 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 />
               </div>
             )}
+              </SettingsSection>
+              <SettingsSection
+                title="Theme"
+                subtitle="Light, dark and accent colors"
+                open={sectionOpen.theme}
+                onToggle={() => setSectionOpen((s) => ({ ...s, theme: !s.theme }))}
+              >
             <div className="settings-row">
               <span className="settings-label">Theme</span>
               <div className="segmented segmented-3">
@@ -1300,7 +1317,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               </SettingsSection>
               <SettingsSection
                 title="Behavior"
-                subtitle="Movement and what the idle bar shows"
+                subtitle="Dragging and window behavior"
                 open={sectionOpen.behavior}
                 onToggle={() => setSectionOpen((s) => ({ ...s, behavior: !s.behavior }))}
               >
@@ -1329,6 +1346,13 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
                 </button>
               </div>
             </div>
+              </SettingsSection>
+              <SettingsSection
+                title="Idle"
+                subtitle="What the bar shows when nothing is happening"
+                open={sectionOpen.idle}
+                onToggle={() => setSectionOpen((s) => ({ ...s, idle: !s.idle }))}
+              >
             <div className="settings-row">
               <span className="settings-label">When idle</span>
               <select
