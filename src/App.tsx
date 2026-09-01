@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { Island } from "./components/Island";
 import { SetupWizard } from "./components/SetupWizard";
@@ -62,6 +63,32 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  /** Reopen the setup wizard on demand (settings panel, context menu, or tray
+   * menu). The wizard re-shows and re-sizes the window centered on screen;
+   * finishing it returns the app to the island. */
+  const rerunSetup = useCallback(() => {
+    setStage("setup");
+    void import("./lib/island")
+      .then(({ showSetup }) => showSetup())
+      .catch(() => {});
+  }, []);
+
+  // The system tray's "Rerun Setup…" item arrives as a backend event.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("winotch://rerun-setup", () => rerunSetup())
+      .then((u) => {
+        if (disposed) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [rerunSetup]);
+
   // In All-monitors mode, make sure every display has an island window. This
   // runs in the main window AND every extra window; spawning is idempotent.
   useEffect(() => {
@@ -109,7 +136,7 @@ function App() {
       />
     );
   }
-  return <Island initialShape={shape ?? "notch"} />;
+  return <Island initialShape={shape ?? "notch"} onRerunSetup={rerunSetup} />;
 }
 
 export default App;

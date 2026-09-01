@@ -356,7 +356,13 @@ function CallPill({ app, elapsedMs }: { app: string; elapsedMs: number }) {
   );
 }
 
-export function Island({ initialShape = "notch" }: { initialShape?: IslandShape }) {
+export function Island({
+  initialShape = "notch",
+  onRerunSetup,
+}: {
+  initialShape?: IslandShape;
+  onRerunSetup?: () => void;
+}) {
   const [mode, setMode] = useState<Mode>("collapsed");
   const [shape, setShape] = useState<IslandShape>(initialShape);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -395,6 +401,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
   const [idleText, setIdleText] = useState<string>(() => readIdleText());
   // Which settings sections are expanded (default: all of them).
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({
+    general: true,
     shape: true,
     size: true,
     appearance: true,
@@ -1043,10 +1050,10 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
           // Show / Hide / Quit).
           if (modeRef.current !== "expanded") return;
           // Keep the menu fully inside the small island window (menus can now
-          // have three items, so reserve ~130px of height).
+          // have four items, so reserve ~170px of height).
           setCtxMenu({
             x: Math.max(0, Math.min(e.clientX, window.innerWidth - 180)),
-            y: Math.max(0, Math.min(e.clientY, window.innerHeight - 130)),
+            y: Math.max(0, Math.min(e.clientY, window.innerHeight - 170)),
           });
         }}
       >
@@ -1141,6 +1148,26 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               <strong>Reset</strong> discards them.
             </p>
             <div className="settings-scroll">
+              <SettingsSection
+                title="General"
+                subtitle="Guided first-run configuration"
+                open={sectionOpen.general}
+                onToggle={() => setSectionOpen((s) => ({ ...s, general: !s.general }))}
+              >
+            <div className="settings-row">
+              <span className="settings-label">Setup wizard</span>
+              <button
+                type="button"
+                className="settings-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRerunSetup?.();
+                }}
+              >
+                Rerun Setup…
+              </button>
+            </div>
+              </SettingsSection>
               <SettingsSection
                 title="Shape"
                 subtitle="Notch or pill, and which screen"
@@ -1527,7 +1554,7 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
       {ctxMenu && (
         <div
           className="ctx-menu"
-          style={{ left: ctxMenu.x, top: Math.max(0, Math.min(ctxMenu.y, window.innerHeight - 84)) }}
+          style={{ left: ctxMenu.x, top: Math.max(0, Math.min(ctxMenu.y, window.innerHeight - 170)) }}
           onContextMenu={(e) => e.preventDefault()}
         >
           <button
@@ -1543,6 +1570,20 @@ export function Island({ initialShape = "notch" }: { initialShape?: IslandShape 
               <path d="M1 1l22 22" />
             </svg>
             Hide Winotch
+          </button>
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              setCtxMenu(null);
+              onRerunSetup?.();
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            Rerun Setup…
           </button>
           <button
             type="button"

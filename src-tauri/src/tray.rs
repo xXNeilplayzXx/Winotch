@@ -4,18 +4,20 @@
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const SHOW_ID: &str = "show-winotch";
 const HIDE_ID: &str = "hide-winotch";
+const RERUN_SETUP_ID: &str = "rerun-setup-winotch";
 const QUIT_ID: &str = "quit-winotch";
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, SHOW_ID, "Show Winotch", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, HIDE_ID, "Hide Winotch", true, None::<&str>)?;
+    let rerun_setup = MenuItem::with_id(app, RERUN_SETUP_ID, "Rerun Setup…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT_ID, "Quit", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&show, &hide, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &hide, &separator, &rerun_setup, &separator, &quit])?;
 
     let Some(icon) = app.default_window_icon().cloned() else {
         return Ok(()); // no bundled icon; tray skipped
@@ -29,6 +31,11 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             SHOW_ID => show_island(app),
             HIDE_ID => hide_island(app),
+            // The frontend reopens the wizard (it re-shows and re-sizes the
+            // window itself), so just ask every webview to do it.
+            RERUN_SETUP_ID => {
+                let _ = app.emit("winotch://rerun-setup", ());
+            }
             QUIT_ID => app.exit(0),
             _ => {}
         })
