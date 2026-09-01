@@ -24,7 +24,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Frontend dependencies
-        run: npm ci
+        # npm install (not ci): reconciles a lockfile that drifted from
+        # package.json when deps were added without a Node toolchain.
+        run: npm install
 
       - name: Build winotch.exe
         run: npx tauri build --no-bundle

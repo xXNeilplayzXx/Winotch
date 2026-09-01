@@ -31,8 +31,8 @@ rem 1. Toolchain sanity checks.
 where cargo >nul 2>nul || (echo [release] cargo not found - install Rust from https://rustup.rs & exit /b 1)
 where gh >nul 2>nul || (echo [release] gh not found - install GitHub CLI: winget install GitHub.cli & exit /b 1)
 if not exist node_modules (
-    echo [release] Installing frontend dependencies (npm ci)...
-    call npm ci || exit /b 1
+    echo [release] Installing frontend dependencies (npm install)...
+    call npm install || exit /b 1
 )
 
 rem 2. Release build. --no-bundle skips installers/MSI; we only want the raw exe.
