@@ -1209,7 +1209,7 @@ const state = {
   widgetOrder: store.load("widgetOrder", DEFAULT_ORDER),
   sysMetrics: store.load("sysMetrics", { cpu: true, temp: true, mem: true, bat: true, net: true }),
   notes: store.load("notes", ""),
-  weather: store.load("weather", { city: "Set your location", lat: null, lon: null }),
+  weather: store.load("weather", { city: "", lat: null, lon: null }),
   launcherApps: store.load("launcherApps", QUICK_APPS),
   // runtime
   expanded: false,
@@ -2030,19 +2030,13 @@ function buildWidgetCard(type) {
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") saveWeather(input.value, ed); });
       row.append(input, save);
       ed.appendChild(row);
-      // Production: skip typing a city — ask the OS where the device is.
-      const geoBtn = h("button", "widget-btn", "📍 Use Windows location");
+      // Skip typing a city — ask the OS where the device is.
+      const geoBtn = h("button", "widget-btn", "📌 Use Windows location");
       geoBtn.style.marginTop = "6px";
       geoBtn.onclick = () => {
         geoBtn.disabled = true;
         geoBtn.textContent = "Locating…";
-        TAURI.core.invoke("weather_geo")
-          .then((g) => loadWeatherAt(g.lat, g.lon, "My location", ed, geoBtn))
-          .catch((err) => {
-            geoBtn.disabled = false;
-            geoBtn.textContent = "📍 Use Windows location";
-            toast(String(err).replace(/[^\x20-\x7e]/g, "").trim() || "Location unavailable");
-          });
+        useOsLocation(ed, geoBtn);
       };
       ed.appendChild(geoBtn);
       ed.appendChild(h("p", "widget-err weather-err"));
@@ -2051,11 +2045,19 @@ function buildWidgetCard(type) {
     }
     const wd = weatherData();
     if (!wd) {
-      // No location yet — guide the user to set one instead of showing
-      // placeholder numbers.
+      // No location yet — offer one-tap auto-detect first, manual entry as
+      // the fallback (e.g. when Windows location access is off).
       card.appendChild(h("div", "widget-edit", '<p class="widget-edit-hint">No location set yet.</p>'));
-      const set = h("button", "widget-btn widget-btn-primary", "Set location");
+      const auto = h("button", "widget-btn widget-btn-primary", "📌 Detect my location");
+      auto.onclick = () => {
+        auto.disabled = true;
+        auto.textContent = "Locating…";
+        useOsLocation(null, auto);
+      };
+      const set = h("button", "widget-btn", "Enter a city");
+      set.style.marginTop = "6px";
       set.onclick = () => { state.editing = "weather"; render(); };
+      card.appendChild(auto);
       card.appendChild(set);
       return card;
     }
@@ -2206,41 +2208,89 @@ function saveWeather(city, ed) {
     });
 }
 
-/* Fetch + render weather for an explicit lat/lon (used by "Use Windows
-   location" and the 15-minute auto-refresh in the app). Name is display-only. */
+/* Fetch + render weather for an explicit lat/lon. Name is display-only; when
+   omitted (OS-location flow) a readable city name is resolved from the
+   coordinates via Open-Meteo's reverse geocoding, falling back to "My location". */
 function loadWeatherAt(lat, lon, name, ed, restoreBtn) {
-  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`)
-    .then((r) => { if (!r.ok) throw new Error("forecast"); return r.json(); })
+  const withName = (cityName) => {
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`)
+      .then((r) => { if (!r.ok) throw new Error("forecast"); return r.json(); })
+      .then((j) => {
+        const cur = j.current ?? {};
+        const daily = j.daily ?? {};
+        wxLive = {
+          ...mapWeather(cur.weather_code ?? 0),
+          temp: cur.temperature_2m ?? 0,
+          feels: cur.apparent_temperature ?? cur.temperature_2m ?? 0,
+          max: daily.temperature_2m_max?.[0] ?? 0,
+          min: daily.temperature_2m_min?.[0] ?? 0,
+        };
+        state.weather = { city: cityName, lat, lon, osLocation: !name };
+        if (ed) { state.editing = null; }
+        state.addOpen = false;
+        persist();
+        render();
+      })
+      .catch(() => {
+        if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📌 Use Windows location"; }
+        toast("Weather lookup failed (offline?)");
+      });
+  };
+  if (name) { withName(name); return; }
+  // Reverse-geocode the coordinates into a place name (best effort — the
+  // forecast itself does not depend on this succeeding).
+  fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&count=1&language=en&format=json`)
+    .then((r) => (r.ok ? r.json() : null))
     .then((j) => {
-      const cur = j.current ?? {};
-      const daily = j.daily ?? {};
-      wxLive = {
-        ...mapWeather(cur.weather_code ?? 0),
-        temp: cur.temperature_2m ?? 0,
-        feels: cur.apparent_temperature ?? cur.temperature_2m ?? 0,
-        max: daily.temperature_2m_max?.[0] ?? 0,
-        min: daily.temperature_2m_min?.[0] ?? 0,
-      };
-      state.weather = { city: name, lat, lon };
-      if (ed) { state.editing = null; }
-      state.addOpen = false;
-      persist();
-      render();
+      const hit = j && j.results && j.results[0];
+      withName((hit && (hit.name + (hit.admin1 ? ", " + hit.admin1 : ""))) || "My location");
     })
-    .catch(() => {
-      if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📍 Use Windows location"; }
-      toast("Weather lookup failed (offline?)");
+    .catch(() => withName("My location"));
+}
+
+/* Auto-detect: ask the OS where the device is and load that weather.
+   Used by the editor button and by the silent first-run auto-detect. */
+function useOsLocation(ed, restoreBtn) {
+  TAURI.core.invoke("weather_geo")
+    .then((g) => loadWeatherAt(g.lat, g.lon, null, ed, restoreBtn))
+    .catch((err) => {
+      if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📌 Use Windows location"; }
+      toast(String(err).replace(/[^\x20-\x7e]/g, "").trim() || "Location unavailable");
     });
 }
 
-/* Auto-refresh: re-pull the forecast every 15 minutes so the temp/condition
-   stay current without touching anything (a manual save fetches fresh too). */
+/* Auto-refresh every 15 minutes. When the location came from the OS, re-resolve
+   it too (so a laptop that moved cities follows along); a manually-typed city
+   just re-fetches its fixed coordinates. */
 setInterval(() => {
   if (!state.widgets.weather) return;
-  if (state.weather && typeof state.weather.lat === "number" && typeof state.weather.lon === "number") {
+  if (state.weather && state.weather.osLocation) {
+    useOsLocation(null, null);
+  } else if (state.weather && typeof state.weather.lat === "number" && typeof state.weather.lon === "number") {
     loadWeatherAt(state.weather.lat, state.weather.lon, state.weather.city);
   }
 }, 15 * 60 * 1000);
+
+/* First-run auto-detect: once per boot, if the weather widget is enabled and
+   no location has ever been set (and the user hasn't declined), silently ask
+   the OS and load that location. Skipped when location access is off — the
+   widget keeps its "Set location" card as the guide instead of nagging. */
+let osLocationTried = false;
+function maybeAutoDetectLocation() {
+  if (osLocationTried) return;
+  if (!state.widgets.weather) return;
+  if (state.weather && (typeof state.weather.lat === "number" || state.weather.cityDismissed)) return;
+  osLocationTried = true;
+  TAURI.core.invoke("weather_geo")
+    .then((g) => loadWeatherAt(g.lat, g.lon, null, null, null))
+    .catch(() => {
+      // Permission denied / location off — remember so we don't re-ask on
+      // every boot; the widget shows its "Set location" card instead.
+      state.weather = state.weather || {};
+      state.weather.cityDismissed = true;
+      persist();
+    });
+}
 
 /* ---------- custom dropdown ---------- */
 let nsOpenWrap = null;
@@ -3253,6 +3303,9 @@ if (TAURI) {
   // applied via set_island_effect when a glass surface is active).
   document.body.style.background = "transparent";
   wireLiveData();
+  // First-run weather auto-detect: silently resolve the user's location from
+  // the OS when none has ever been set (see maybeAutoDetectLocation).
+  setTimeout(maybeAutoDetectLocation, 2500);
 }
 
 /* ---------- boot ---------- */
