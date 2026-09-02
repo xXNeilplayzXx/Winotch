@@ -25,23 +25,6 @@ function MemoryIcon({ size = 13 }: { size?: number }) {
   );
 }
 
-function NetIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 12V6m0 0L4 10m4-4l4 4" />
-      <path d="M16 12v6m0 0l4-4m-4 4l-4-4" />
-    </svg>
-  );
-}
-
-function TempIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13.5V5a2 2 0 1 1 4 0v8.5a4 4 0 1 1-4 0z" />
-    </svg>
-  );
-}
-
 function BatteryIcon({ size = 13, charging }: { size?: number; charging?: boolean }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -64,37 +47,23 @@ function formatRate(bytesPerSec: number): string {
 }
 
 function StatRow({
-  icon,
   label,
   value,
   pct,
-  hint,
+  hot,
 }: {
-  icon: React.ReactNode;
   label: string;
   value: string;
   pct?: number;
-  hint?: string;
+  hot?: boolean;
 }) {
   return (
-    <div className="sys-row">
-      <span className="sys-row-icon" aria-hidden>
-        {icon}
+    <div className={`sys-row${hot ? " hot" : ""}`}>
+      <span className="sys-label">{label}</span>
+      <span className="sys-bar" aria-hidden>
+        <i style={{ width: `${Math.round(Math.min(100, Math.max(0, pct ?? 0)))}%` }} />
       </span>
-      <div className="sys-row-main">
-        <div className="sys-row-head">
-          <span className="sys-row-label">{label}</span>
-          <span className="sys-row-right">
-            {hint && <span className="sys-row-hint">{hint}</span>}
-            <span className="sys-row-value">{value}</span>
-          </span>
-        </div>
-        {pct !== undefined && (
-          <div className="sys-bar" aria-hidden>
-            <span style={{ width: `${Math.round(Math.min(100, Math.max(0, pct)))}%` }} />
-          </div>
-        )}
-      </div>
+      <span className="sys-value">{value}</span>
     </div>
   );
 }
@@ -166,44 +135,22 @@ export function SystemWidget({
   const battery = stats.battery;
 
   return (
-    <div className="sys-card">
-      {settings?.cpu !== false && (
-        <StatRow
-          icon={<CpuIcon />}
-          label="CPU"
-          value={`${cpu}%`}
-          pct={cpu}
-        />
+    <div className="sys-rows">
+      {settings?.cpu !== false && <StatRow label="CPU" value={`${cpu}%`} pct={cpu} hot={cpu > 82} />}
+      {settings?.temp !== false && stats.tempC != null && (
+        <StatRow label="TEMP" value={`${Math.round(stats.tempC)}°C`} pct={((stats.tempC - 35) / 55) * 100} hot={stats.tempC > 75} />
       )}
       {settings?.mem !== false && (
-        <StatRow
-          icon={<MemoryIcon />}
-          label="Memory"
-          value={`${stats.memUsedGb.toFixed(1)} / ${stats.memTotalGb.toFixed(0)} GB`}
-          pct={memPct}
-        />
+        <StatRow label="MEM" value={`${stats.memUsedGb.toFixed(1)} ${stats.memTotalGb.toFixed(0)}`} pct={memPct} />
+      )}
+      {settings?.batt !== false && battery && battery.pct < 255 && (
+        <StatRow label="BAT" value={`${battery.pct}%${battery.charging ? "⚡" : ""}`} pct={battery.pct} hot={battery.pct < 20} />
       )}
       {settings?.net !== false && stats.network && (
         <StatRow
-          icon={<NetIcon />}
-          label="Network"
-          value={`↓ ${formatRate(stats.network.downBytesPerSec)}  ↑ ${formatRate(stats.network.upBytesPerSec)}`}
-        />
-      )}
-      {settings?.temp !== false && stats.tempC != null && (
-        <StatRow
-          icon={<TempIcon />}
-          label="Temperature"
-          value={`${Math.round(stats.tempC)}°C`}
-        />
-      )}
-      {settings?.batt !== false && battery && battery.pct < 255 && (
-        <StatRow
-          icon={<BatteryIcon charging={battery.charging} />}
-          label="Battery"
-          value={`${battery.pct}%`}
-          pct={battery.pct}
-          hint={battery.charging ? "Charging" : undefined}
+          label="NET"
+          value={`↓ ${formatRate(stats.network.downBytesPerSec)} ↑ ${formatRate(stats.network.upBytesPerSec)}`}
+          pct={45}
         />
       )}
     </div>

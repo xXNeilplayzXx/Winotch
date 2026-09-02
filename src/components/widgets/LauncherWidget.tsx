@@ -110,7 +110,7 @@ export function LauncherWidget({ settings, edit, onSave }: LauncherWidgetProps) 
   }
 
   return (
-    <div className="launcher" data-err={launchErr || undefined}>
+    <div className="launcher-grid" data-err={launchErr || undefined}>
       {apps.map((a, i) => (
         <motion.button
           type="button"

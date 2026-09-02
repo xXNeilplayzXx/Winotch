@@ -126,22 +126,17 @@ export function WeatherWidget({ settings, edit, onSave, onEditDone }: WeatherWid
   }
 
   return (
-    <div className="weather">
-      <span className="weather-emoji">{data ? data.emoji : "🌡️"}</span>
+    <div className="weather-card">
       <div className="weather-main">
+        <span className="weather-emoji">{data ? data.emoji : "🌡️"}</span>
         <span className="weather-temp">{data ? `${clamp(data.temp)}°` : "—"}</span>
-        <span className="weather-city">{failed ? "Offline" : settings.city}</span>
       </div>
-      <div className="weather-side">
-        {data && (
-          <>
-            <span className="weather-label">{data.label}</span>
-            <span className="weather-range">
-              H {clamp(data.max)}° L {clamp(data.min)}° · feels {clamp(data.feels)}°
-            </span>
-          </>
-        )}
-      </div>
+      {data && (
+        <div className="weather-meta">
+          {data.label} · feels <b>{clamp(data.feels)}°</b> · H <b>{clamp(data.max)}°</b> L <b>{clamp(data.min)}°</b>
+        </div>
+      )}
+      <div className="weather-city">{failed ? "Offline" : settings.city}</div>
     </div>
   );
 

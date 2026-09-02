@@ -213,7 +213,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
           const edit = configureAll || editingId === w.id;
           return (
             <motion.div
-              className={`widget-card${leaving.has(w.id) ? " widget-card-leaving" : ""}`}
+              className={`widget${leaving.has(w.id) ? " widget-removing" : ""}`}
               key={w.id}
               data-wid={w.id}
               data-tauri-drag-region="false"
@@ -222,14 +222,14 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: "easeIn" } }}
               transition={{ ...spring, delay: i * 0.055 }}
             >
-            <div className="widget-bar">
-              <span className="led widget-led" aria-hidden />
-              <span className="widget-label">{WIDGET_LABELS[w.type]}</span>
-              <div className="widget-ctrls">
+            <div className="widget-head">
+              <span className="led" aria-hidden />
+              <span className="widget-title">{WIDGET_LABELS[w.type]}</span>
+              <div className="widget-actions">
                 {editable && !configureAll && (
                   <motion.button
                     type="button"
-                    className={`widget-ctl${editingId === w.id ? " widget-ctl-on" : ""}`}
+                    className={`widget-act${editingId === w.id ? " active" : ""}`}
                     title="Settings"
                     onClick={() => setEditingId(editingId === w.id ? null : w.id)}
                     whileTap={{ scale: 0.85 }}
@@ -240,7 +240,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                 )}
                 <motion.button
                   type="button"
-                  className="widget-ctl"
+                  className="widget-act"
                   title="Move up"
                   disabled={i === 0}
                   onClick={() => moveWidget(w.id, -1)}
@@ -251,7 +251,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                 </motion.button>
                 <motion.button
                   type="button"
-                  className="widget-ctl"
+                  className="widget-act"
                   title="Move down"
                   disabled={i === widgets.length - 1}
                   onClick={() => moveWidget(w.id, 1)}
@@ -262,7 +262,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
                 </motion.button>
                 <motion.button
                   type="button"
-                  className="widget-ctl widget-ctl-remove"
+                  className="widget-act widget-act-remove"
                   title="Remove widget"
                   onClick={() => removeWidget(w.id)}
                   whileTap={{ scale: 0.85 }}

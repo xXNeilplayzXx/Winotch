@@ -76,9 +76,11 @@
   --player-btn-hover: #fff;
   --player-ctl-hover: rgba(255, 255, 255, 0.08);
 
-/* Deck status tokens (designv2): ok / alarm / warn. */
+/* Deck status tokens (designv2): ok / alarm / warn / LED strong. */
   --ok: #3ddc97;
   --warn: #ffc14d;
+  --alarm: #ff6b6b;
+  --led-strong: #7cd4ff;
 
   --map-bg: rgba(255, 255, 255, 0.04);
   --map-border: rgba(255, 255, 255, 0.08);
@@ -164,6 +166,8 @@
 /* Deck status tokens, light theme. */
   --ok: #0e8a5f;
   --warn: #b46a00;
+  --alarm: #c42b1c;
+  --led-strong: #0067b8;
 
   --map-bg: rgba(0, 0, 0, 0.05);
   --map-border: rgba(0, 0, 0, 0.09);
@@ -2725,4 +2729,424 @@ input[type="range"]:active::-webkit-slider-thumb {
   font-size: 9.5px;
   letter-spacing: 0.03em;
   color: var(--text-3);
+}
+
+/* =============================================================
+   designv2 widget deck — the actual widget DOM (system, media,
+   clock, launcher, weather). Written to match designv2.html's
+   markup so the deck look lands (no icon boxes, no big np-card).
+   Placed last so it overrides the older app + deck layers.
+   ============================================================= */
+
+/* ---- widget card shell ---- */
+.widget {
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  padding: 11px 13px;
+  background: rgba(255, 255, 255, 0.02);
+}
+:root[data-theme="light"] .widget {
+  background: rgba(255, 255, 255, 0.55);
+}
+.widget-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 9px;
+}
+.widget-head > .led {
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  box-shadow: 0 0 5px var(--accent-strong);
+}
+.widget-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.widget-act {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.widget-act:hover {
+  background: var(--glass-2);
+  color: var(--text);
+}
+.widget-act:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+.widget-act:disabled:hover {
+  background: transparent;
+  color: var(--text-3);
+}
+.widget-act.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.widget-act-remove:hover {
+  color: var(--alarm);
+}
+.widget-body {
+  min-width: 0;
+}
+
+/* mid-removal (FLIP stays in framer; this just makes it inert) */
+.widget.widget-removing {
+  pointer-events: none;
+}
+
+/* ---- system widget: label | gradient bar | value on one line ---- */
+.sys-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.sys-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+  min-width: 0;
+}
+.sys-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  width: 52px;
+  flex: none;
+}
+.sys-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hairline);
+  overflow: hidden;
+  min-width: 0;
+}
+.sys-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--led-strong));
+  transition: width 0.6s ease;
+}
+.sys-row.hot .sys-bar i {
+  background: linear-gradient(90deg, var(--warn), var(--alarm));
+}
+.sys-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  width: 72px;
+  text-align: right;
+  flex: none;
+}
+
+/* ---- media widget: title/artist, time|bar|time, pill buttons ---- */
+.media-body {
+  display: flex;
+  flex-direction: column;
+}
+.media-meta {
+  min-width: 0;
+}
+.media-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.media-artist {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.media-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 9px 0 6px;
+}
+.media-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.media-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+.media-time {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.media-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mbtn {
+  width: 30px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.mbtn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.mbtn.main {
+  width: 34px;
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+.mbtn.main:hover {
+  background: var(--led-strong);
+  color: var(--on-accent);
+}
+.widget-empty {
+  text-align: center;
+  padding: 20px 16px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.widget-empty b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+/* ---- clock widget: big instrument readout with blinking colon ---- */
+.clock-widget {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.clock-widget .big {
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1;
+}
+.clock-widget .big .colon {
+  color: var(--accent);
+  animation: colon-blink 1s steps(1) infinite;
+}
+.clock-widget .date {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+@keyframes colon-blink {
+  50% {
+    opacity: 0.12;
+  }
+}
+
+/* ---- launcher grid ---- */
+.launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 8px;
+}
+.launcher-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 4px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--glass-1);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.launcher-app:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.launcher-app:active {
+  transform: scale(0.94);
+}
+.launcher-app-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(150deg, var(--glass-2), var(--glass-1));
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+.launcher-app-label {
+  font-size: 9.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+}
+
+/* ---- weather ---- */
+.weather-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.weather-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.weather-emoji {
+  font-size: 30px;
+  line-height: 1;
+}
+.weather-temp {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1;
+}
+.weather-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.weather-meta b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.weather-city {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+/* ---- widget edit (in-card settings) ---- */
+.widget-edit {
+  padding: 2px 0 4px;
+}
+.widget-edit-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.widget-edit-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.widget-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--glass-2);
+  color: var(--text);
+  font-size: 11.5px;
+  padding: 6px 9px;
+  outline: none;
+}
+.widget-input:focus {
+  border-color: var(--accent);
+}
+.widget-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.widget-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.widget-btn-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.widget-btn-danger {
+  color: var(--alarm);
+  border-color: transparent;
+}
+.widget-err {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--alarm);
+  margin-top: 6px;
+}
+.widget-ok {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ok);
+  margin-top: 6px;
 }
