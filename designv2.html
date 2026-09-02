@@ -1044,16 +1044,22 @@
     display: none;
     align-items: flex-start;
     justify-content: center;
-    padding-top: 9vh;
+    padding-top: 48px; /* fixed px — vh is circular under a window sized from this modal */
     background: rgba(5, 7, 12, 0.55);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
   }
   :root[data-theme="light"] .modal-wrap { background: rgba(20, 24, 34, 0.3); }
   .modal-wrap.open { display: flex; }
+  /* The modal MUST NOT use viewport units (vw/vh): under Tauri the viewport is
+     the OS window, which is sized FROM this modal's measured box — a circular
+     dependency that collapses the wizard to a ~49px sliver at the app's
+     380x58 boot window. A fixed px width and an unclamped natural height,
+     measured by openSetup() before re-applying the scroll cap, size it
+     deterministically at any window size. */
   .modal {
-    width: min(440px, 92vw);
-    max-height: 84vh;
+    width: 440px;
+    flex: 0 0 auto; /* flex item inside .modal-wrap: don't shrink below the fixed width in a narrow window */
     overflow-y: auto;
     border-radius: 20px;
     border: 1px solid var(--border);
@@ -3021,13 +3027,24 @@ function openSetup(mode = "rerun") {
       closeSetup();
       render();
     };
+    // Natural-height measure: temporarily unclamped (the cap is re-applied
+    // right after), so the OS window can be sized to the FULL wizard even on
+    // the first draw — when the viewport is still the tiny boot window and a
+    // pre-applied cap would clamp the measurement to it (the circular
+    // viewport-unit bug this replaces).
+    modal.style.maxHeight = "none";
   };
   draw();
   wrap.classList.add("open");
-  // Two frames: the modal must lay out before its size can be measured, and
-  // webfonts/layout settling can change it once more.
-  requestAnimationFrame(() => requestAnimationFrame(syncWindow));
-  setTimeout(syncWindow, 350); // settle pass (fonts, scrollbars)
+  // The modal now lays out at its natural size (no vh clamp), so the first
+  // measure is already correct. Cap it to the measured natural height and fit
+  // the OS window to the real box.
+  requestAnimationFrame(() => {
+    const natural = modal.scrollHeight;
+    modal.style.maxHeight = (natural + 2) + "px"; // +2: avoid a rounding scrollbar
+    syncWindow();
+  });
+  setTimeout(syncWindow, 350); // settle pass (fonts, late layout)
 }
 $("#setupWrap").addEventListener("click", (e) => {
   if (e.target === $("#setupWrap")) closeSetup();
@@ -3171,7 +3188,7 @@ function initInteractions() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (nsOpenWrap) { closeNotchSelect(); return; }
-    if ($("#setupWrap").classList.contains("open")) { $("#setupWrap").classList.remove("open"); return; }
+    if ($("#setupWrap").classList.contains("open")) { closeSetup(); return; }
     // Escape cancels an arrange session and restores the pre-arrange position.
     if (state.arranging) {
       if (state.arrangeOrigin) {
@@ -3217,8 +3234,16 @@ function syncWindow(force = false) {
     const modalEl = $("#setupModal");
     if (modalEl && modalEl.offsetHeight > 0) {
       const mw = Math.ceil(modalEl.offsetWidth) + 16;
-      const mh = Math.ceil(modalEl.offsetHeight) + 16;
-      TAURI.core.invoke("fit_island_to_content", { width: mw, height: mh, recenter: state.pos.mode === "default" }).catch(() => {});
+      // Height includes the modal's offset from the window top (the wrap's
+      // padding-top) — otherwise the modal's bottom lands below the window
+      // edge and the "Get started" button gets clipped.
+      const mh = Math.ceil(modalEl.offsetTop + modalEl.offsetHeight) + 16;
+      // Sanity floor: a modal this small means the measurement collapsed
+      // (stale cap, mid-relayout) — never shrink the wizard window to a
+      // sliver, keep the last good fit instead.
+      if (mw >= 200 && mh >= 120) {
+        TAURI.core.invoke("fit_island_to_content", { width: mw, height: mh, recenter: state.pos.mode === "default" }).catch(() => {});
+      }
     }
     lastExpanded = state.expanded;
     return;
