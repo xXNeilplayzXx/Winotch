@@ -49,21 +49,40 @@ pub fn lock_to_primary_top_center(window: tauri::WebviewWindow) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
-/// Resize the notch window to the given logical (CSS-pixel) size and anchor
-/// it flush to the absolute top-center of the primary display. Called by the
-/// designv2 frontend whenever the island's rendered size changes (collapse or
-/// expand), so the OS window always hugs the visible island exactly — the same
-/// "envelope" model the React app used (grow once, let the DOM spring inside).
+/// Resize the notch window to the given logical (CSS-pixel) size and keep it
+/// "attached" to wherever the notch currently sits on the desktop.
+///
+/// Called by the designv2 frontend whenever the island's rendered size changes
+/// (collapse or expand). When `recenter` is true (position preset = default)
+/// the window snaps back to the absolute top-center of the primary display;
+/// otherwise the window's horizontal CENTER and TOP are preserved so the
+/// expanded settings panel grows in place around the notch's live coordinates
+/// (e.g. after the user dragged it with arrange mode) instead of teleporting
+/// to a static screen edge.
 #[tauri::command]
-pub fn fit_island_to_content(window: tauri::Window, width: f64, height: f64) -> Result<(), String> {
+pub fn fit_island_to_content(
+    window: tauri::Window,
+    width: f64,
+    height: f64,
+    recenter: Option<bool>,
+) -> Result<(), String> {
     // Guard against degenerate/zero sizes without clamping meaningfully.
     let w = width.max(120.0);
     let h = height.max(24.0);
+
+    // Remember where the notch sits BEFORE resizing, so the panel can grow
+    // around it. `center_x` is the island's on-screen horizontal center and
+    // `top_y` its top edge — both in physical pixels.
+    let cur = window.outer_size().map_err(|e| e.to_string())?;
+    let cur_pos = window.outer_position().map_err(|e| e.to_string())?;
+    let center_x = cur_pos.x + (cur.width as i32 / 2);
+    let top_y = cur_pos.y;
+
     window
         .set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)))
         .map_err(|e| e.to_string())?;
-    // Re-anchor top-center on the primary display (the designv2 island always
-    // centers itself at the top of the screen, like the real app).
+
+    let recenter = recenter.unwrap_or(false);
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let mon = window
         .primary_monitor()
@@ -73,10 +92,23 @@ pub fn fit_island_to_content(window: tauri::Window, width: f64, height: f64) -> 
     if let Some(mon) = mon {
         let pos = mon.position();
         let size = mon.size();
-        let cur = window.outer_size().map_err(|e| e.to_string())?;
-        let x = pos.x + (size.width as i32 / 2) - (cur.width as i32 / 2);
+        let new = window.outer_size().map_err(|e| e.to_string())?;
+        let (x, y) = if recenter {
+            // Snap flush to top-center (position preset = default).
+            (
+                pos.x + (size.width as i32 / 2) - (new.width as i32 / 2),
+                pos.y,
+            )
+        } else {
+            // Preserve the notch's live center + top, clamped so the (now
+            // larger) window never leaves the desktop.
+            let x = (center_x - (new.width as i32 / 2))
+                .clamp(pos.x, pos.x + size.width as i32 - new.width as i32);
+            let y = top_y.clamp(pos.y, pos.y + size.height as i32 - new.height as i32);
+            (x, y)
+        };
         window
-            .set_position(tauri::PhysicalPosition::new(x, pos.y))
+            .set_position(tauri::PhysicalPosition::new(x, y))
             .map_err(|e| e.to_string())?;
     }
     Ok(())

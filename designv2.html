@@ -1220,6 +1220,7 @@ const state = {
   editing: null,      // widget type whose card is in edit mode
   addOpen: false,     // "+" add-widget menu open?
   dial: { call: false, mic: false, playing: false },
+  onboarded: store.load("onboarded", false), // first-run: auto-open the setup wizard once
   // The deck opens as one full settings sheet (like the real app's settings),
   // with every section visible and each header showing its current value.
   openSections: { general: true, shape: true, size: true, appearance: true, theme: true, idle: true, widgets: true },
@@ -1571,7 +1572,12 @@ function applyIslandSize() {
   const capped = Math.min(island.scrollHeight, Math.round(capH * 0.88));
   island.style.height = capped + "px";
   if (pb) {
-    pb.style.maxHeight = (capped - 36) + "px";
+    // Subtract the island's full fixed chrome (strip + panel head), not just
+    // the strip: under Tauri the OS window is sized to `style.height`, so any
+    // overflow lands off-screen — historically clipping the sticky deck foot.
+    const chrome = (document.querySelector(".island-strip")?.offsetHeight || 36)
+                 + (document.querySelector(".panel-head")?.offsetHeight || 0);
+    pb.style.maxHeight = Math.max(120, capped - chrome) + "px";
     if (keepScroll) {
       pb.scrollTop = keepScroll.top;
       pb.scrollLeft = keepScroll.left;
@@ -2945,9 +2951,12 @@ function hideIsland() {
 }
 
 /* ---------- rerun setup modal ---------- */
+let setupOpen = false;
+
 function openSetup(mode = "rerun") {
   const wrap = $("#setupWrap");
   const modal = $("#setupModal");
+  setupOpen = true;
   const fresh = mode === "fresh";
   const s = snapshot();
   const pick = { shape: s.shape, theme: s.theme, glass: s.glass, widgets: { ...s.widgets } };
@@ -3004,21 +3013,35 @@ function openSetup(mode = "rerun") {
     modal.querySelectorAll("[data-shp]").forEach((b) => b.onclick = () => { pick.shape = b.dataset.shp; draw(); });
     modal.querySelectorAll("[data-fl]").forEach((b) => b.onclick = () => { pick.glass = b.dataset.fl === "glass"; draw(); });
     modal.querySelectorAll("[data-wz]").forEach((b) => b.onclick = () => { pick.widgets[b.dataset.wz] = !pick.widgets[b.dataset.wz]; draw(); });
-    $("#stCancel").onclick = () => { wrap.classList.remove("open"); };
+    $("#stCancel").onclick = () => closeSetup();
     $("#stGo").onclick = () => {
       Object.assign(state, { shape: pick.shape, theme: pick.theme, glass: pick.glass, widgets: pick.widgets });
       persist();
       draft = snapshot();
-      wrap.classList.remove("open");
+      closeSetup();
       render();
     };
   };
   draw();
   wrap.classList.add("open");
+  // Two frames: the modal must lay out before its size can be measured, and
+  // webfonts/layout settling can change it once more.
+  requestAnimationFrame(() => requestAnimationFrame(syncWindow));
+  setTimeout(syncWindow, 350); // settle pass (fonts, scrollbars)
 }
 $("#setupWrap").addEventListener("click", (e) => {
-  if (e.target === $("#setupWrap")) $("#setupWrap").classList.remove("open");
+  if (e.target === $("#setupWrap")) closeSetup();
 });
+
+/** Close the setup wizard and return the OS window to the island's size. */
+function closeSetup() {
+  const wrap = $("#setupWrap");
+  wrap.classList.remove("open");
+  if (setupOpen) {
+    setupOpen = false;
+    syncWindow(true); // shrink back to the island now that the modal is gone
+  }
+}
 
 /* ---------- island interactions ---------- */
 function initInteractions() {
@@ -3056,7 +3079,16 @@ function initInteractions() {
   // (Reset/Done buttons are excluded), pointermove steers the shell, pointerup
   // finishes. The position is committed only by Done (or a preset); Reset and
   // Escape restore the pre-arrange position.
+  //
+  // Dragging is throttled to ONE move_island_window IPC per animation frame:
+  // pointermove fires far faster than the IPC + set_position round-trip can
+  // complete, and flooding it queues dozens of window moves that the OS applies
+  // serially — which is exactly the stutter/freeze. Coalescing the deltas and
+  // flushing on rAF keeps the notch under the cursor in real-time without
+  // spamming the host.
   let dragState = null;
+  let pendingDrag = null;   // { x, y } latest clamped target, flushed per frame
+  let dragRaf = 0;
   document.addEventListener("pointerdown", (e) => {
     if (!state.arranging) return;
     if (!e.target.closest(".island-shell")) return;
@@ -3065,24 +3097,63 @@ function initInteractions() {
     // window by exact deltas, so the offset must be measured against the thing
     // that visually moves (the island pill), not the (window-sized) shell.
     const r = $("#island").getBoundingClientRect();
-    dragState = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    dragState = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height };
     e.preventDefault();
   });
   document.addEventListener("pointermove", (e) => {
     if (!dragState || e.pointerId !== dragState.id) return;
-    const r = $("#island").getBoundingClientRect();
-    // Arrange drags move the REAL window under Tauri (the window hugs the
-    // island, so dragging anything else does nothing). Anchor is the island's
-    // top-left minus the grab offset, clamped to the desktop work area.
+    // Cache the island size from pointerdown (it doesn't change mid-drag) to
+    // avoid a forced layout read on every move. Compute the clamped target in
+    // CSS px and stash it; the rAF flush sends the latest one.
     let x = e.clientX - dragState.dx;
     let y = e.clientY - dragState.dy;
-    x = Math.max(8, Math.min(x, window.screen.width - r.width - 8));
-    y = Math.max(8, Math.min(y, window.screen.height - r.height - 8));
-    TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
+    x = Math.max(8, Math.min(x, window.screen.width - dragState.w - 8));
+    y = Math.max(8, Math.min(y, window.screen.height - dragState.h - 8));
+    pendingDrag = { x, y };
     state.pos = { mode: "custom", x, y };
+    if (!dragRaf) {
+      dragRaf = requestAnimationFrame(() => {
+        dragRaf = 0;
+        if (!pendingDrag) return;
+        const { x, y } = pendingDrag;
+        pendingDrag = null;
+        if (TAURI) TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
+      });
+    }
   });
   document.addEventListener("pointerup", (e) => {
-    if (dragState && e.pointerId === dragState.id) dragState = null;
+    if (dragState && e.pointerId === dragState.id) {
+      dragState = null;
+      // Flush the LAST pending move. pointerup (mouseup) follows the final
+      // pointermove within the same event batch, before the scheduled rAF
+      // fires — cancelling it here would drop the final position and leave the
+      // OS window where it was a frame earlier, out of sync with the committed
+      // state.pos. Send it now so the notch lands exactly under the cursor.
+      if (dragRaf) {
+        cancelAnimationFrame(dragRaf);
+        dragRaf = 0;
+      }
+      if (pendingDrag && TAURI) {
+        const { x, y } = pendingDrag;
+        pendingDrag = null;
+        TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
+      } else {
+        pendingDrag = null;
+      }
+    }
+  });
+  // A drag can be cancelled by the OS (orientation change, alt-tab, pen break)
+  // without a pointerup. Clean up the same way so a stale rAF can't fire an
+  // IPC after the drag is over, and a cancelled drag doesn't stick.
+  document.addEventListener("pointercancel", (e) => {
+    if (dragState && e.pointerId === dragState.id) {
+      dragState = null;
+      pendingDrag = null;
+      if (dragRaf) {
+        cancelAnimationFrame(dragRaf);
+        dragRaf = 0;
+      }
+    }
   });
 
   // Note: use composedPath() (frozen at dispatch start), not e.target.closest() —
@@ -3140,14 +3211,30 @@ function syncWindow(force = false) {
   if (!TAURI) return;
   const island = $("#island");
   if (!island) return;
+  // While the setup wizard is open the window must fit the MODAL (the island
+  // stays collapsed underneath it). Rendered size in CSS px, +16 margin.
+  if (setupOpen) {
+    const modalEl = $("#setupModal");
+    if (modalEl && modalEl.offsetHeight > 0) {
+      const mw = Math.ceil(modalEl.offsetWidth) + 16;
+      const mh = Math.ceil(modalEl.offsetHeight) + 16;
+      TAURI.core.invoke("fit_island_to_content", { width: mw, height: mh, recenter: state.pos.mode === "default" }).catch(() => {});
+    }
+    lastExpanded = state.expanded;
+    return;
+  }
   const w = parseFloat(island.style.width) || 330;
   const h = parseFloat(island.style.height) || 36;
+  // Only snap back to the screen edge when a position preset = default is
+  // active. If the user dragged the notch somewhere (custom/left/right), keep
+  // the window attached to its live center so the deck grows in place.
+  const recenter = state.pos.mode === "default";
   const send = () => {
     // `force` re-sends even when the size is unchanged (position presets use
     // it to re-center the window); normally identical sizes are skipped.
     if (!force && lastSize && lastSize[0] === w && lastSize[1] === h) return;
     lastSize = [w, h];
-    TAURI.core.invoke("fit_island_to_content", { width: w, height: h }).catch(() => {});
+    TAURI.core.invoke("fit_island_to_content", { width: w, height: h, recenter }).catch(() => {});
   };
   const justCollapsed = lastExpanded === true && state.expanded === false;
   clearTimeout(resizeSettleTimer);
@@ -3248,6 +3335,15 @@ function wireLiveData() {
     TAURI.core.invoke("system_stats").then(applySystemStats).catch(() => {});
   }, 2000);
   TAURI.core.invoke("media_get_state").then(setLiveMedia).catch(() => {});
+  // Smooth progress: the backend emits position only when it changes by
+  // >0.4s (~2x/second). Interpolate between emissions so the progress bar
+  // and clock advance every second instead of stepping.
+  setInterval(() => {
+    if (liveMedia && liveMedia.playing && liveMedia.duration > 0) {
+      liveMedia.position = Math.min(liveMedia.position + 0.5, liveMedia.duration);
+      refreshWidgets();
+    }
+  }, 500);
   TAURI.core.invoke("call_get_state").then(setLiveCall).catch(() => {});
   TAURI.core.invoke("mic_get_state").then(setLiveMic).catch(() => {});
   TAURI.event.listen("media://state", (e) => setLiveMedia(e.payload)).catch(() => {});
@@ -3304,7 +3400,13 @@ if (TAURI) {
   // "Rerun Setup…" from the system tray reopens the designv2 wizard.
   TAURI.event.listen("winotch://rerun-setup", () => openSetup("rerun")).catch(() => {});
   // The window is transparent over the real desktop (native DWM blur is
-  // applied via set_island_effect when a glass surface is active).
+  // applied via set_island_effect when a glass surface is active). The black
+  // box that flashes during expand/collapse comes from the <html> root: the
+  // OS window (and the island's CSS transition) resizes ahead of the webview
+  // repaint, and WebView2 composites the newly-exposed region using the root
+  // element's background. Making BOTH roots transparent lets the desktop show
+  // through the gap instead of a solid box.
+  document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
   wireLiveData();
   // First-run weather auto-detect: silently resolve the user's location from
@@ -3317,6 +3419,13 @@ draft = snapshot();
 applyTheme();
 initInteractions();
 render();
+// Brand-new install: greet the user with the setup wizard (the factory-reset
+// path opens it explicitly; this covers the very first launch only).
+if (!state.onboarded) {
+  openSetup("fresh");
+  state.onboarded = true;
+  store.save("onboarded", true);
+}
 </script>
 </body>
 </html>
