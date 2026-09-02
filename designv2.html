@@ -2166,6 +2166,10 @@ function buildLauncherEdit() {
 let wxLive = null;
 
 function weatherData() {
+  // Data is only meaningful when a location is set — otherwise a stale
+  // wxLive (e.g. from a previous session's coordinates) would render with
+  // an empty city label.
+  if (!state.weather || typeof state.weather.lat !== "number") return null;
   return wxLive;
 }
 
@@ -2182,7 +2186,7 @@ function saveWeather(city, ed) {
     .then((j) => {
       const hit = j.results && j.results[0];
       if (!hit) throw new Error("not found");
-      state.weather = { city: hit.name + (hit.admin1 ? ", " + hit.admin1 : ""), lat: hit.latitude, lon: hit.longitude };
+      state.weather = { city: hit.name + (hit.admin1 ? ", " + hit.admin1 : ""), lat: hit.latitude, lon: hit.longitude, osLocation: false };
       return fetch(`https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`);
     })
     .then((r) => r.json())
