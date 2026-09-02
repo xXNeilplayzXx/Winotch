@@ -13,18 +13,19 @@ use tauri::window::EffectsBuilder;
 
 /// Surface preset: which native effect to apply behind the island.
 ///
-/// - `frosted`→ Blur (heavier, milkier frosted-glass blur over the desktop).
-/// - anything else (solid / plain glass) → no native effect, cleared.
+/// - `glass` → Blur (the desktop blurs through the translucent island glass).
+/// - `frosted`→ Blur too (the island's own CSS tint makes it milkier/heavier).
+/// - `solid` / anything else → no native effect, cleared (the island is opaque).
 ///
-/// The frontend only sends "frosted" when the frosted option is active and
-/// "solid" otherwise, so plain glass keeps its CSS translucent surface and
-/// the native DWM blur is reserved for the frosted look alone.
+/// The designv2 frontend sends the active Surface preset so the OS window blur
+/// always matches what the island shows. Native blur is what lets a transparent
+/// window actually frost the real desktop (CSS backdrop-filter can't reach it).
 #[tauri::command]
 pub fn set_island_effect(app: tauri::AppHandle, effect: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let effects: Option<WindowEffectsConfig> = match effect.as_str() {
-            "frosted" => Some(EffectsBuilder::new().effect(tauri::window::Effect::Blur).build()),
+            "glass" | "frosted" => Some(EffectsBuilder::new().effect(tauri::window::Effect::Blur).build()),
             _ => None,
         };
         for (_, win) in app.webview_windows() {

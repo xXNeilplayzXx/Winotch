@@ -1611,6 +1611,8 @@ function render() {
 
   applyIslandSize();
   applyPosition();
+  syncWindow();
+  syncNativeEffect();
 
   if (prevView === nextView && prevScroll) {
     const pin = () => {
@@ -1629,9 +1631,12 @@ function render() {
 function applyIslandSize() {
   const island = $("#island");
   const expanded = state.expanded;
-  // Cap to the window so small form factors get a fluid, narrower island
-  // instead of settings clipped at the screen edges.
-  const want = Math.min(expanded ? Math.max(380, state.size.width, 460) : state.size.width, window.innerWidth - 16);
+  // Cap so small form factors get a fluid, narrower island instead of settings
+  // clipped at the screen edges. Under Tauri the window is sized to the island
+  // (see syncWindow), so `window.innerWidth` would feed back and shrink us on
+  // every render — use the real screen size instead (a no-op in a browser).
+  const capW = IS_TAURI ? window.screen.width - 16 : window.innerWidth - 16;
+  const want = Math.min(expanded ? Math.max(380, state.size.width, 460) : state.size.width, capW);
   island.style.width = want + "px";
 
   if (!expanded) {
@@ -1656,7 +1661,10 @@ function applyIslandSize() {
   // measure/pin dance.
   const keepScroll = pb ? { top: pb.scrollTop, left: pb.scrollLeft } : null;
   if (pb) pb.style.maxHeight = "";
-  const capped = Math.min(island.scrollHeight, Math.round(window.innerHeight * 0.88));
+  // Same rationale as the width cap: under Tauri the window height tracks the
+  // island, so cap against the real screen rather than the (shrinking) window.
+  const capH = IS_TAURI ? window.screen.height : window.innerHeight;
+  const capped = Math.min(island.scrollHeight, Math.round(capH * 0.88));
   island.style.height = capped + "px";
   if (pb) {
     pb.style.maxHeight = (capped - 36) + "px";
@@ -3112,6 +3120,79 @@ function initInteractions() {
     if (!state.expanded) return;
     collapsePanel();
   });
+}
+
+/* ---------- Tauri window integration ----------
+   In the shipped app this page runs inside a transparent, always-on-top Tauri
+   window (the real notch). The demo sizes its own island via CSS; under Tauri
+   we ALSO grow the OS window to match the island's rendered size and anchor it
+   top-center on the display, so the notch hugs the screen edge exactly and the
+   deck never clips. Standalone in a browser (no window.__TAURI__) this is a
+   no-op, so the page keeps working as the design reference. */
+const IS_TAURI = typeof window !== "undefined" && !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
+const TAURI = IS_TAURI ? window.__TAURI__ : null;
+let resizeSettleTimer = null;
+let pendingCollapse = false;
+let lastExpanded = false;
+let lastSize = null;
+
+function syncWindow() {
+  if (!TAURI) return;
+  const island = $("#island");
+  if (!island) return;
+  const w = parseFloat(island.style.width) || 330;
+  const h = parseFloat(island.style.height) || 36;
+  const send = () => {
+    if (lastSize && lastSize[0] === w && lastSize[1] === h) return;
+    lastSize = [w, h];
+    TAURI.core.invoke("fit_island_to_content", { width: w, height: h }).catch(() => {});
+  };
+  const justCollapsed = lastExpanded === true && state.expanded === false;
+  clearTimeout(resizeSettleTimer);
+  if (state.expanded) {
+    // Expanding needs the room immediately so the panel never clips.
+    pendingCollapse = false;
+    send();
+  } else if (justCollapsed || pendingCollapse) {
+    // Mid-collapse: let the island's close spring (0.42s) finish before the
+    // window shrinks, otherwise the closing panel gets clipped. Boot / stable
+    // collapsed states have no animation, so they shrink immediately below.
+    pendingCollapse = true;
+    resizeSettleTimer = setTimeout(() => {
+      pendingCollapse = false;
+      send();
+    }, 700);
+  } else {
+    // Boot or stable collapsed — no spring running, fit the window at once.
+    send();
+  }
+  lastExpanded = state.expanded;
+}
+
+let lastEffect = null;
+function syncNativeEffect() {
+  if (!TAURI) return;
+  const e = state.frosted ? "frosted" : state.glass ? "glass" : "solid";
+  if (e === lastEffect) return;
+  lastEffect = e;
+  TAURI.core.invoke("set_island_effect", { effect: e }).catch(() => {});
+}
+
+if (TAURI) {
+  // "Rerun Setup…" from the system tray reopens the designv2 wizard.
+  TAURI.event.listen("winotch://rerun-setup", () => openSetup("rerun")).catch(() => {});
+  // The demo's bottom "hover to open…" hint is a browser-only affordance; the
+  // shipped notch doesn't need it (it would overlap the pill in a window that
+  // is exactly island-sized).
+  const hint = document.querySelector(".hint");
+  if (hint) hint.style.display = "none";
+  // The demo's fake desktop orbs exist only so a browser has something to frost
+  // behind the island. In the real app the window is transparent over the
+  // actual desktop, so drop the orbs and let the real wallpaper show through
+  // (the native DWM blur is applied via set_island_effect).
+  const da = document.querySelector(".desk-art");
+  if (da) da.style.display = "none";
+  document.body.style.background = "transparent";
 }
 
 /* ---------- boot ---------- */

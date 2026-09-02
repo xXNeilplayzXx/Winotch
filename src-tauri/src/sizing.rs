@@ -49,6 +49,39 @@ pub fn lock_to_primary_top_center(window: tauri::WebviewWindow) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
+/// Resize the notch window to the given logical (CSS-pixel) size and anchor
+/// it flush to the absolute top-center of the primary display. Called by the
+/// designv2 frontend whenever the island's rendered size changes (collapse or
+/// expand), so the OS window always hugs the visible island exactly — the same
+/// "envelope" model the React app used (grow once, let the DOM spring inside).
+#[tauri::command]
+pub fn fit_island_to_content(window: tauri::Window, width: f64, height: f64) -> Result<(), String> {
+    // Guard against degenerate/zero sizes without clamping meaningfully.
+    let w = width.max(120.0);
+    let h = height.max(24.0);
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
+    // Re-anchor top-center on the primary display (the designv2 island always
+    // centers itself at the top of the screen, like the real app).
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    let mon = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.first().cloned());
+    if let Some(mon) = mon {
+        let pos = mon.position();
+        let size = mon.size();
+        let cur = window.outer_size().map_err(|e| e.to_string())?;
+        let x = pos.x + (size.width as i32 / 2) - (cur.width as i32 / 2);
+        window
+            .set_position(tauri::PhysicalPosition::new(x, pos.y))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Move the notch window so it hugs the absolute top-center of the named
 /// display (offset 0, flush with the monitor's first pixel row). `monitor_name`
 /// is `"primary"`, a Windows device name like `\\.\DISPLAY1`, or a friendly
