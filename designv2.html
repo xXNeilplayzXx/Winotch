@@ -94,50 +94,6 @@
     border-radius: 6px;
   }
 
-  /* A live "desktop" behind the glass so the island's blur and opacity read:
-     the orbs keep real edges (light pre-blur) and drift slowly, so the
-     backdrop-filter has actual detail to frost and transparency is obvious.
-     (They were previously pre-blurred at 60px — nothing left for the glass.) */
-  .desk-art {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(900px 420px at 50% -12%, #101828 0%, transparent 62%),
-      var(--ink);
-  }
-  .orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(12px);
-    opacity: 0.5;
-    animation: orb-drift 22s ease-in-out infinite alternate;
-  }
-  .orb-a { width: 380px; height: 380px; left: 8%; top: -90px; background: #1a6f9c; }
-  .orb-b { width: 320px; height: 320px; right: 6%; top: 60px; background: #6d4aa8; opacity: 0.42; animation-delay: -7s; animation-duration: 27s; }
-  .orb-c { width: 420px; height: 420px; left: 30%; bottom: -200px; background: #0e5c7e; opacity: 0.36; animation-delay: -13s; animation-duration: 30s; }
-  .orb-d { width: 260px; height: 260px; left: 43%; top: -30px; background: #2b8f6e; opacity: 0.32; animation-delay: -4s; animation-duration: 18s; }
-  :root[data-theme="light"] .orb { opacity: 0.2; }
-  :root[data-theme="light"] .orb-a { background: #9fd0ea; }
-  :root[data-theme="light"] .orb-b { background: #c3b0e8; }
-  :root[data-theme="light"] .orb-c { background: #a4d6e8; }
-  :root[data-theme="light"] .orb-d { background: #a9e3cb; }
-  @keyframes orb-drift {
-    0% { transform: translate3d(0, 0, 0); }
-    100% { transform: translate3d(42px, 28px, 0); }
-  }
-
-  .hint {
-    position: fixed;
-    left: 50%;
-    bottom: 14px;
-    transform: translateX(-50%);
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--text-3);
-    white-space: nowrap;
-  }
 
   /* ================= the island ================= */
   .island-shell {
@@ -1079,28 +1035,7 @@
   .ctx-item.danger { color: var(--alarm); }
   .ctx-item.danger:hover { background: rgba(255, 107, 107, 0.12); }
 
-  /* ================= restore + setup modal ================= */
-  .restore-orb {
-    position: fixed;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 5;
-    display: none;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 14px;
-    border-radius: 999px;
-    border: 1px dashed var(--border-strong);
-    background: var(--glass-2);
-    color: var(--text-2);
-    font-family: var(--mono);
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-  }
-  body.hidden .restore-orb { display: flex; }
-  body.hidden .island-shell { display: none; }
+  /* ================= setup modal ================= */
 
   .modal-wrap {
     position: fixed;
@@ -1166,14 +1101,9 @@
   .setup-preview.notch { border-radius: 0 0 18px 18px; height: 18px; width: 70%; margin: 0 auto 8px; }
   .setup-actions { display: flex; gap: 8px; margin-top: 18px; }
 
-  @media (max-width: 560px) {
-    .hint { display: none; }
-  }
-
-  /* Reduced-motion is now class-gated so the app can force animations on
-     (see boot). In the browser demo the class is added when the OS asks for
-     reduced motion; in the Tauri app it's never added, so every designv2
-     animation plays regardless of the Windows "Animation effects" setting. */
+  /* Reduced-motion class — kept for completeness; the app never adds it, so
+     every animation always plays regardless of the Windows "Animation
+     effects" accessibility setting. */
   body.reduce-motion *,
   body.reduce-motion *::before,
   body.reduce-motion *::after {
@@ -1184,14 +1114,6 @@
 </style>
 </head>
 <body>
-  <div class="desk-art" aria-hidden="true">
-    <div class="orb orb-a"></div>
-    <div class="orb orb-b"></div>
-    <div class="orb orb-c"></div>
-  </div>
-
-  <button class="restore-orb" id="restore" title="Show Winotch">◉&nbsp; Winotch is hidden — click to restore</button>
-
   <div class="island-shell" id="shell">
     <div class="island" id="island"></div>
   </div>
@@ -1201,8 +1123,6 @@
   <div class="modal-wrap" id="setupWrap">
     <div class="modal" id="setupModal"></div>
   </div>
-
-  <p class="hint" aria-hidden="true">hover to open&nbsp;·&nbsp;right-click for the island menu&nbsp;·&nbsp;settings stage until apply</p>
 
 <script>
 "use strict";
@@ -1260,7 +1180,7 @@ function mapWeather(code) {
   return { emoji: "🌡️", label: "Unknown" };
 }
 
-/* upgrade the pre-weather demo's 4-widget bool set */
+/* upgrade older persisted 4-widget bool sets to the 6-widget set */
 function migrateWidgets() {
   const old = store.load("widgets", null);
   if (old && typeof old === "object" && !("weather" in old) && !("launcher" in old)) {
@@ -1289,7 +1209,7 @@ const state = {
   widgetOrder: store.load("widgetOrder", DEFAULT_ORDER),
   sysMetrics: store.load("sysMetrics", { cpu: true, temp: true, mem: true, bat: true, net: true }),
   notes: store.load("notes", ""),
-  weather: store.load("weather", { city: "Demo City", lat: null, lon: null }),
+  weather: store.load("weather", { city: "Set your location", lat: null, lon: null }),
   launcherApps: store.load("launcherApps", QUICK_APPS),
   // runtime
   expanded: false,
@@ -1302,7 +1222,7 @@ const state = {
   dial: { call: false, mic: false, playing: false },
   // The deck opens as one full settings sheet (like the real app's settings),
   // with every section visible and each header showing its current value.
-  openSections: { general: true, shape: true, size: true, appearance: true, theme: true, idle: true, widgets: true, sim: true },
+  openSections: { general: true, shape: true, size: true, appearance: true, theme: true, idle: true, widgets: true },
   dirty: false,
   applied: false,
   callStart: 0,
@@ -1338,43 +1258,10 @@ function persist() {
   store.save("weather", state.weather); store.save("launcherApps", state.launcherApps);
 }
 
-/* ---------- simulated system stats ---------- */
-const stats = { cpu: 34, temp: 61, mem: 58, bat: 82, netUp: 1.2, netDown: 240 };
-function walk(v, lo, hi, step) { return Math.max(lo, Math.min(hi, v + (Math.random() * 2 - 1) * step)); }
-setInterval(() => {
-  if (IS_TAURI) return; // real data comes from the backend (wireLiveData)
-  stats.cpu = walk(stats.cpu, 6, 97, 9);
-  stats.temp = Math.max(42, walk(stats.temp, 42, stats.cpu > 80 ? 92 : 76, 3));
-  stats.mem = walk(stats.mem, 30, 92, 3);
-  stats.bat = Math.max(12, stats.bat - (Math.random() < 0.08 ? 1 : 0));
-  stats.netUp = Math.max(0.1, stats.netUp + (Math.random() * 2 - 1) * 0.4);
-  stats.netDown = Math.max(2, stats.netDown + (Math.random() * 2 - 1) * 40);
-  refreshWidgets();
-}, 2000);
-
-/* ---------- simulated media ---------- */
-const PLAYLIST = [
-  { t: "Nightcall", a: "Kavinsky", d: 243 },
-  { t: "Blinding Lights", a: "The Weeknd", d: 200 },
-  { t: "Porter Robinson", a: "Shelter (with Madeon)", d: 218 },
-  { t: "Windows96", a: "Art of Moving On", d: 201 },
-  { t: "Macintosh Plus", a: "リサフランク420", d: 227 },
-];
-const media = { i: 0, pos: 130, playing: false };
-let mediaTick = null;
-function updateMediaClock() {
-  if (!media.playing) return;
-  media.pos += 1;
-  if (media.pos >= PLAYLIST[media.i].d) { media.pos = 0; media.i = (media.i + 1) % PLAYLIST.length; }
-  refreshWidgets();
-}
-function toggleMedia() {
-  media.playing = !media.playing;
-  state.dial.playing = media.playing;
-  if (media.playing) { mediaTick = setInterval(updateMediaClock, 1000); }
-  else { clearInterval(mediaTick); mediaTick = null; }
-  render();
-}
+/* ---------- system stats (live from the backend) ----------
+   Filled by wireLiveData()'s system_stats poll before first paint of the
+   widgets; rows whose value is still null simply hide until data arrives. */
+const stats = { cpu: null, temp: null, mem: null, bat: null, netUp: null, netDown: null };
 const fmtTime = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
 
 /* ---------- clock ---------- */
@@ -1398,10 +1285,9 @@ const ACCENT_SWATCHES = ["#4fc3ff", "#7cd4ff", "#3ddc97", "#ffc14d", "#ff6b6b", 
 function effectiveTheme() {
   if (state.theme === "light") return "light";
   if (state.theme === "dark") return "dark";
-  // system: prefer the REAL Windows theme reported by the backend (available
-  // in the app); fall back to the webview media query in the browser demo.
+  // system: the REAL Windows theme reported by the backend (live-updated).
   if (winTheme) return winTheme.theme === "light" ? "light" : "dark";
-  return _matchMediaTheme();
+  return _matchMediaTheme(); // pre-boot fallback until the first theme event
 }
 function effectiveAccent() {
   if (state.accent === "system") {
@@ -1501,7 +1387,7 @@ function render() {
       state.pos = { mode: "default", x: 0, y: 0 };
       state.arranging = false;
       persist();
-      if (IS_TAURI) syncWindow(true); // re-center the real window on top
+      syncWindow(true); // re-center the real window on top
       render();
     };
     ar.querySelector("#arDone").onclick = (e) => {
@@ -1653,7 +1539,7 @@ function applyIslandSize() {
   // clipped at the screen edges. Under Tauri the window is sized to the island
   // (see syncWindow), so `window.innerWidth` would feed back and shrink us on
   // every render — use the real screen size instead (a no-op in a browser).
-  const capW = IS_TAURI ? window.screen.width - 16 : window.innerWidth - 16;
+  const capW = window.screen.width - 16;
   const want = Math.min(expanded ? Math.max(380, state.size.width, 460) : state.size.width, capW);
   island.style.width = want + "px";
 
@@ -1681,7 +1567,7 @@ function applyIslandSize() {
   if (pb) pb.style.maxHeight = "";
   // Same rationale as the width cap: under Tauri the window height tracks the
   // island, so cap against the real screen rather than the (shrinking) window.
-  const capH = IS_TAURI ? window.screen.height : window.innerHeight;
+  const capH = window.screen.height;
   const capped = Math.min(island.scrollHeight, Math.round(capH * 0.88));
   island.style.height = capped + "px";
   if (pb) {
@@ -1697,67 +1583,26 @@ function applyIslandSize() {
 function applyPosition() {
   const shell = $("#shell");
   if (!shell) return;
-  if (IS_TAURI) {
-    // The OS window hugs the island and is placed by syncWindow() — presets
-    // and arrange drags move the WINDOW, not the DOM. Keep the shell anchored
-    // to the window's top edge so it can never drift or clip inside it.
-    shell.style.left = "50%";
-    shell.style.right = "";
-    shell.style.top = "0px";
-    shell.style.transform = "translateX(-50%)";
-    return;
-  }
-  const p = state.pos || { mode: "default", x: 0, y: 0 };
-  if (p.mode === "default") {
-    shell.style.left = "50%";
-    shell.style.right = "";
-
-    shell.style.top = "0px";
-    shell.style.transform = "translateX(-50%)";
-  } else if (p.mode === "left") {
-    shell.style.left = "8px";
-    shell.style.right = "";
-    shell.style.top = "8px";
-    shell.style.transform = "none";
-  } else if (p.mode === "right") {
-    // Dock via `right`, never `left`: the island springs its width over 0.55s
-    // while collapsing/expanding, so a left pinned to any single width leaks
-    // at one end of the spring or the other (parked for the wide deck the
-    // collapsed pill floats ~130px off the right edge; parked for the pill the
-    // expanding deck sweeps 80px past it). The right edge stays glued to the
-    // viewport through the whole morph and the left edge glides with it.
-    // NB: `left: ""` is NOT enough — the stylesheet default is `left: 50%`,
-    // so clearing must go to `auto` or the shell ends up pinned at the
-    // viewport CENTER with the right dock both active (stretched mid-screen).
-    shell.style.left = "auto";
-    shell.style.right = "8px";
-    shell.style.top = "8px";
-    shell.style.transform = "none";
-  } else {
-    // custom (drag): keep the last grabbed spot, clamped on screen
-    shell.style.left = p.x + "px";
-    shell.style.right = "";
-    shell.style.top = p.y + "px";
-    shell.style.transform = "none";
-  }
+  // The OS window hugs the island and is placed by syncWindow() — presets
+  // and arrange drags move the WINDOW, not the DOM. Keep the shell anchored
+  // to the window's top edge so it can never drift or clip inside it.
+  shell.style.left = "50%";
+  shell.style.right = "";
+  shell.style.top = "0px";
+  shell.style.transform = "translateX(-50%)";
 }
 
 /** Snap the island to a position preset (immediate + persisted, like Done). */
 function setPos(mode) {
   state.pos = { mode, x: 0, y: 0 };
   persist();
-  if (IS_TAURI) {
-    // Presets move the real OS window. left/right use the backend monitor
-    // geometry so the offset is exact at any DPI; default re-centers top.
-    if (mode === "default") {
-      syncWindow(true);
-    } else {
-      TAURI.core.invoke("move_island_window", { anchor: mode }).catch(() => {});
-    }
-    render();
-    return;
+  // Presets move the real OS window. left/right use the backend monitor
+  // geometry so the offset is exact at any DPI; default re-centers top.
+  if (mode === "default") {
+    syncWindow(true);
+  } else {
+    TAURI.core.invoke("move_island_window", { anchor: mode }).catch(() => {});
   }
-  applyPosition();
   render();
 }
 
@@ -1780,9 +1625,8 @@ function factoryReset() {
   state.arranging = false; state.arrangeOrigin = null;
   state.applied = false; state.dirty = false;
   widgetGhost = null;
-  media.playing = false; clearInterval(mediaTick); mediaTick = null;
   state.dial = { call: false, mic: false, playing: false };
-  wxLive = null; wxSim = { temp: 19, code: 2 };
+  wxLive = null;
   draft = snapshot();
   render();
   openSetup("fresh");
@@ -2138,9 +1982,9 @@ function buildWidgetCard(type) {
     const prev = h("button", "mbtn", "⏮");
     const play = h("button", "mbtn main", "▶");
     const next = h("button", "mbtn", "⏭");
-    prev.onclick = () => { if (mediaTrack().live) { mediaCommand("media_previous"); } else { media.i = (media.i - 1 + PLAYLIST.length) % PLAYLIST.length; media.pos = 0; render(); } };
-    next.onclick = () => { if (mediaTrack().live) { mediaCommand("media_next"); } else { media.i = (media.i + 1) % PLAYLIST.length; media.pos = 0; render(); } };
-    play.onclick = () => { if (mediaTrack().live) { mediaCommand("media_play_pause"); } else { toggleMedia(); } };
+    prev.onclick = () => mediaCommand("media_previous");
+    next.onclick = () => mediaCommand("media_next");
+    play.onclick = () => mediaCommand("media_play_pause");
     ctl.append(prev, play, next);
     const prog = h("div", "media-progress");
     prog.append(time1, bar, time2);
@@ -2190,7 +2034,6 @@ function buildWidgetCard(type) {
       const geoBtn = h("button", "widget-btn", "📍 Use Windows location");
       geoBtn.style.marginTop = "6px";
       geoBtn.onclick = () => {
-        if (!IS_TAURI) { toast("Windows location is app-only"); return; }
         geoBtn.disabled = true;
         geoBtn.textContent = "Locating…";
         TAURI.core.invoke("weather_geo")
@@ -2207,6 +2050,15 @@ function buildWidgetCard(type) {
       return card;
     }
     const wd = weatherData();
+    if (!wd) {
+      // No location yet — guide the user to set one instead of showing
+      // placeholder numbers.
+      card.appendChild(h("div", "widget-edit", '<p class="widget-edit-hint">No location set yet.</p>'));
+      const set = h("button", "widget-btn widget-btn-primary", "Set location");
+      set.onclick = () => { state.editing = "weather"; render(); };
+      card.appendChild(set);
+      return card;
+    }
     card.appendChild(h("div", "weather-main",
       `<span class="weather-emoji">${wd.emoji}</span><span class="weather-temp">${Math.round(wd.temp)}°</span>`));
     card.appendChild(h("div", "weather-meta",
@@ -2229,15 +2081,11 @@ function buildWidgetCard(type) {
     apps.forEach((a) => {
       const tile = h("button", "launcher-app",
         `<span class="launcher-app-icon">${esc(initial(a.label))}</span><span class="launcher-app-label">${esc(a.label)}</span>`);
-      tile.title = IS_TAURI ? "Launch " + a.label : "Launch (demo)";
+      tile.title = "Launch " + a.label;
       tile.onclick = () => {
-        if (IS_TAURI) {
-          TAURI.core.invoke("launch_app", { path: a.path })
-            .then(() => toast("Launched " + a.label))
-            .catch(() => toast("Couldn't launch " + a.label));
-        } else {
-          toast("Launched " + a.label + " — demo mode");
-        }
+        TAURI.core.invoke("launch_app", { path: a.path })
+          .then(() => toast("Launched " + a.label))
+          .catch(() => toast("Couldn't launch " + a.label));
       };
       grid.appendChild(tile);
     });
@@ -2252,7 +2100,7 @@ function initial(s) { return s.trim().charAt(0).toUpperCase() || "•"; }
 
 function buildLauncherEdit() {
   const ed = h("div", "widget-edit");
-  const hint = h("p", "widget-edit-hint", "App shortcuts — launches are simulated in the demo");
+  const hint = h("p", "widget-edit-hint", "App shortcuts");
   ed.appendChild(hint);
 
   const list = h("div", "launcher-list");
@@ -2313,21 +2161,11 @@ function buildLauncherEdit() {
 }
 
 /* ---------- weather ---------- */
-const WX_CODES = [0, 1, 2, 3, 61, 80, 95];
-let wxSim = { temp: 19, code: 2 };
 let wxLive = null;
 
 function weatherData() {
-  if (wxLive) return wxLive;
-  return { ...mapWeather(wxSim.code), temp: wxSim.temp, feels: wxSim.temp, max: wxSim.temp + 4, min: wxSim.temp - 5 };
+  return wxLive;
 }
-setInterval(() => {
-  if (wxLive || !state.widgets.weather) return;
-  wxSim.temp = Math.max(6, Math.min(31, wxSim.temp + (Math.random() - 0.5) * 1.6));
-  if (Math.random() < 0.15) wxSim.code = WX_CODES[Math.floor(Math.random() * WX_CODES.length)];
-  $$(".widget-weather .weather-temp").forEach((e) => (e.textContent = Math.round(wxSim.temp) + "°"));
-  $$(".widget-weather .weather-emoji").forEach((e) => (e.textContent = mapWeather(wxSim.code).emoji));
-}, 30000);
 
 function saveWeather(city, ed) {
   const errEl = ed.querySelector(".weather-err");
@@ -2364,7 +2202,7 @@ function saveWeather(city, ed) {
     .catch(() => {
       btn.disabled = false;
       btn.textContent = "Save";
-      if (errEl) errEl.textContent = "Couldn't find that place (offline?) — the demo keeps simulated weather.";
+      if (errEl) errEl.textContent = "Couldn't find that place (offline?) — try again or use Windows location.";
     });
 }
 
@@ -2395,11 +2233,10 @@ function loadWeatherAt(lat, lon, name, ed, restoreBtn) {
     });
 }
 
-/* Auto-refresh: in the app, re-pull the forecast every 15 minutes so the
-   temp/condition stay current without touching anything (a manual city save
-   already fetches fresh; the browser demo keeps its fake walk). */
+/* Auto-refresh: re-pull the forecast every 15 minutes so the temp/condition
+   stay current without touching anything (a manual save fetches fresh too). */
 setInterval(() => {
-  if (!IS_TAURI || !state.widgets.weather) return;
+  if (!state.widgets.weather) return;
   if (state.weather && typeof state.weather.lat === "number" && typeof state.weather.lon === "number") {
     loadWeatherAt(state.weather.lat, state.weather.lon, state.weather.city);
   }
@@ -2530,9 +2367,7 @@ function buildDeck() {
     </div>
     <div class="row">
       <span class="row-label">Display<small>where the notch lives</small></span>
-      ${IS_TAURI
-        ? `<div class="chips" id="displayChips"><span class="value" style="color:var(--text-3)">Detecting…</span></div>`
-        : `<span class="value">Main monitor</span>`}
+      <div class="chips" id="displayChips"><span class="value" style="color:var(--text-3)">Detecting…</span></div>
     </div>
   `));
 
@@ -2605,7 +2440,7 @@ function buildDeck() {
     </div>
     <div class="row">
       <span class="row-label">Follow the OS accent</span>
-      <button class="chip ${d().accent === "system" ? "on" : ""}" id="stAccentSys">${IS_TAURI ? "Windows accent" : "Winotch blue"}</button>
+      <button class="chip ${d().accent === "system" ? "on" : ""}" id="stAccentSys">Windows accent</button>
     </div>` : ""}
   `));
 
@@ -2639,21 +2474,6 @@ function buildDeck() {
           <span class="row-label">${lab}</span>
           <button class="switch ${d().sysMetrics[k] ? "on" : ""}" data-metric="${k}" aria-pressed="${d().sysMetrics[k]}"></button>
         </div>`).join("")}` : ""}
-  `));
-
-  if (!IS_TAURI) scroll.appendChild(section("sim", "Simulation", "demo-only live states", sectionSummary("sim"), `
-    <div class="row">
-      <span class="row-label">On a call<small>strip becomes the call capsule</small></span>
-      <button class="switch ${state.dial.call ? "on" : ""}" id="simCall" aria-pressed="${state.dial.call}"></button>
-    </div>
-    <div class="row">
-      <span class="row-label">Microphone live<small>only matters during a call</small></span>
-      <button class="switch ${state.dial.mic ? "on" : ""}" id="simMic" aria-pressed="${state.dial.mic}"></button>
-    </div>
-    <div class="row">
-      <span class="row-label">Now playing<small>mini player in the strip</small></span>
-      <button class="switch ${state.dial.playing ? "on" : ""}" id="simPlay" aria-pressed="${state.dial.playing}"></button>
-    </div>
   `));
 
   /* actions — sticky bar: Reset-to-default on the left, draft actions right.
@@ -2695,10 +2515,9 @@ function buildDeck() {
     Object.assign(state, defaults());
     draft = snapshot();
     persist();
-    media.playing = false; clearInterval(mediaTick); mediaTick = null;
     state.dial = { call: false, mic: false, playing: false };
     state.editing = null; state.addOpen = false;
-    wxLive = null; wxSim = { temp: 19, code: 2 };
+    wxLive = null;
     render();
   };
   const actions = h("div", "deck-foot-actions");
@@ -2812,7 +2631,7 @@ function defaults() {
     gradient: "none", size: { width: 330, height: 36 }, idleContent: "brand", idleText: "",
     widgets: { ...DEFAULT_WIDGETS }, widgetOrder: [...DEFAULT_ORDER],
     sysMetrics: { cpu: true, temp: true, mem: true, bat: true, net: true },
-    notes: "", weather: { city: "Demo City", lat: null, lon: null }, launcherApps: QUICK_APPS.slice(),
+    notes: "", weather: { city: "Set your location", lat: null, lon: null }, launcherApps: QUICK_APPS.slice(),
   };
 }
 
@@ -2855,7 +2674,7 @@ function wireDeck(root) {
   // Display picker — real monitor enumeration under Tauri; picking one moves
   // the notch window there (backend command) and persists the choice.
   const displayChips = q("#displayChips");
-  if (displayChips && IS_TAURI) {
+  if (displayChips) {
     TAURI.core.invoke("get_monitors").then((mons) => {
       if (!mons || !mons.length) { displayChips.innerHTML = '<span class="value">Main monitor</span>'; return; }
       const saved = store.load("display", "primary");
@@ -2950,26 +2769,11 @@ function wireDeck(root) {
 
   const sysAccent = q("#stAccentSys");
   if (sysAccent) sysAccent.onclick = () => {
-    // In the app this follows the REAL Windows accent color (live-updated via
-    // winotch://theme); in the browser demo it just picks the brand blue.
-    d().accent = IS_TAURI ? "system" : "#4fc3ff";
+    // Follow the REAL Windows accent color (live-updated via winotch://theme).
+    d().accent = "system";
     markDirty(); render();
   };
 
-  const simCall = q("#simCall");
-  if (simCall) simCall.onclick = () => {
-    state.dial.call = !state.dial.call;
-    if (state.dial.call) { state.callStart = Date.now(); state.dial.mic = false; }
-    render();
-  };
-  const simMic = q("#simMic");
-  if (simMic) simMic.onclick = () => { state.dial.mic = !state.dial.mic; state.dial.call = true; state.callStart = state.callStart || Date.now(); render(); };
-  const simPlay = q("#simPlay");
-  if (simPlay) simPlay.onclick = () => {
-    if (media.playing || state.dial.playing) { media.playing = false; clearInterval(mediaTick); mediaTick = null; state.dial.playing = false; }
-    else { state.dial.playing = true; media.playing = true; mediaTick = setInterval(updateMediaClock, 1000); }
-    render();
-  };
 }
 
 /* Current value for each settings section, shown on its header so closed
@@ -2997,7 +2801,6 @@ function sectionSummary(key) {
       return names[state.idleContent] || "";
     }
     case "widgets": return Object.values(state.widgets).filter(Boolean).length + "/" + WIDGET_TYPES.length + " on";
-    case "sim": return state.dial.call ? "In a call" : state.dial.playing ? "Media playing" : "Idle";
     default: return "";
   }
 }
@@ -3037,7 +2840,7 @@ function collapsePanel() {
   // Reduced motion: exit animations collapse to ~0 via CSS, so swap at once.
   // Under Tauri we force animations on, so this is always false in the app and
   // the full collapse spring plays out.
-  const reduce = !IS_TAURI && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduce = false; // the app always plays every animation
   closeTimer = setTimeout(() => {
     closeTimer = null;
     island.classList.remove("closing");
@@ -3060,9 +2863,8 @@ function openCtx(x, y) {
     return b;
   };
   menu.append(
-    // Production: Hide parks the island in the system tray, Restart relaunches
-    // the exe, Close quits the process — all real backend commands. In the
-    // browser demo they fall back to the page-local versions.
+    // Hide parks the island in the system tray, Restart relaunches the exe,
+    // Close quits the process — all real backend commands.
     item("Hide Winotch", false, () => {
       hideIsland();
       if (TAURI) TAURI.core.invoke("hide_island").catch(() => {});
@@ -3083,25 +2885,10 @@ function openCtx(x, y) {
   menu.style.top = Math.max(0, Math.min(y, window.innerHeight - r.height - 8)) + "px";
 }
 function hideIsland() {
-  state.hidden = true;
   state.expanded = false;
   state.settingsOpen = false;
-  document.body.classList.add("hidden");
+  // The backend hides the OS window; the tray's Show item brings it back.
 }
-$("#restore").addEventListener("click", () => {
-  state.hidden = false;
-  document.body.classList.remove("hidden");
-  render();
-  // Coming back from hidden: put the window where it belongs. In the app the
-  // tray Show item is the real path; this restore-orb is the demo affordance.
-  if (IS_TAURI && state.pos && state.pos.mode && state.pos.mode !== "default") {
-    if (state.pos.mode === "custom") {
-      TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
-    } else {
-      TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
-    }
-  }
-});
 
 /* ---------- rerun setup modal ---------- */
 function openSetup(mode = "rerun") {
@@ -3237,15 +3024,7 @@ function initInteractions() {
     let y = e.clientY - dragState.dy;
     x = Math.max(8, Math.min(x, window.screen.width - r.width - 8));
     y = Math.max(8, Math.min(y, window.screen.height - r.height - 8));
-    if (IS_TAURI) {
-      TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
-    } else {
-      const shell = $("#shell");
-      if (!shell) return;
-      shell.style.left = x + "px";
-      shell.style.top = y + "px";
-      shell.style.transform = "none";
-    }
+    TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
     state.pos = { mode: "custom", x, y };
   });
   document.addEventListener("pointerup", (e) => {
@@ -3272,15 +3051,13 @@ function initInteractions() {
     if (state.arranging) {
       if (state.arrangeOrigin) {
         state.pos = { ...state.arrangeOrigin };
-        // Re-apply the restored position to the REAL window under Tauri.
-        if (IS_TAURI) {
-          if (state.pos.mode === "custom") {
-            TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
-          } else if (state.pos.mode !== "default") {
-            TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
-          } else {
-            syncWindow(true);
-          }
+        // Re-apply the restored position to the REAL window.
+        if (state.pos.mode === "custom") {
+          TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+        } else if (state.pos.mode !== "default") {
+          TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+        } else {
+          syncWindow(true);
         }
       }
       state.arranging = false;
@@ -3293,14 +3070,13 @@ function initInteractions() {
 }
 
 /* ---------- Tauri window integration ----------
-   In the shipped app this page runs inside a transparent, always-on-top Tauri
-   window (the real notch). The demo sizes its own island via CSS; under Tauri
-   we ALSO grow the OS window to match the island's rendered size and anchor it
-   top-center on the display, so the notch hugs the screen edge exactly and the
-   deck never clips. Standalone in a browser (no window.__TAURI__) this is a
-   no-op, so the page keeps working as the design reference. */
-const IS_TAURI = typeof window !== "undefined" && !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
-const TAURI = IS_TAURI ? window.__TAURI__ : null;
+   This page runs inside a transparent, always-on-top Tauri window (the real
+   notch). The OS window is grown to match the island's rendered size and
+   anchored top-center on the display, so the notch hugs the screen edge
+   exactly and the deck never clips. */
+// The page ships inside the Tauri webview; TAURI is the global API bridge.
+const TAURI = window.__TAURI__ || null;
+const IS_TAURI = !!(TAURI && TAURI.core && TAURI.core.invoke);
 let resizeSettleTimer = null;
 let pendingCollapse = false;
 let lastExpanded = false;
@@ -3342,9 +3118,8 @@ function syncWindow(force = false) {
 }
 
 /* ---- live backend data (real stats / media / calls / mic) ----
-   Under Tauri the demo's simulated values are replaced by the actual OS data
-   from the backend commands. In a browser (no __TAURI__) these never run, so
-   the standalone preview keeps its simulated demo. */
+   Everything on the island reflects actual OS state via backend commands
+   and push events. */
 let liveMedia = null;
 let lastMediaKey = null;
 
@@ -3363,12 +3138,11 @@ function applySystemStats(s) {
   refreshWidgets();
 }
 
-/* Resolve the current media track: real SMTC state under Tauri, else the demo
-   playlist. Returns { live, title, artist, dur, pos, playing }. */
+/* Resolve the current media track from the live SMTC session.
+   Returns { title, artist, dur, pos, playing }; nothing playing → empty state. */
 function mediaTrack() {
-  if (IS_TAURI && liveMedia && (liveMedia.title || liveMedia.artist)) {
+  if (liveMedia && (liveMedia.title || liveMedia.artist)) {
     return {
-      live: true,
       title: liveMedia.title || "Unknown track",
       artist: liveMedia.artist || "",
       dur: liveMedia.duration || 0,
@@ -3376,13 +3150,7 @@ function mediaTrack() {
       playing: !!liveMedia.playing,
     };
   }
-  if (IS_TAURI) {
-    // Real app with no active session yet — show an empty state, not the demo
-    // track (which would flash before the first media_get_state resolves).
-    return { live: true, title: "Nothing playing", artist: "", dur: 0, pos: 0, playing: false };
-  }
-  const tr = PLAYLIST[media.i];
-  return { live: false, title: tr.t, artist: tr.a, dur: tr.d, pos: media.pos, playing: media.playing };
+  return { title: "Nothing playing", artist: "", dur: 0, pos: 0, playing: false };
 }
 
 function mediaCommand(cmd) {
@@ -3481,17 +3249,8 @@ const _matchMediaTheme = () => {
 if (TAURI) {
   // "Rerun Setup…" from the system tray reopens the designv2 wizard.
   TAURI.event.listen("winotch://rerun-setup", () => openSetup("rerun")).catch(() => {});
-  // The demo's bottom "hover to open…" hint is a browser-only affordance; the
-  // shipped notch doesn't need it (it would overlap the pill in a window that
-  // is exactly island-sized).
-  const hint = document.querySelector(".hint");
-  if (hint) hint.style.display = "none";
-  // The demo's fake desktop orbs exist only so a browser has something to frost
-  // behind the island. In the real app the window is transparent over the
-  // actual desktop, so drop the orbs and let the real wallpaper show through
-  // (the native DWM blur is applied via set_island_effect).
-  const da = document.querySelector(".desk-art");
-  if (da) da.style.display = "none";
+  // The window is transparent over the real desktop (native DWM blur is
+  // applied via set_island_effect when a glass surface is active).
   document.body.style.background = "transparent";
   wireLiveData();
 }
@@ -3499,12 +3258,6 @@ if (TAURI) {
 /* ---------- boot ---------- */
 draft = snapshot();
 applyTheme();
-// Honor reduced-motion in the browser demo only. The app (Tauri) always plays
-// every designv2 animation — WebView2 reports reduced-motion when Windows
-// "Animation effects" is off, which would silently strip them all.
-if (!IS_TAURI && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-  document.body.classList.add("reduce-motion");
-}
 initInteractions();
 render();
 </script>
