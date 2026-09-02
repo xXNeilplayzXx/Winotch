@@ -76,6 +76,10 @@
   --player-btn-hover: #fff;
   --player-ctl-hover: rgba(255, 255, 255, 0.08);
 
+/* Deck status tokens (designv2): ok / alarm / warn. */
+  --ok: #3ddc97;
+  --warn: #ffc14d;
+
   --map-bg: rgba(255, 255, 255, 0.04);
   --map-border: rgba(255, 255, 255, 0.08);
   --map-mon: rgba(255, 255, 255, 0.1);
@@ -156,6 +160,10 @@
   --player-btn: rgba(15, 17, 24, 0.75);
   --player-btn-hover: #101016;
   --player-ctl-hover: rgba(0, 0, 0, 0.07);
+
+/* Deck status tokens, light theme. */
+  --ok: #0e8a5f;
+  --warn: #b46a00;
 
   --map-bg: rgba(0, 0, 0, 0.05);
   --map-border: rgba(0, 0, 0, 0.09);
@@ -680,7 +688,7 @@ body {
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-/* ---- Empty state ---- */
+/* ---- Empty state (deck microcopy) ---- */
 .panel-empty {
   flex: 1;
   display: flex;
@@ -693,13 +701,17 @@ body {
 
 .panel-empty p {
   margin: 0;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
   color: var(--text-2);
 }
 
 .panel-empty > span:last-child {
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
   color: var(--text-3);
 }
 
@@ -2540,6 +2552,137 @@ input[type="range"]:active::-webkit-slider-thumb {
 
 :root[data-theme="light"] .widget-card {
   background: rgba(255, 255, 255, 0.55);
+}
+
+/* Deck card header: LED + mono label LEFT-aligned (the old space-between
+   centered the label between LED and controls - the deck keeps them left). */
+.widget-bar,
+.widget-stack-head {
+  justify-content: flex-start;
+}
+
+.widget-bar .widget-led + .widget-label,
+.widget-stack-head .led + .widget-label {
+  margin-left: 8px;
+}
+
+.widget-bar .widget-ctrls,
+.widget-stack-head .icon-btn:last-child {
+  margin-left: auto;
+}
+
+.widget-label {
+  font-family: var(--mono);
+  letter-spacing: 0.16em;
+}
+
+/* Deck widget stack padding (widgets pour down inside the panel body). */
+.panel-widgets {
+  padding: 12px 14px 14px;
+  gap: 10px;
+}
+
+/* Deck widget-edit hint: mono microcopy. */
+.widget-edit-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Deck system rows: no icon boxes - mono label, hairline track, gradient
+   bar, mono value (the designv2 .sys-row language). */
+.sys-row-icon {
+  display: none;
+}
+
+.sys-row-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  width: 52px;
+  flex: none;
+}
+
+.sys-bar {
+  height: 4px;
+  background: var(--hairline);
+}
+
+.sys-bar span {
+  background: linear-gradient(90deg, var(--accent), #7cd4ff);
+}
+
+.sys-row.hot .sys-bar span {
+  background: linear-gradient(90deg, var(--warn), var(--mic-color));
+}
+
+.sys-row-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  width: 62px;
+  flex: none;
+}
+
+/* Deck media widget: compact title/artist over a hairline progress bar,
+   pill transport buttons (the designv2 .media-* language). */
+.np-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.np-artist {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.np-progress {
+  height: 4px;
+  background: var(--hairline);
+}
+
+.np-progress span {
+  background: var(--accent);
+}
+
+.np-times {
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.np-ctl {
+  width: 30px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.np-ctl:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+.np-ctl-main {
+  width: 34px;
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+.np-ctl-main:hover {
+  background: var(--accent);
+  filter: brightness(1.12);
+  color: var(--on-accent);
 }
 
 /* ---- Deck section headers: the current value lives in the header row ---- */
