@@ -1334,6 +1334,7 @@ function persist() {
 const stats = { cpu: 34, temp: 61, mem: 58, bat: 82, netUp: 1.2, netDown: 240 };
 function walk(v, lo, hi, step) { return Math.max(lo, Math.min(hi, v + (Math.random() * 2 - 1) * step)); }
 setInterval(() => {
+  if (IS_TAURI) return; // real data comes from the backend (wireLiveData)
   stats.cpu = walk(stats.cpu, 6, 97, 9);
   stats.temp = Math.max(42, walk(stats.temp, 42, stats.cpu > 80 ? 92 : 76, 3));
   stats.mem = walk(stats.mem, 30, 92, 3);
@@ -1502,15 +1503,15 @@ function render() {
     body.appendChild(cp);
   } else if (state.dial.playing) {
     const mnp = h("div", "mini-nowplaying");
-    const tr = PLAYLIST[media.i];
-    mnp.innerHTML = `<span class="ga">♪</span><span class="track">${esc(tr.t)} — ${esc(tr.a)}</span>`;
+    const t = mediaTrack();
+    mnp.innerHTML = `<span class="ga">♪</span><span class="track">${esc(t.title)}${t.artist ? " — " + esc(t.artist) : ""}</span>`;
     body.appendChild(mnp);
   } else if (state.idleContent === "system") {
     const sm = h("div", "sysm");
     sm.innerHTML =
       (state.sysMetrics.cpu ? `<span class="sysm-chip" data-k="cpu">CPU <b>${Math.round(stats.cpu)}%</b></span>` : "") +
       (state.sysMetrics.mem ? `<span class="sysm-chip" data-k="mem">MEM <b>${Math.round(stats.mem)}%</b></span>` : "") +
-      (state.sysMetrics.bat ? `<span class="sysm-chip" data-k="bat">BAT <b>${Math.round(stats.bat)}%</b></span>` : "");
+      (state.sysMetrics.bat && stats.bat != null ? `<span class="sysm-chip" data-k="bat">BAT <b>${Math.round(stats.bat)}%</b></span>` : "");
     body.appendChild(sm);
   } else if (state.idleContent === "brand") {
     body.appendChild(h("span", "brand", "Winotch"));
@@ -2097,21 +2098,22 @@ function buildWidgetCard(type) {
     const time2 = h("span", "media-time", "0:00");
     const ctl = h("div", "media-ctl");
     const prev = h("button", "mbtn", "⏮");
-    const play = h("button", "mbtn main", media.playing ? "❚❚" : "▶");
+    const play = h("button", "mbtn main", "▶");
     const next = h("button", "mbtn", "⏭");
-    prev.onclick = () => { media.i = (media.i - 1 + PLAYLIST.length) % PLAYLIST.length; media.pos = 0; render(); };
-    next.onclick = () => { media.i = (media.i + 1) % PLAYLIST.length; media.pos = 0; render(); };
-    play.onclick = () => toggleMedia();
+    prev.onclick = () => { if (mediaTrack().live) { mediaCommand("media_previous"); } else { media.i = (media.i - 1 + PLAYLIST.length) % PLAYLIST.length; media.pos = 0; render(); } };
+    next.onclick = () => { if (mediaTrack().live) { mediaCommand("media_next"); } else { media.i = (media.i + 1) % PLAYLIST.length; media.pos = 0; render(); } };
+    play.onclick = () => { if (mediaTrack().live) { mediaCommand("media_play_pause"); } else { toggleMedia(); } };
     ctl.append(prev, play, next);
     const prog = h("div", "media-progress");
     prog.append(time1, bar, time2);
     card.append(mm, prog, ctl);
     card._update = () => {
-      const tr = PLAYLIST[media.i];
-      mm.innerHTML = `<div class="media-title">${esc(tr.t)}</div><div class="media-artist">${esc(tr.a)}</div>`;
-      bar.innerHTML = `<i style="width:${((media.pos / tr.d) * 100).toFixed(1)}%"></i>`;
-      time1.textContent = fmtTime(media.pos);
-      time2.textContent = fmtTime(tr.d);
+      const t = mediaTrack();
+      mm.innerHTML = `<div class="media-title">${esc(t.title)}</div><div class="media-artist">${esc(t.artist)}</div>`;
+      bar.innerHTML = `<i style="width:${t.dur > 0 ? ((t.pos / t.dur) * 100).toFixed(1) : 0}%"></i>`;
+      time1.textContent = fmtTime(t.pos);
+      time2.textContent = fmtTime(t.dur);
+      play.textContent = t.playing ? "❚❚" : "▶";
     };
     card._update();
     return card;
@@ -2173,8 +2175,16 @@ function buildWidgetCard(type) {
     apps.forEach((a) => {
       const tile = h("button", "launcher-app",
         `<span class="launcher-app-icon">${esc(initial(a.label))}</span><span class="launcher-app-label">${esc(a.label)}</span>`);
-      tile.title = "Launch (demo)";
-      tile.onclick = () => toast("Launched " + a.label + " — demo mode");
+      tile.title = IS_TAURI ? "Launch " + a.label : "Launch (demo)";
+      tile.onclick = () => {
+        if (IS_TAURI) {
+          TAURI.core.invoke("launch_app", { path: a.path })
+            .then(() => toast("Launched " + a.label))
+            .catch(() => toast("Couldn't launch " + a.label));
+        } else {
+          toast("Launched " + a.label + " — demo mode");
+        }
+      };
       grid.appendChild(tile);
     });
     card.appendChild(grid);
@@ -2369,10 +2379,10 @@ function systemRows() {
     </div>`;
   let s = "";
   if (m.cpu) s += row("CPU", stats.cpu, Math.round(stats.cpu) + "%", stats.cpu > 82);
-  if (m.temp) s += row("TEMP", ((stats.temp - 35) / 55) * 100, Math.round(stats.temp) + "°", stats.temp > 75);
+  if (m.temp && stats.temp != null) s += row("TEMP", Math.max(2, ((stats.temp - 35) / 55) * 100), Math.round(stats.temp) + "°", stats.temp > 75);
   if (m.mem) s += row("MEM", stats.mem, Math.round(stats.mem) + "%");
-  if (m.bat) s += row("BAT", stats.bat, Math.round(stats.bat) + "%", stats.bat < 20);
-  if (m.net) s += row("NET", 45, "↓" + (stats.netDown > 1024 ? (stats.netDown / 1024).toFixed(1) + "M" : Math.round(stats.netDown) + "k") + " ↑" + stats.netUp.toFixed(1) + "k");
+  if (m.bat && stats.bat != null) s += row("BAT", stats.bat, Math.round(stats.bat) + "%", stats.bat < 20);
+  if (m.net && stats.netDown != null) s += row("NET", 45, "↓" + (stats.netDown > 1024 ? (stats.netDown / 1024).toFixed(1) + "M" : Math.round(stats.netDown) + "k") + " ↑" + (stats.netUp != null ? stats.netUp.toFixed(1) : "0") + "k");
   return s;
 }
 
@@ -2381,9 +2391,10 @@ function refreshWidgets() {
   $$("#island .widget").forEach((c) => { if (c._update) c._update(); });
   $$("#island .sysm-chip[data-k]").forEach((chip) => {
     const k = chip.dataset.k;
-    const v = k === "cpu" ? Math.round(stats.cpu) + "%" : k === "mem" ? Math.round(stats.mem) + "%" : Math.round(stats.bat) + "%";
+    let v = k === "cpu" ? Math.round(stats.cpu) + "%" : k === "mem" ? Math.round(stats.mem) + "%" : (stats.bat != null ? Math.round(stats.bat) + "%" : null);
     const b = chip.querySelector("b");
-    if (b) b.textContent = v;
+    if (v != null && b) b.textContent = v;
+    else if (v == null && chip.parentElement) chip.remove();
   });
 }
 
@@ -2537,7 +2548,7 @@ function buildDeck() {
         </div>`).join("")}` : ""}
   `));
 
-  scroll.appendChild(section("sim", "Simulation", "demo-only live states", sectionSummary("sim"), `
+  if (!IS_TAURI) scroll.appendChild(section("sim", "Simulation", "demo-only live states", sectionSummary("sim"), `
     <div class="row">
       <span class="row-label">On a call<small>strip becomes the call capsule</small></span>
       <button class="switch ${state.dial.call ? "on" : ""}" id="simCall" aria-pressed="${state.dial.call}"></button>
@@ -3169,6 +3180,98 @@ function syncWindow() {
   lastExpanded = state.expanded;
 }
 
+/* ---- live backend data (real stats / media / calls / mic) ----
+   Under Tauri the demo's simulated values are replaced by the actual OS data
+   from the backend commands. In a browser (no __TAURI__) these never run, so
+   the standalone preview keeps its simulated demo. */
+let liveMedia = null;
+let lastMediaKey = null;
+
+function applySystemStats(s) {
+  if (!s) return;
+  stats.cpu = s.cpu;
+  // temp/battery may be absent (no sensor / desktop without a battery) — null
+  // them so systemRows hides the row instead of showing a stale or 0 value.
+  stats.temp = (typeof s.tempC === "number" && s.tempC != null) ? s.tempC : null;
+  if (s.memTotalGb > 0) stats.mem = (s.memUsedGb / s.memTotalGb) * 100;
+  stats.bat = s.battery ? s.battery.pct : null;
+  // Network throughput is null on the very first poll while the baseline is
+  // captured; the NET row hides until a real reading exists.
+  stats.netDown = s.network ? (s.network.downBytesPerSec / 1024) : null; // kB/s
+  stats.netUp = s.network ? (s.network.upBytesPerSec / 1024) : null;
+  refreshWidgets();
+}
+
+/* Resolve the current media track: real SMTC state under Tauri, else the demo
+   playlist. Returns { live, title, artist, dur, pos, playing }. */
+function mediaTrack() {
+  if (IS_TAURI && liveMedia && (liveMedia.title || liveMedia.artist)) {
+    return {
+      live: true,
+      title: liveMedia.title || "Unknown track",
+      artist: liveMedia.artist || "",
+      dur: liveMedia.duration || 0,
+      pos: liveMedia.position || 0,
+      playing: !!liveMedia.playing,
+    };
+  }
+  if (IS_TAURI) {
+    // Real app with no active session yet — show an empty state, not the demo
+    // track (which would flash before the first media_get_state resolves).
+    return { live: true, title: "Nothing playing", artist: "", dur: 0, pos: 0, playing: false };
+  }
+  const tr = PLAYLIST[media.i];
+  return { live: false, title: tr.t, artist: tr.a, dur: tr.d, pos: media.pos, playing: media.playing };
+}
+
+function mediaCommand(cmd) {
+  if (TAURI) TAURI.core.invoke(cmd).catch(() => {});
+}
+
+function setLiveMedia(m) {
+  liveMedia = m || null;
+  const prevPlaying = state.dial.playing;
+  const playing = !!(liveMedia && liveMedia.playing);
+  state.dial.playing = playing;
+  const key = liveMedia ? ((liveMedia.title || "") + "|" + (liveMedia.artist || "")) : "";
+  // Re-render the island only when the strip-visible state changes (track
+  // identity or play/pause); position ticks just refresh the cards.
+  if (playing !== prevPlaying || key !== lastMediaKey) {
+    lastMediaKey = key;
+    render();
+  } else {
+    refreshWidgets();
+  }
+}
+
+function setLiveCall(c) {
+  const onCall = !!(c && c.onCall);
+  if (onCall === state.dial.call) return;
+  state.dial.call = onCall;
+  state.callStart = onCall ? Date.now() : 0;
+  render();
+}
+
+function setLiveMic(m) {
+  const on = !!(m && m.on);
+  if (on === state.dial.mic) return;
+  state.dial.mic = on;
+  render();
+}
+
+function wireLiveData() {
+  if (!TAURI) return;
+  setInterval(() => {
+    TAURI.core.invoke("system_stats").then(applySystemStats).catch(() => {});
+  }, 2000);
+  TAURI.core.invoke("media_get_state").then(setLiveMedia).catch(() => {});
+  TAURI.core.invoke("call_get_state").then(setLiveCall).catch(() => {});
+  TAURI.core.invoke("mic_get_state").then(setLiveMic).catch(() => {});
+  TAURI.event.listen("media://state", (e) => setLiveMedia(e.payload)).catch(() => {});
+  TAURI.event.listen("call://state", (e) => setLiveCall(e.payload)).catch(() => {});
+  TAURI.event.listen("mic://state", (e) => setLiveMic(e.payload)).catch(() => {});
+}
+
 let lastEffect = null;
 function syncNativeEffect() {
   if (!TAURI) return;
@@ -3193,6 +3296,7 @@ if (TAURI) {
   const da = document.querySelector(".desk-art");
   if (da) da.style.display = "none";
   document.body.style.background = "transparent";
+  wireLiveData();
 }
 
 /* ---------- boot ---------- */
