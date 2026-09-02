@@ -1170,8 +1170,16 @@
     .hint { display: none; }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  /* Reduced-motion is now class-gated so the app can force animations on
+     (see boot). In the browser demo the class is added when the OS asks for
+     reduced motion; in the Tauri app it's never added, so every designv2
+     animation plays regardless of the Windows "Animation effects" setting. */
+  body.reduce-motion *,
+  body.reduce-motion *::before,
+  body.reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 </style>
 </head>
@@ -2913,7 +2921,9 @@ function collapsePanel() {
   island.style.height = "36px";
   island.style.borderRadius = state.shape === "notch" ? "0 0 22px 22px" : "999px";
   // Reduced motion: exit animations collapse to ~0 via CSS, so swap at once.
-  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Under Tauri we force animations on, so this is always false in the app and
+  // the full collapse spring plays out.
+  const reduce = !IS_TAURI && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   closeTimer = setTimeout(() => {
     closeTimer = null;
     island.classList.remove("closing");
@@ -3302,6 +3312,12 @@ if (TAURI) {
 /* ---------- boot ---------- */
 draft = snapshot();
 applyTheme();
+// Honor reduced-motion in the browser demo only. The app (Tauri) always plays
+// every designv2 animation — WebView2 reports reduced-motion when Windows
+// "Animation effects" is off, which would silently strip them all.
+if (!IS_TAURI && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.body.classList.add("reduce-motion");
+}
 initInteractions();
 render();
 </script>
