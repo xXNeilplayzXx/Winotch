@@ -297,18 +297,22 @@ function formatCallTime(ms: number): string {
 function SettingsSection({
   title,
   subtitle,
+  summary,
   open,
   onToggle,
   children,
 }: {
   title: string;
+  /** Short description under the title. */
   subtitle?: string;
+  /** The section's current value, right-aligned in the header (deck style). */
+  summary?: string;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
 }) {
   return (
-    <div className="settings-section">
+    <div className={`settings-section${open ? " open" : ""}`}>
       <motion.button
         type="button"
         className="settings-section-head"
@@ -317,13 +321,16 @@ function SettingsSection({
           e.stopPropagation();
           onToggle();
         }}
-        whileTap={{ scale: 0.98 }}
+        whileTap={{ scale: 0.99 }}
         transition={TAP_SPRING}
       >
+        {/* Deck LED mark: glows accent while the section is open. */}
+        <span className="section-mark" aria-hidden />
         <span className="settings-section-titles">
           <span className="settings-section-title">{title}</span>
           {subtitle && <span className="settings-section-sub">{subtitle}</span>}
         </span>
+        {summary && <span className="settings-section-summary">{summary}</span>}
         <svg
           className={`settings-chevron${open ? "" : " settings-chevron-closed"}`}
           viewBox="0 0 24 24"
@@ -1224,7 +1231,8 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Shape"
-                subtitle={`${draft?.shape === "pill" ? "Pill" : "Notch"} · ${
+                subtitle="Notch or pill, and which screen"
+                summary={`${draft?.shape === "pill" ? "Pill" : "Notch"} · ${
                   monitorSelectValue(draft?.monitor ?? readMonitorPref()) === "all"
                     ? "All monitors"
                     : monitorSelectValue(draft?.monitor ?? readMonitorPref()).startsWith("mon:")
@@ -1283,7 +1291,8 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Size"
-                subtitle={draft ? `${draft.size.width} × ${draft.size.height} px` : undefined}
+                subtitle="Exactly how wide and tall"
+                summary={draft ? `${draft.size.width} × ${draft.size.height} px` : undefined}
                 open={sectionOpen.size}
                 onToggle={() => setSectionOpen((s) => ({ ...s, size: !s.size }))}
               >
@@ -1342,7 +1351,8 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Appearance"
-                subtitle={draft?.glass ? `Glass · ${draft.glassOpacity}%` : "Solid"}
+                subtitle="Surface, glass and gradients"
+                summary={draft?.glass ? `Glass · ${draft.glassOpacity}%` : "Solid"}
                 open={sectionOpen.appearance}
                 onToggle={() => setSectionOpen((s) => ({ ...s, appearance: !s.appearance }))}
               >
@@ -1426,7 +1436,8 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Theme"
-                subtitle={
+                subtitle="Light, dark and accent colors"
+                summary={
                   draft?.theme === "color"
                     ? draft.accent === ACCENT_SYSTEM
                       ? "Color · Windows accent"
@@ -1536,7 +1547,8 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Idle"
-                subtitle={
+                subtitle="What the bar shows when idle"
+                summary={
                   draft?.idleContent === "custom"
                     ? `Custom text${draft.idleText.trim() ? ` · “${draft.idleText.trim()}”` : ""}`
                     : draft?.idleContent === "system"

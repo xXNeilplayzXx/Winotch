@@ -613,12 +613,15 @@ body {
   }
 }
 
+/* Deck row: taller touch target, generous gap, hairline dividers. */
 .settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 2px;
+  gap: 8px 14px;
+  min-height: 40px;
+  padding: 9px 0;
+  flex-wrap: wrap;
 }
 
 .settings-row + .settings-row {
@@ -626,43 +629,43 @@ body {
 }
 
 .settings-label {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text);
 }
 
+/* Deck segmented: pill tray, accent-selected. */
 .segmented {
   display: flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface-2);
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .segmented button {
   border: none;
-  border-radius: 7px;
-  padding: 3px 12px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  font-weight: 400;
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .segmented button:hover {
-  color: var(--text-hover);
+  color: var(--text);
 }
 
 .segmented button.seg-active {
   background: var(--surface-3);
   color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 /* ---- Empty state ---- */
@@ -1966,19 +1969,20 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
-  transition: background 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 0 8px var(--accent-strong);
+  cursor: pointer;
+  transition: transform 0.15s ease;
 }
 
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:active::-webkit-slider-thumb {
-  background: var(--accent-underline);
-  transform: scale(1.1);
+  background: var(--accent);
+  transform: scale(1.12);
 }
 
 /* Apply / Reset row at the bottom of the settings panel. */.settings-actions{
@@ -1987,17 +1991,25 @@ input[type="range"]:active::-webkit-slider-thumb {
   padding:10px 2px 2px;
 }
 
+/* Deck foot buttons: mono pill buttons, in the designv2 language. */
 .settings-btn {
   flex: 1;
-  padding: 7px 10px;
+  padding: 8px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
 .settings-btn:hover {
@@ -2007,11 +2019,13 @@ input[type="range"]:active::-webkit-slider-thumb {
 .settings-btn-primary {
   background: var(--accent);
   border-color: transparent;
-  color: #1a1403;
+  color: var(--on-accent);
+  font-weight: 700;
 }
 
-.settings-btn-primary:hover {
-  background: var(--accent-underline);
+.settings-btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
 }
 
 /* Accent-color theming (the "Color" theme picker). */
@@ -2127,53 +2141,108 @@ input[type="range"]:active::-webkit-slider-thumb {
   gap: 6px;
 }
 
+/* ---- Deck sections: each section is its own glass card, in the designv2
+   instrument-deck language (LED mark, mono title + description, right-aligned
+   mono value summary, chevron). ---- */
 .settings-section {
   flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-tile);
+  overflow: hidden;
+}
+
+:root[data-theme="light"] .settings-section {
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .settings-section-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 11px 13px 10px;
   border: none;
-  border-radius: 9px;
-  background: var(--surface);
+  border-radius: 13px;
+  background: transparent;
   color: var(--text-2);
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s ease;
+  transition: background 0.12s ease;
 }
 
 .settings-section-head:hover {
   background: var(--surface-2);
-  color: var(--text-hover);
+}
+
+/* Deck LED mark: grey when closed, glowing accent when open/hovered. */
+.section-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.settings-section-head:hover .section-mark {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-strong);
+}
+
+.settings-section.open .section-mark,
+.settings-section-head[aria-expanded="true"] .section-mark {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-strong);
 }
 
 .settings-section-titles {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
+  margin-right: auto;
 }
 
 .settings-section-title {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: var(--text-2);
+  transition: color 0.15s ease;
+}
+
+.settings-section-head:hover .settings-section-title {
   color: var(--text);
 }
 
 .settings-section-sub {
   font-size: 10px;
-  font-weight: 400;
+  letter-spacing: 0.04em;
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Right-aligned mono summary of the section's current value. */
+.settings-section-summary {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  flex: none;
+  transition: color 0.15s ease;
+}
+
+.settings-section-head:hover .settings-section-summary {
+  color: var(--text-2);
 }
 
 .settings-chevron {
@@ -2186,7 +2255,7 @@ input[type="range"]:active::-webkit-slider-thumb {
 }
 
 .settings-section-body {
-  padding: 2px 2px 0;
+  padding: 2px 13px 12px;
 }
 
 /* Non-editable value line (e.g. single-display "Main monitor"). */
