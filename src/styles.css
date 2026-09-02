@@ -527,16 +527,27 @@ body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 12px 28px 20px;
+  gap: 0;
+  padding: 0;
   min-height: 0;
 }
 
+/* Deck scroll area: the settings/widgets content pours down inside this. */
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Deck panel head: LED + title on the left, actions right, hairline bottom. */
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   min-height: 24px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .panel-head-left {
@@ -599,7 +610,8 @@ body {
 .settings {
   display: flex;
   flex-direction: column;
-  padding: 1px 2px;
+  padding: 0 14px;
+  min-height: 100%;
 }
 
 @keyframes settings-slide {
@@ -1985,10 +1997,24 @@ input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.12);
 }
 
-/* Apply / Reset row at the bottom of the settings panel. */.settings-actions{
-  display:flex;
-  gap:8px;
-  padding:10px 2px 2px;
+/* Deck foot: sticky Apply/Reset bar pinned to the panel bottom, in the
+   designv2 language (hairline top edge, dark gradient, upward shadow). */
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  margin: 0 -14px -12px;
+  border-top: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(21, 26, 36, 0.98), rgba(13, 17, 25, 0.99));
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="light"] .settings-actions {
+  background: linear-gradient(180deg, rgba(248, 250, 253, 0.98), rgba(240, 243, 248, 0.99));
+  box-shadow: 0 -8px 20px rgba(10, 13, 20, 0.08);
 }
 
 /* Deck foot buttons: mono pill buttons, in the designv2 language. */
@@ -2010,10 +2036,7 @@ input[type="range"]:active::-webkit-slider-thumb {
 .settings-btn:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--border-strong);
-}
-
-.settings-btn:hover {
-  background: var(--surface-3);
+  background: transparent;
 }
 
 .settings-btn-primary {

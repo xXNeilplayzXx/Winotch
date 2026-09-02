@@ -1152,22 +1152,41 @@ export function Island({
               data-call={callLive ? "on" : "off"}
               aria-hidden
             />
-            <motion.button
-              type="button"
-              className={`icon-btn ${settingsOpen ? "icon-btn-active" : ""}`}
-              title="Settings"
-              onClick={toggleSettings}
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.88 }}
-              transition={TAP_SPRING}
-            >
-              <SettingsIcon />
-            </motion.button>
             {settingsOpen && <span className="panel-title">Settings</span>}
             {!settingsOpen && <span className="panel-title">Widgets</span>}
           </div>
+          <motion.button
+            type="button"
+            className={`icon-btn ${settingsOpen ? "icon-btn-active" : ""}`}
+            title="Settings"
+            onClick={toggleSettings}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.88 }}
+            transition={TAP_SPRING}
+          >
+            <SettingsIcon />
+          </motion.button>
+          <motion.button
+            type="button"
+            className="icon-btn"
+            title="Collapse"
+            onClick={(e) => {
+              e.stopPropagation();
+              leave();
+            }}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.88 }}
+            transition={TAP_SPRING}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </motion.button>
         </div>
 
+        {/* Deck scroll body: settings deck and widget stack both pour down
+            inside this scroller, under the pinned panel head. */}
+        <div className="panel-body" data-tauri-drag-region="false">
         <AnimatePresence>
           {settingsOpen && draft && (
             <motion.div
@@ -1639,6 +1658,7 @@ export function Island({
         </AnimatePresence>
 
         <WidgetStack widgets={widgets} media={media} onChange={updateWidgetList} />
+        </div>
           </motion.section>
         )}
       </AnimatePresence>
