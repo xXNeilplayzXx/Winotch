@@ -165,6 +165,22 @@
     border-color: rgba(120, 140, 170, 0.3);
   }
 
+  /* App-only (real window hugs the island): kill the outer drop shadow.
+     It extends ~28px past the rounded pill and the rectangular OS window
+     clips it into a dark fringe/box around the notch. Inset highlights are
+     kept — they light the pill's edge without escaping its bounds. The
+     standalone demo (no .tauri class) keeps the shadow on its fake desktop. */
+  :root.tauri .island,
+  :root.tauri .island.glass,
+  :root.tauri .island.glass.frosted {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+  :root.tauri[data-theme="light"] .island,
+  :root.tauri[data-theme="light"] .island.glass,
+  :root.tauri[data-theme="light"] .island.glass.frosted {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
   .island-grad { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
   .grad-aurora { background: linear-gradient(160deg, rgba(16, 185, 129, 0.42) 0%, rgba(37, 99, 235, 0.1) 45%, rgba(139, 92, 246, 0.18) 100%); }
   .grad-sunset { background: linear-gradient(160deg, rgba(255, 122, 89, 0.5) 0%, rgba(239, 68, 68, 0.14) 45%, rgba(168, 85, 247, 0.2) 100%); }
@@ -1051,6 +1067,21 @@
   }
   :root[data-theme="light"] .modal-wrap { background: rgba(20, 24, 34, 0.3); }
   .modal-wrap.open { display: flex; }
+  /* App-only: no dimming scrim. The OS window is fitted to the modal, so the
+     veil has nothing meaningful to dim — it just paints a dark rectangular
+     frame around the wizard (reads as the "black box"). The desktop behind
+     stays untouched; clicks on the margin still close the wizard. */
+  :root.tauri .modal-wrap {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* Same for the modal's outer drop shadow: inside a window fitted to the
+     modal (+16px), the 60px shadow fills the margin with near-black — a dark
+     frame around the wizard. The border defines the edge; no shadow needed. */
+  :root.tauri .modal {
+    box-shadow: none;
+  }
   /* The modal MUST NOT use viewport units (vw/vh): under Tauri the viewport is
      the OS window, which is sized FROM this modal's measured box — a circular
      dependency that collapses the wizard to a ~49px sliver at the app's
@@ -3443,6 +3474,13 @@ if (TAURI) {
   // through the gap instead of a solid box.
   document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
+  // Tag the root so app-only CSS can apply (see the .tauri island overrides):
+  // the island's outer drop shadow extends ~28px past the pill, but the OS
+  // window hugs the island exactly — Windows clips that shadow at the
+  // rectangular window bounds, rendering the "black box" fringe around the
+  // rounded notch. In the app the shadow must go (inset highlights stay);
+  // the standalone browser demo keeps it since nothing clips there.
+  document.documentElement.classList.add("tauri");
   wireLiveData();
   // First-run weather auto-detect: silently resolve the user's location from
   // the OS when none has ever been set (see maybeAutoDetectLocation).
