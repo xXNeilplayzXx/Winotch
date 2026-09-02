@@ -1138,6 +1138,13 @@ export function Island({
           >
         <div className="panel-head">
           <div className="panel-head-left">
+            {/* Instrument LED: mirrors the collapsed dot's live state. */}
+            <span
+              className="led"
+              data-mic={micOn ? "on" : "off"}
+              data-call={callLive ? "on" : "off"}
+              aria-hidden
+            />
             <motion.button
               type="button"
               className={`icon-btn ${settingsOpen ? "icon-btn-active" : ""}`}
@@ -1150,6 +1157,7 @@ export function Island({
               <SettingsIcon />
             </motion.button>
             {settingsOpen && <span className="panel-title">Settings</span>}
+            {!settingsOpen && <span className="panel-title">Widgets</span>}
           </div>
         </div>
 
@@ -1216,7 +1224,13 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Shape"
-                subtitle="Notch or pill, and which screen"
+                subtitle={`${draft?.shape === "pill" ? "Pill" : "Notch"} · ${
+                  monitorSelectValue(draft?.monitor ?? readMonitorPref()) === "all"
+                    ? "All monitors"
+                    : monitorSelectValue(draft?.monitor ?? readMonitorPref()).startsWith("mon:")
+                      ? (monitors.find((m) => m.device === monitorSelectValue(draft?.monitor ?? readMonitorPref()).slice(4))?.name ?? "External monitor")
+                      : "Main monitor"
+                }`}
                 open={sectionOpen.shape}
                 onToggle={() => setSectionOpen((s) => ({ ...s, shape: !s.shape }))}
               >
@@ -1269,7 +1283,7 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Size"
-                subtitle="Exactly how wide and tall"
+                subtitle={draft ? `${draft.size.width} × ${draft.size.height} px` : undefined}
                 open={sectionOpen.size}
                 onToggle={() => setSectionOpen((s) => ({ ...s, size: !s.size }))}
               >
@@ -1328,7 +1342,7 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Appearance"
-                subtitle="Surface, glass and gradients"
+                subtitle={draft?.glass ? `Glass · ${draft.glassOpacity}%` : "Solid"}
                 open={sectionOpen.appearance}
                 onToggle={() => setSectionOpen((s) => ({ ...s, appearance: !s.appearance }))}
               >
@@ -1412,7 +1426,17 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Theme"
-                subtitle="Light, dark and accent colors"
+                subtitle={
+                  draft?.theme === "color"
+                    ? draft.accent === ACCENT_SYSTEM
+                      ? "Color · Windows accent"
+                      : `Color · ${draft.accent.toUpperCase()}`
+                    : draft?.theme === "light"
+                      ? "Light"
+                      : draft?.theme === "dark"
+                        ? "Dark"
+                        : "System"
+                }
                 open={sectionOpen.theme}
                 onToggle={() => setSectionOpen((s) => ({ ...s, theme: !s.theme }))}
               >
@@ -1512,7 +1536,17 @@ export function Island({
               </SettingsSection>
               <SettingsSection
                 title="Idle"
-                subtitle="What the bar shows when nothing is happening"
+                subtitle={
+                  draft?.idleContent === "custom"
+                    ? `Custom text${draft.idleText.trim() ? ` · “${draft.idleText.trim()}”` : ""}`
+                    : draft?.idleContent === "system"
+                      ? "System stats"
+                      : draft?.idleContent === "clock"
+                        ? "Clock only"
+                        : draft?.idleContent === "blank"
+                          ? "Dot only"
+                          : "Brand + clock"
+                }
                 open={sectionOpen.idle}
                 onToggle={() => setSectionOpen((s) => ({ ...s, idle: !s.idle }))}
               >

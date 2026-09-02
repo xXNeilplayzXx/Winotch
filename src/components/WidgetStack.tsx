@@ -159,6 +159,8 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
   return (
     <div className="panel-widgets" ref={listRef}>
       <div className="widget-stack-head">
+        {/* Instrument LED: deck-style accent marker for the widgets header. */}
+        <span className="led" aria-hidden />
         <span className="widget-label">Widgets</span>
         <motion.button
           type="button"
@@ -221,6 +223,7 @@ export function WidgetStack({ widgets, media, onChange, configureAll = false }: 
               transition={{ ...spring, delay: i * 0.055 }}
             >
             <div className="widget-bar">
+              <span className="led widget-led" aria-hidden />
               <span className="widget-label">{WIDGET_LABELS[w.type]}</span>
               <div className="widget-ctrls">
                 {editable && !configureAll && (
