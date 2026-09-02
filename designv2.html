@@ -1134,6 +1134,11 @@
     opacity: 0.85;
     margin-bottom: 4px;
     position: relative;
+    /* .setup-tile is a column flex with align-items: flex-start, so an empty
+       span with no width would collapse to 0 (the pill preview vanished).
+       Give it a definite width: 70% centered, same as the notch tile. */
+    width: 70%;
+    margin: 0 auto 8px;
   }
   .setup-preview.notch { border-radius: 0 0 18px 18px; height: 18px; width: 70%; margin: 0 auto 8px; }
   .setup-actions { display: flex; gap: 8px; margin-top: 18px; }
