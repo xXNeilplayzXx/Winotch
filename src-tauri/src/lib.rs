@@ -26,6 +26,7 @@ fn restart_app(app: tauri::AppHandle) {
 }
 
 mod calls;
+mod effects;
 mod geo;
 mod launcher;
 mod media;
@@ -261,6 +262,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            effects::set_island_effect,
             calls::call_get_state,
             media::media_get_state,
             mic::mic_get_state,

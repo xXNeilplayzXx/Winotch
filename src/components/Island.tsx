@@ -100,6 +100,9 @@ interface SettingsDraft {
   shape: IslandShape;
   monitor: MonitorPref;
   glass: boolean;
+  /** Frosted-glass variant (only meaningful in glass mode): the heavier,
+   *  milkier etched-glass surface from designv2. */
+  frosted: boolean;
   /** Liquid-glass opacity percent (only meaningful in glass mode). */
   glassOpacity: number;
   /** Liquid-glass backdrop blur in px (only meaningful in glass mode). */
@@ -399,6 +402,15 @@ export function Island({
       return true;
     }
   });
+  // Frosted-glass variant (only meaningful in glass mode): the heavier,
+  // milkier etched-glass surface from designv2. Persisted under its own key.
+  const [frosted, setFrosted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("winotch.frosted") !== "off";
+    } catch {
+      return false;
+    }
+  });
   const [themePref, setThemePref] = useState<ThemePref>(() => readThemePref());
   // Liquid-glass opacity percent; applies live as a CSS variable.
   const [glassOpacity, setGlassOpacity] = useState<number>(() => readGlassOpacity());
@@ -582,6 +594,7 @@ export function Island({
     void listen<{
       shape: IslandShape;
       glass: boolean;
+      frosted?: boolean;
       widgets?: WidgetInstance[];
       size?: IslandSize | null;
       glassOpacity?: number;
@@ -601,6 +614,7 @@ export function Island({
       if (p.gradient !== undefined) setGradient(p.gradient);
       if (p.idleContent !== undefined) setIdleContent(p.idleContent);
       if (p.idleText !== undefined) setIdleText(p.idleText);
+      if (p.frosted !== undefined) setFrosted(p.frosted);
       if (p.draggable !== undefined) setDraggable(p.draggable);
       if (p.accent !== undefined) themeManager.setAccentPref(p.accent);
       setShape(p.shape);
@@ -625,6 +639,17 @@ export function Island({
     applyGlassOpacity(glassOpacity);
     applyGlassBlur(glassBlur);
   }, [glassOpacity, glassBlur]);
+
+  // Native OS-level blur behind the island. CSS backdrop-filter only blurs
+  // content INSIDE the webview, so real frosted glass over the desktop needs
+  // the DWM window effect. Ask the backend to apply/clear it whenever the
+  // surface or frosted setting changes (and on mount so it's restored).
+  useEffect(() => {
+    // Only frosted gets the native OS-level blur (Blur). Plain glass keeps its
+    // CSS translucent surface (unchanged behaviour); solid clears the effect.
+    void invoke("set_island_effect", { effect: glass && frosted ? "frosted" : "solid" }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glass, frosted]);
 
   // Grow/shrink the expanded window when the widget count changes.
   const firstWidgetsRender = useRef(true);
@@ -664,6 +689,7 @@ export function Island({
       shape,
       monitor: readMonitorPref(),
       glass,
+      frosted,
       glassOpacity,
       glassBlur,
       gradient,
@@ -697,6 +723,7 @@ export function Island({
       accent: accentChanged,
       monitorChanged,
       size: sizeChanged,
+      frosted: frostedChanged,
     } = diffDraft(d, opts);
 
     // Everything is persisted under its existing key / manager.
@@ -712,6 +739,14 @@ export function Island({
       setGlass(d.glass);
       try {
         localStorage.setItem("winotch.glass", d.glass ? "on" : "off");
+      } catch {
+        /* storage unavailable; keep session-only */
+      }
+    }
+    if (frostedChanged) {
+      setFrosted(d.frosted);
+      try {
+        localStorage.setItem("winotch.frosted", d.frosted ? "on" : "off");
       } catch {
         /* storage unavailable; keep session-only */
       }
@@ -790,6 +825,7 @@ export function Island({
     broadcastConfig({
       shape: d.shape,
       glass: d.glass,
+      frosted: d.frosted,
       glassOpacity: d.glassOpacity,
       glassBlur: d.glassBlur,
       gradient: d.gradient,
@@ -892,6 +928,7 @@ export function Island({
       shape: "notch",
       monitor: "primary",
       glass: true,
+      frosted: false,
       glassOpacity: GLASS_OPACITY_DEFAULT,
       glassBlur: GLASS_BLUR_DEFAULT,
       gradient: "none",
@@ -931,6 +968,7 @@ export function Island({
       monitor,
       shape: d.shape !== shape,
       glass: d.glass !== glass,
+      frosted: d.frosted !== frosted,
       opacity: d.glassOpacity !== glassOpacity,
       blur: d.glassBlur !== glassBlur,
       gradient: d.gradient !== gradient,
@@ -954,6 +992,7 @@ export function Island({
     return (
       d.shape ||
       d.glass ||
+      d.frosted ||
       d.opacity ||
       d.blur ||
       d.gradient ||
@@ -965,12 +1004,13 @@ export function Island({
       d.size
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, shape, glass, glassOpacity, glassBlur, gradient, idleContent, idleText, draggable, themePref, monitors]);
+  }, [draft, shape, glass, frosted, glassOpacity, glassBlur, gradient, idleContent, idleText, draggable, themePref, monitors]);
 
   /** Send the current (or overridden) config to every island window. */
   const broadcastConfig = (override?: {
     shape?: IslandShape;
     glass?: boolean;
+    frosted?: boolean;
     widgets?: WidgetInstance[];
     size?: IslandSize | null;
     glassOpacity?: number;
@@ -985,6 +1025,7 @@ export function Island({
       config: {
         shape: override?.shape ?? shape,
         glass: override?.glass ?? glass,
+        frosted: override?.frosted ?? frosted,
         widgets: override?.widgets ?? widgets,
         size: override?.size !== undefined ? override.size : appliedSize,
         glassOpacity: override?.glassOpacity ?? glassOpacity,
@@ -1015,6 +1056,7 @@ export function Island({
         shape,
         monitor: readMonitorPref(),
         glass,
+        frosted,
         glassOpacity,
         glassBlur,
         gradient,
@@ -1057,7 +1099,7 @@ export function Island({
     <div className="island-shell">
       <motion.div
         ref={islandRef}
-        className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${
+        className={`island shape-${shape} mode-${mode}${glass ? " glass" : ""}${glass && frosted ? " frosted" : ""}${
           mediaLive ? " media-live" : ""
         }${callLive ? " call-live" : ""}${draggable ? " island--draggable" : ""}`}
         data-tauri-drag-region={draggable ? "deep" : undefined}
@@ -1371,32 +1413,48 @@ export function Island({
               <SettingsSection
                 title="Appearance"
                 subtitle="Surface, glass and gradients"
-                summary={draft?.glass ? `Glass · ${draft.glassOpacity}%` : "Solid"}
+                summary={
+                  !draft.glass
+                    ? "Solid"
+                    : draft.frosted
+                      ? `Frosted · ${draft.glassOpacity}%`
+                      : `Glass · ${draft.glassOpacity}%`
+                }
                 open={sectionOpen.appearance}
                 onToggle={() => setSectionOpen((s) => ({ ...s, appearance: !s.appearance }))}
               >
             <div className="settings-row">
-              <span className="settings-label">Appearance</span>
+              <span className="settings-label">Surface</span>
               <div className="segmented">
                 <button
                   type="button"
                   className={!draft.glass ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setDraft({ ...draft, glass: false });
+                    setDraft({ ...draft, glass: false, frosted: false });
                   }}
                 >
                   Solid
                 </button>
                 <button
                   type="button"
-                  className={draft.glass ? "seg-active" : ""}
+                  className={draft.glass && !draft.frosted ? "seg-active" : ""}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setDraft({ ...draft, glass: true });
+                    setDraft({ ...draft, glass: true, frosted: false });
                   }}
                 >
                   Glass
+                </button>
+                <button
+                  type="button"
+                  className={draft.glass && draft.frosted ? "seg-active" : ""}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDraft({ ...draft, glass: true, frosted: true });
+                  }}
+                >
+                  Frosted
                 </button>
               </div>
             </div>

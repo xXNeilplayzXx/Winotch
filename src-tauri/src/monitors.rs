@@ -76,6 +76,10 @@ pub struct ConfigSize {
 pub struct ConfigBroadcast {
     pub shape: String,
     pub glass: bool,
+    /// Frosted-glass variant (only meaningful in glass mode): when set the
+    /// island applies a heavier native DWM blur behind the window.
+    #[serde(default)]
+    pub frosted: Option<bool>,
     #[serde(default)]
     pub widgets: Option<serde_json::Value>,
     #[serde(default)]
