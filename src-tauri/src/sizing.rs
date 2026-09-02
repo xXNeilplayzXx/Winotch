@@ -61,7 +61,7 @@ pub fn lock_to_primary_top_center(window: tauri::WebviewWindow) -> Result<(), St
 /// to a static screen edge.
 #[tauri::command]
 pub fn fit_island_to_content(
-    window: tauri::Window,
+    window: tauri::WebviewWindow,
     width: f64,
     height: f64,
     recenter: Option<bool>,
@@ -78,9 +78,17 @@ pub fn fit_island_to_content(
     let center_x = cur_pos.x + (cur.width as i32 / 2);
     let top_y = cur_pos.y;
 
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)))
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)))
         .map_err(|e| e.to_string())?;
+    // Resizing a transparent WebView2 window can re-composite an opaque
+    // default background over the desktop, which paints a solid rectangle
+    // behind the rounded pill. Re-pin the webview background to fully
+    // transparent on every size change (not just at window creation) so the
+    // only thing visible is the island's own rounded shape. No-op off Windows.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+    }
 
     let recenter = recenter.unwrap_or(false);
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
