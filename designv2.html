@@ -1557,14 +1557,18 @@ function applyIslandSize() {
   }
   island.style.borderRadius = state.shape === "notch" ? "0 0 30px 30px" : "32px";
 
-  // Measure the real panel content height, then pin the morph to it —
-  // synchronously. Do NOT pin the height before measuring: the panel-body is
-  // an internal scroll container (overflow-y: auto), so a squeezed island
-  // would report only the strip + panel head (~85px) and clip every widget.
-  // Let flex lay out naturally (height: auto), read the true content, then
-  // set the morph size. Making this a sync layout read also keeps it reliable
-  // in throttled/background contexts where requestAnimationFrame stalls.
-  island.style.height = "auto";
+  // Measure the real panel content height, then pin the morph target.
+  // The panel-body is an internal scroll container (overflow-y: auto), so a
+  // squeezed island would report only the strip + panel head (~85px) and
+  // clip every widget — the content only lays out at its natural size, so
+  // the measurement MUST detour through height:"auto". But a plain
+  // auto→px swap kills the height spring: the transition system sees the
+  // computed style jump and the panel POPPED to full height instantly
+  // (while width still animated — the lopsided expand glitch). So the
+  // detour is made invisible to transitions: measure with the transition
+  // disabled, re-commit the start height, force a reflow so it becomes the
+  // transition's "before" value, re-enable transitions, THEN set the
+  // target. The spring then runs 36px → N px like every other property.
   const pb = island.querySelector(".panel-body");
   // Clearing max-height below momentarily fits the whole content, which makes
   // the browser clamp scrollTop to 0 — that would teleport the user to the top
@@ -1575,7 +1579,13 @@ function applyIslandSize() {
   // Same rationale as the width cap: under Tauri the window height tracks the
   // island, so cap against the real screen rather than the (shrinking) window.
   const capH = window.screen.height;
+  const startH = island.style.height || "36px";
+  island.style.transition = "none";
+  island.style.height = "auto";
   const capped = Math.min(island.scrollHeight, Math.round(capH * 0.88));
+  island.style.height = startH;
+  void island.offsetHeight; // commit startH as the computed "before" value
+  island.style.transition = "";
   island.style.height = capped + "px";
   if (pb) {
     // Subtract the island's full fixed chrome (strip + panel head), not just
