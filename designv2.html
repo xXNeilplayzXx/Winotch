@@ -1398,12 +1398,18 @@ const ACCENT_SWATCHES = ["#4fc3ff", "#7cd4ff", "#3ddc97", "#ffc14d", "#ff6b6b", 
 function effectiveTheme() {
   if (state.theme === "light") return "light";
   if (state.theme === "dark") return "dark";
-  try {
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  } catch { return "dark"; }
+  // system: prefer the REAL Windows theme reported by the backend (available
+  // in the app); fall back to the webview media query in the browser demo.
+  if (winTheme) return winTheme.theme === "light" ? "light" : "dark";
+  return _matchMediaTheme();
 }
 function effectiveAccent() {
   if (state.accent === "system") {
+    // Follow the real Windows accent color when the backend reports it.
+    if (winTheme && Array.isArray(winTheme.accent) && winTheme.accent.length === 3) {
+      const [r, g, b] = winTheme.accent;
+      return "#" + [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
+    }
     return effectiveTheme() === "light" ? "#0078d4" : "#4fc3ff";
   }
   return state.accent;
@@ -1495,12 +1501,15 @@ function render() {
       state.pos = { mode: "default", x: 0, y: 0 };
       state.arranging = false;
       persist();
+      if (IS_TAURI) syncWindow(true); // re-center the real window on top
       render();
     };
     ar.querySelector("#arDone").onclick = (e) => {
       e.stopPropagation();
       state.arranging = false;
       persist();
+      // Done keeps the dragged spot — the window is already there under
+      // Tauri (move_island_window fired on every pointermove); just persist.
       render();
     };
     body.appendChild(ar);
@@ -1688,6 +1697,16 @@ function applyIslandSize() {
 function applyPosition() {
   const shell = $("#shell");
   if (!shell) return;
+  if (IS_TAURI) {
+    // The OS window hugs the island and is placed by syncWindow() — presets
+    // and arrange drags move the WINDOW, not the DOM. Keep the shell anchored
+    // to the window's top edge so it can never drift or clip inside it.
+    shell.style.left = "50%";
+    shell.style.right = "";
+    shell.style.top = "0px";
+    shell.style.transform = "translateX(-50%)";
+    return;
+  }
   const p = state.pos || { mode: "default", x: 0, y: 0 };
   if (p.mode === "default") {
     shell.style.left = "50%";
@@ -1727,6 +1746,17 @@ function applyPosition() {
 function setPos(mode) {
   state.pos = { mode, x: 0, y: 0 };
   persist();
+  if (IS_TAURI) {
+    // Presets move the real OS window. left/right use the backend monitor
+    // geometry so the offset is exact at any DPI; default re-centers top.
+    if (mode === "default") {
+      syncWindow(true);
+    } else {
+      TAURI.core.invoke("move_island_window", { anchor: mode }).catch(() => {});
+    }
+    render();
+    return;
+  }
   applyPosition();
   render();
 }
@@ -2156,6 +2186,22 @@ function buildWidgetCard(type) {
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") saveWeather(input.value, ed); });
       row.append(input, save);
       ed.appendChild(row);
+      // Production: skip typing a city — ask the OS where the device is.
+      const geoBtn = h("button", "widget-btn", "📍 Use Windows location");
+      geoBtn.style.marginTop = "6px";
+      geoBtn.onclick = () => {
+        if (!IS_TAURI) { toast("Windows location is app-only"); return; }
+        geoBtn.disabled = true;
+        geoBtn.textContent = "Locating…";
+        TAURI.core.invoke("weather_geo")
+          .then((g) => loadWeatherAt(g.lat, g.lon, "My location", ed, geoBtn))
+          .catch((err) => {
+            geoBtn.disabled = false;
+            geoBtn.textContent = "📍 Use Windows location";
+            toast(String(err).replace(/[^\x20-\x7e]/g, "").trim() || "Location unavailable");
+          });
+      };
+      ed.appendChild(geoBtn);
       ed.appendChild(h("p", "widget-err weather-err"));
       card.appendChild(ed);
       return card;
@@ -2322,6 +2368,43 @@ function saveWeather(city, ed) {
     });
 }
 
+/* Fetch + render weather for an explicit lat/lon (used by "Use Windows
+   location" and the 15-minute auto-refresh in the app). Name is display-only. */
+function loadWeatherAt(lat, lon, name, ed, restoreBtn) {
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`)
+    .then((r) => { if (!r.ok) throw new Error("forecast"); return r.json(); })
+    .then((j) => {
+      const cur = j.current ?? {};
+      const daily = j.daily ?? {};
+      wxLive = {
+        ...mapWeather(cur.weather_code ?? 0),
+        temp: cur.temperature_2m ?? 0,
+        feels: cur.apparent_temperature ?? cur.temperature_2m ?? 0,
+        max: daily.temperature_2m_max?.[0] ?? 0,
+        min: daily.temperature_2m_min?.[0] ?? 0,
+      };
+      state.weather = { city: name, lat, lon };
+      if (ed) { state.editing = null; }
+      state.addOpen = false;
+      persist();
+      render();
+    })
+    .catch(() => {
+      if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📍 Use Windows location"; }
+      toast("Weather lookup failed (offline?)");
+    });
+}
+
+/* Auto-refresh: in the app, re-pull the forecast every 15 minutes so the
+   temp/condition stay current without touching anything (a manual city save
+   already fetches fresh; the browser demo keeps its fake walk). */
+setInterval(() => {
+  if (!IS_TAURI || !state.widgets.weather) return;
+  if (state.weather && typeof state.weather.lat === "number" && typeof state.weather.lon === "number") {
+    loadWeatherAt(state.weather.lat, state.weather.lon, state.weather.city);
+  }
+}, 15 * 60 * 1000);
+
 /* ---------- custom dropdown ---------- */
 let nsOpenWrap = null;
 
@@ -2446,8 +2529,10 @@ function buildDeck() {
       </div>
     </div>
     <div class="row">
-      <span class="row-label">Display<small>this demo renders one screen</small></span>
-      <span class="value">Main monitor</span>
+      <span class="row-label">Display<small>where the notch lives</small></span>
+      ${IS_TAURI
+        ? `<div class="chips" id="displayChips"><span class="value" style="color:var(--text-3)">Detecting…</span></div>`
+        : `<span class="value">Main monitor</span>`}
     </div>
   `));
 
@@ -2520,7 +2605,7 @@ function buildDeck() {
     </div>
     <div class="row">
       <span class="row-label">Follow the OS accent</span>
-      <button class="chip ${d().accent === "#4fc3ff" || d().accent === "#0078d4" ? "on" : ""}" id="stAccentSys">Winotch blue</button>
+      <button class="chip ${d().accent === "system" ? "on" : ""}" id="stAccentSys">${IS_TAURI ? "Windows accent" : "Winotch blue"}</button>
     </div>` : ""}
   `));
 
@@ -2767,6 +2852,30 @@ function wireDeck(root) {
   const rerun = q("#stRerun");
   if (rerun) rerun.onclick = () => openSetup();
 
+  // Display picker — real monitor enumeration under Tauri; picking one moves
+  // the notch window there (backend command) and persists the choice.
+  const displayChips = q("#displayChips");
+  if (displayChips && IS_TAURI) {
+    TAURI.core.invoke("get_monitors").then((mons) => {
+      if (!mons || !mons.length) { displayChips.innerHTML = '<span class="value">Main monitor</span>'; return; }
+      const saved = store.load("display", "primary");
+      displayChips.innerHTML = mons.map((m) => {
+        const id = m.is_primary ? "primary" : m.device;
+        const label = (m.is_primary ? "Main" : (m.name || m.device).split(" ")[0]) +
+          ` <small>${m.width}×${m.height}</small>`;
+        return `<button class="chip ${saved === id ? "on" : ""}" data-mon="${esc(id)}">${label}</button>`;
+      }).join("");
+      displayChips.querySelectorAll("[data-mon]").forEach((b) => {
+        b.onclick = () => {
+          const id = b.dataset.mon;
+          store.save("display", id);
+          TAURI.core.invoke("move_notch_to_monitor", { monitorName: id === "primary" ? "primary" : id }).catch(() => {});
+          displayChips.querySelectorAll("[data-mon]").forEach((x) => x.classList.toggle("on", x === b));
+        };
+      });
+    }).catch(() => { displayChips.innerHTML = '<span class="value">Main monitor</span>'; });
+  }
+
   qa("[data-shape]").forEach((b) => b.onclick = () => { d().shape = b.dataset.shape; markDirty(); render(); });
   qa("[data-glass]").forEach((b) => b.onclick = () => {
     const v = b.dataset.glass;
@@ -2840,7 +2949,12 @@ function wireDeck(root) {
   };
 
   const sysAccent = q("#stAccentSys");
-  if (sysAccent) sysAccent.onclick = () => { d().accent = "#4fc3ff"; markDirty(); render(); };
+  if (sysAccent) sysAccent.onclick = () => {
+    // In the app this follows the REAL Windows accent color (live-updated via
+    // winotch://theme); in the browser demo it just picks the brand blue.
+    d().accent = IS_TAURI ? "system" : "#4fc3ff";
+    markDirty(); render();
+  };
 
   const simCall = q("#simCall");
   if (simCall) simCall.onclick = () => {
@@ -2946,10 +3060,22 @@ function openCtx(x, y) {
     return b;
   };
   menu.append(
-    item("Hide Winotch", false, () => hideIsland()),
-    item("Restart Winotch", false, () => location.reload()),
+    // Production: Hide parks the island in the system tray, Restart relaunches
+    // the exe, Close quits the process — all real backend commands. In the
+    // browser demo they fall back to the page-local versions.
+    item("Hide Winotch", false, () => {
+      hideIsland();
+      if (TAURI) TAURI.core.invoke("hide_island").catch(() => {});
+    }),
+    item("Restart Winotch", false, () => {
+      if (TAURI) TAURI.core.invoke("restart_app").catch(() => {});
+      else location.reload();
+    }),
     item("Rerun Setup…", false, () => { state.settingsOpen = false; state.expanded = true; render(); openSetup(); }),
-    item("Close Winotch", true, () => hideIsland()),
+    item("Close Winotch", true, () => {
+      if (TAURI) TAURI.core.invoke("quit_app").catch(() => {});
+      else hideIsland();
+    }),
   );
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
@@ -2966,6 +3092,15 @@ $("#restore").addEventListener("click", () => {
   state.hidden = false;
   document.body.classList.remove("hidden");
   render();
+  // Coming back from hidden: put the window where it belongs. In the app the
+  // tray Show item is the real path; this restore-orb is the demo affordance.
+  if (IS_TAURI && state.pos && state.pos.mode && state.pos.mode !== "default") {
+    if (state.pos.mode === "custom") {
+      TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+    } else {
+      TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+    }
+  }
 });
 
 /* ---------- rerun setup modal ---------- */
@@ -3085,30 +3220,32 @@ function initInteractions() {
     if (!state.arranging) return;
     if (!e.target.closest(".island-shell")) return;
     if (e.target.closest(".arrange-btn")) return;
-    const shell = $("#shell");
-    if (!shell) return;
-    // Capture the pressed rect FIRST — freeing the right dock can reflow the
-    // shell, and a dx computed after the reflow would make the pill jump on
-    // the first move. Then free both docks: with `right: 8px` still set
-    // (right preset) setting `left` as well would stretch the shell instead
-    // of moving it, and `left` must be forced away from the stylesheet's 50%
-    // or the shell snaps to the center the moment the right dock is freed.
-    const r = shell.getBoundingClientRect();
-    shell.style.right = "";
-    shell.style.left = "auto";
+    // Grab offset from the ISLAND's top-left — under Tauri the drag moves the
+    // window by exact deltas, so the offset must be measured against the thing
+    // that visually moves (the island pill), not the (window-sized) shell.
+    const r = $("#island").getBoundingClientRect();
     dragState = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
     e.preventDefault();
   });
   document.addEventListener("pointermove", (e) => {
     if (!dragState || e.pointerId !== dragState.id) return;
-    const shell = $("#shell");
-    if (!shell) return;
-    const r = shell.getBoundingClientRect();
-    const x = Math.max(8, Math.min(e.clientX - dragState.dx, window.innerWidth - r.width - 8));
-    const y = Math.max(8, Math.min(e.clientY - dragState.dy, window.innerHeight - r.height - 8));
-    shell.style.left = x + "px";
-    shell.style.top = y + "px";
-    shell.style.transform = "none";
+    const r = $("#island").getBoundingClientRect();
+    // Arrange drags move the REAL window under Tauri (the window hugs the
+    // island, so dragging anything else does nothing). Anchor is the island's
+    // top-left minus the grab offset, clamped to the desktop work area.
+    let x = e.clientX - dragState.dx;
+    let y = e.clientY - dragState.dy;
+    x = Math.max(8, Math.min(x, window.screen.width - r.width - 8));
+    y = Math.max(8, Math.min(y, window.screen.height - r.height - 8));
+    if (IS_TAURI) {
+      TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
+    } else {
+      const shell = $("#shell");
+      if (!shell) return;
+      shell.style.left = x + "px";
+      shell.style.top = y + "px";
+      shell.style.transform = "none";
+    }
     state.pos = { mode: "custom", x, y };
   });
   document.addEventListener("pointerup", (e) => {
@@ -3133,7 +3270,19 @@ function initInteractions() {
     if ($("#setupWrap").classList.contains("open")) { $("#setupWrap").classList.remove("open"); return; }
     // Escape cancels an arrange session and restores the pre-arrange position.
     if (state.arranging) {
-      if (state.arrangeOrigin) state.pos = { ...state.arrangeOrigin };
+      if (state.arrangeOrigin) {
+        state.pos = { ...state.arrangeOrigin };
+        // Re-apply the restored position to the REAL window under Tauri.
+        if (IS_TAURI) {
+          if (state.pos.mode === "custom") {
+            TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+          } else if (state.pos.mode !== "default") {
+            TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+          } else {
+            syncWindow(true);
+          }
+        }
+      }
       state.arranging = false;
       render();
       return;
@@ -3157,14 +3306,16 @@ let pendingCollapse = false;
 let lastExpanded = false;
 let lastSize = null;
 
-function syncWindow() {
+function syncWindow(force = false) {
   if (!TAURI) return;
   const island = $("#island");
   if (!island) return;
   const w = parseFloat(island.style.width) || 330;
   const h = parseFloat(island.style.height) || 36;
   const send = () => {
-    if (lastSize && lastSize[0] === w && lastSize[1] === h) return;
+    // `force` re-sends even when the size is unchanged (position presets use
+    // it to re-center the window); normally identical sizes are skipped.
+    if (!force && lastSize && lastSize[0] === w && lastSize[1] === h) return;
     lastSize = [w, h];
     TAURI.core.invoke("fit_island_to_content", { width: w, height: h }).catch(() => {});
   };
@@ -3280,6 +3431,19 @@ function wireLiveData() {
   TAURI.event.listen("media://state", (e) => setLiveMedia(e.payload)).catch(() => {});
   TAURI.event.listen("call://state", (e) => setLiveCall(e.payload)).catch(() => {});
   TAURI.event.listen("mic://state", (e) => setLiveMic(e.payload)).catch(() => {});
+  // Live Windows theme/accent — also pulls once immediately (get_system_theme
+  // re-emits, so the single listener catches both).
+  TAURI.event.listen("winotch://theme", (e) => setWinTheme(e.payload)).catch(() => {});
+  TAURI.core.invoke("get_system_theme").then(setWinTheme).catch(() => {});
+  // Re-assert the saved window position on boot (default → top-center, custom
+  // → the exact spot it was dragged to, left/right → the presets).
+  if (state.pos && state.pos.mode && state.pos.mode !== "default") {
+    if (state.pos.mode === "custom") {
+      TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+    } else {
+      TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+    }
+  }
 }
 
 let lastEffect = null;
@@ -3290,6 +3454,29 @@ function syncNativeEffect() {
   lastEffect = e;
   TAURI.core.invoke("set_island_effect", { effect: e }).catch(() => {});
 }
+
+/* ---- live Windows theme + accent ----
+   Theme "System" reads the actual Windows app theme; "Color" can follow the
+   real Windows accent. The backend emits winotch://theme on every OS change
+   (Settings → Personalization), and the watcher also re-emits on demand via
+   get_system_theme — so the island reskins live, no restart. */
+let winTheme = null; // { theme: "light"|"dark", accent: [r,g,b] }
+function setWinTheme(t) {
+  if (!t) return;
+  const changed = !winTheme || winTheme.theme !== t.theme ||
+    String(winTheme.accent) !== String(t.accent);
+  winTheme = t;
+  if (changed) {
+    applyTheme();
+    if (state.expanded) render();
+  }
+}
+// effectiveTheme/effectiveAccent consult winTheme when set.
+const _matchMediaTheme = () => {
+  try {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch { return "dark"; }
+};
 
 if (TAURI) {
   // "Rerun Setup…" from the system tray reopens the designv2 wizard.

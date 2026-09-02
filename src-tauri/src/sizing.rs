@@ -90,7 +90,6 @@ pub fn fit_island_to_content(window: tauri::Window, width: f64, height: f64) -> 
 pub fn move_notch_to_monitor(window: tauri::Window, monitor_name: String) -> Result<(), String> {
     let monitors = window.available_monitors().map_err(|e| e.to_string())?;
     let primary = window.primary_monitor().ok().flatten();
-
     let target = if monitor_name.eq_ignore_ascii_case("primary") {
         primary.or_else(|| monitors.first().cloned())
     } else {
@@ -124,5 +123,70 @@ pub fn move_notch_to_monitor(window: tauri::Window, monitor_name: String) -> Res
     let x = pos.x + (size.width as i32 / 2) - (cur.width as i32 / 2);
     window
         .set_position(tauri::PhysicalPosition::new(x, pos.y))
+        .map_err(|e| e.to_string())
+}
+/// Move the notch window to an exact logical (CSS-pixel) point on the primary
+/// display's coordinate space, or snap it to a preset anchor.
+///
+/// Called by the designv2 arrange mode: dragging the pill sends `{ x, y }` in
+/// the page's CSS pixels (which are logical points relative to the primary
+/// monitor's top-left), and the position presets send `{ anchor: "left" }` /
+/// `{ anchor: "right" }`. Keeping all window geometry in Rust means one
+/// authoritative DPI-correct conversion path, no JS↔Rust position drift.
+#[tauri::command]
+pub fn move_island_window(
+    window: tauri::Window,
+    x: Option<f64>,
+    y: Option<f64>,
+    anchor: Option<String>,
+) -> Result<(), String> {
+    let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+    let mon = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.first().cloned())
+        .ok_or_else(|| "no monitor available".to_string())?;
+    let mon_pos = mon.position(); // PhysicalPosition<i32>
+    let mon_size = mon.size(); // PhysicalSize<u32>
+    let scale = mon.scale_factor();
+    let cur = window.outer_size().map_err(|e| e.to_string())?; // physical px
+
+    let (phys_x, phys_y) = if let (Some(x), Some(y)) = (x, y) {
+        // Exact point: CSS px relative to the primary monitor's top-left,
+        // converted to physical pixels, clamped so the window stays on the
+        // desktop with a small margin.
+        let w = cur.width as f64;
+        let h = cur.height as f64;
+        let max_x = (mon_size.width as f64 - w - 8.0).max(8.0);
+        let max_y = (mon_size.height as f64 - h - 8.0).max(8.0);
+        let lx = x.clamp(8.0, max_x);
+        let ly = y.clamp(8.0, max_y);
+        (
+            mon_pos.x as f64 + lx * scale,
+            mon_pos.y as f64 + ly * scale,
+        )
+    } else {
+        // Preset anchors: top-left / top-right corners with an 8px inset.
+        let w = cur.width as f64;
+        match anchor.as_deref() {
+            Some("left") => (
+                mon_pos.x as f64 + 8.0,
+                mon_pos.y as f64 + 8.0,
+            ),
+            Some("right") => (
+                mon_pos.x as f64 + mon_size.width as f64 - w - 8.0,
+                mon_pos.y as f64 + 8.0,
+            ),
+            Some(other) => return Err(format!("unknown anchor: {other}")),
+            None => return Err("provide x/y or an anchor".into()),
+        }
+    };
+
+    window
+        .set_position(tauri::PhysicalPosition::new(
+            phys_x.round() as i32,
+            phys_y.round() as i32,
+        ))
         .map_err(|e| e.to_string())
 }

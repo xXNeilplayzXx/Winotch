@@ -279,6 +279,7 @@ pub fn run() {
             sizing::move_notch_to_monitor,
             sizing::lock_to_primary_top_center,
             sizing::fit_island_to_content,
+            sizing::move_island_window,
             stats::system_stats,
             quit_app,
             hide_island,
