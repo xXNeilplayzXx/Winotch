@@ -30,12 +30,21 @@ public partial class App : Application
             startup.SetEnabled(true, executable);
         }
 
-        var window = new OverlayWindow(settings, startup);
-        window.Show();
+        _manager = new OverlayWindowManager(settings, startup);
+        _manager.Start();
+
+        // First run: greet the user with the setup wizard.
+        if (settings.WasCreated)
+        {
+            _manager.OpenSetupWizard();
+        }
     }
+
+    private OverlayWindowManager? _manager;
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _manager?.Dispose();
         _singleInstanceMutex?.ReleaseMutex();
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);

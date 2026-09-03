@@ -1,22 +1,32 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Winotch.Engine;
 
 namespace Winotch;
 
-/// <summary>Shared dark styling for the small widget-edit dialogs.</summary>
+/// <summary>Shared styling for the small widget-edit dialogs. The palette is
+/// resolved from the current shell theme at dialog-open time so the light
+/// theme (and custom accents) reach every surface, like the legacy app.</summary>
 internal static class DialogUi
 {
-    public static readonly SolidColorBrush Panel = B(0x16, 0x19, 0x1F);
-    public static readonly SolidColorBrush Card = B(0x1E, 0x22, 0x2A);
-    public static readonly SolidColorBrush CardHover = B(0x26, 0x2B, 0x34);
-    public static readonly SolidColorBrush Stroke = B(0x2E, 0x34, 0x40);
-    public static readonly SolidColorBrush Text = B(0xF2, 0xF4, 0xF8);
-    public static readonly SolidColorBrush Muted = B(0x9C, 0xA5, 0xB4);
-    public static readonly SolidColorBrush Accent = B(0x50, 0xD6, 0xFF);
-    public static readonly SolidColorBrush Danger = B(0xFF, 0x6B, 0x6B);
+    /// <summary>The theme new dialogs should be built with; set by the host
+    /// whenever the theme changes.</summary>
+    public static ShellTheme Current { get; set; } = ShellTheme.Dark;
 
-    private static SolidColorBrush B(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
+    public static SolidColorBrush Panel => Brush(Current.PanelTop);
+    public static SolidColorBrush Card => Brush(Current.Card);
+    public static SolidColorBrush CardHover => Brush(Current.CardHover);
+    public static SolidColorBrush Stroke => Brush(Current.Stroke);
+    public static SolidColorBrush Text => Brush(Current.Text);
+    public static SolidColorBrush Muted => Brush(Current.Muted);
+    public static SolidColorBrush Accent => Brush(Current.Accent);
+    public static SolidColorBrush Danger => Brush(Current.Danger);
+    public static SolidColorBrush OnAccent => Brush(Current.IsLight ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x06, 0x13, 0x1A));
+
+    private static SolidColorBrush Brush(Col c) => new(Color.FromArgb(c.A, c.R, c.G, c.B));
+
+    public static SolidColorBrush B(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
 
     public static TextBox TextBox(string text = "", bool multiline = false, string placeholder = "")
     {
@@ -145,19 +155,21 @@ public sealed class NotesEditWindow : Window
     }
 }
 
-/// <summary>Single-field city entry; geocoding + fetch happen after OK so the
-/// dialog stays snappy.</summary>
+/// <summary>City entry plus "Use Windows location"; geocoding + fetch happen
+/// after the dialog closes so it stays snappy.</summary>
 public sealed class WeatherEditWindow : Window
 {
     public string? City { get; private set; }
+    public bool UseWindowsLocation { get; private set; }
 
-    public WeatherEditWindow(string current)
+    public WeatherEditWindow(WeatherWidgetConfig config)
     {
         DialogUi.ApplyFrame(this, "Weather");
-        var box = DialogUi.TextBox(current, placeholder: "e.g. Berlin");
+        var box = DialogUi.TextBox(config.City, placeholder: "e.g. Berlin");
 
         var ok = DialogUi.Button("Save", primary: true);
         var cancel = DialogUi.Button("Cancel");
+        var useLocation = DialogUi.Button("Use Windows location");
         ok.Click += (_, _) =>
         {
             var city = box.Text.Trim();
@@ -170,15 +182,26 @@ public sealed class WeatherEditWindow : Window
             DialogResult = true;
         };
         cancel.Click += (_, _) => DialogResult = false;
+        useLocation.Click += (_, _) =>
+        {
+            UseWindowsLocation = true;
+            DialogResult = true;
+        };
         box.KeyDown += (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         };
         box.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
 
-        var panel = new StackPanel { Margin = new Thickness(16), Width = 300 };
+        var panel = new StackPanel { Margin = new Thickness(16), Width = 320 };
         panel.Children.Add(DialogUi.Label("City / location", 12, muted: true));
         panel.Children.Add(box);
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 0),
+            Children = { useLocation },
+        });
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,

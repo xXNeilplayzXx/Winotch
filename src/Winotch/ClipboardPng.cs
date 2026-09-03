@@ -9,7 +9,9 @@ namespace Winotch;
 /// never the original bitmap, and nothing ever touches disk.</summary>
 public static class ClipboardPng
 {
-    private const int MaxEdge = 320;
+    // Rendered at ~24px in the panel, so 160 keeps quality while cutting
+    // each stored thumbnail's memory ~4x vs 320.
+    private const int MaxEdge = 160;
 
     public static string? ToPngBase64(System.Drawing.Image source, out byte[] bytes)
     {

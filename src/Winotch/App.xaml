@@ -47,7 +47,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource NotchPanelHover}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource NotchPanelHover}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Chrome" Property="Opacity" Value="0.7" />
@@ -59,7 +59,7 @@
         </Style>
 
         <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="{StaticResource NotchAccent}" />
+            <Setter Property="Background" Value="{DynamicResource NotchAccent}" />
             <Setter Property="Foreground" Value="#06131A" />
         </Style>
 
@@ -85,16 +85,16 @@
                     <ControlTemplate TargetType="CheckBox">
                         <Grid>
                             <Border x:Name="Track" Width="40" Height="22" CornerRadius="11"
-                                    Background="{StaticResource NotchPanelHover}"
-                                    BorderBrush="{StaticResource NotchStroke}" BorderThickness="1" />
+                                    Background="{DynamicResource NotchPanelHover}"
+                                    BorderBrush="{DynamicResource NotchStroke}" BorderThickness="1" />
                             <Ellipse x:Name="Knob" Width="16" Height="16"
-                                     Fill="{StaticResource NotchMutedText}"
+                                     Fill="{DynamicResource NotchMutedText}"
                                      HorizontalAlignment="Left" Margin="3,0,0,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Track" Property="Background" Value="{StaticResource NotchAccent}" />
-                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource NotchAccent}" />
+                                <Setter TargetName="Track" Property="Background" Value="{DynamicResource NotchAccent}" />
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource NotchAccent}" />
                                 <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
                                 <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
                                 <Setter TargetName="Knob" Property="Fill" Value="#06131A" />

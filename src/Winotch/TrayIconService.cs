@@ -5,27 +5,33 @@ using Forms = System.Windows.Forms;
 
 namespace Winotch;
 
-/// <summary>System tray: Open Settings, Pause/Resume the notch, Start with
-/// Windows, Exit. Re-shows the icon when Explorer restarts (TaskbarCreated).</summary>
+/// <summary>System tray: Open Settings, Pause/Resume the notch, Hide/Show,
+/// Start with Windows, Restart, Exit. Re-shows the icon when Explorer
+/// restarts (TaskbarCreated). Bound to the app host (the manager) and a host
+/// window whose HwndSource receives the TaskbarCreated message.</summary>
 public sealed class TrayIconService : IDisposable
 {
     private static readonly uint TaskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
-    private readonly OverlayWindow _host;
+    private readonly INotchHost _host;
+    private readonly OverlayWindow _window;
     private readonly SettingsService _settings;
     private readonly StartupService _startup;
     private readonly Forms.NotifyIcon _notifyIcon;
     private readonly Forms.ToolStripMenuItem _pauseItem;
     private readonly Forms.ToolStripMenuItem _startupItem;
+    private readonly Forms.ToolStripMenuItem _visibilityItem;
     private HwndSource? _source;
 
-    public TrayIconService(OverlayWindow host, SettingsService settings, StartupService startup)
+    public TrayIconService(INotchHost host, OverlayWindow window, SettingsService settings, StartupService startup)
     {
         _host = host;
+        _window = window;
         _settings = settings;
         _startup = startup;
 
         _pauseItem = new Forms.ToolStripMenuItem();
         _startupItem = new Forms.ToolStripMenuItem("Start with Windows") { CheckOnClick = false };
+        _visibilityItem = new Forms.ToolStripMenuItem();
         _notifyIcon = new Forms.NotifyIcon
         {
             ContextMenuStrip = CreateContextMenu(),
@@ -35,11 +41,8 @@ public sealed class TrayIconService : IDisposable
         };
         _notifyIcon.DoubleClick += (_, _) => Dispatch(_host.OpenSettingsWindow);
 
-        if (PresentationSource.FromVisual(_host) is HwndSource source)
-        {
-            _source = source;
-            _source.AddHook(WndProc);
-        }
+        _source = window.Source;
+        _source?.AddHook(WndProc);
     }
 
     public void Dispose()
@@ -59,16 +62,28 @@ public sealed class TrayIconService : IDisposable
     {
         var menu = new Forms.ContextMenuStrip();
         var settingsItem = new Forms.ToolStripMenuItem("Open Settings");
+        var setupItem = new Forms.ToolStripMenuItem("Rerun setup…");
+        var restartItem = new Forms.ToolStripMenuItem("Restart Winotch");
         var exitItem = new Forms.ToolStripMenuItem("Exit");
         settingsItem.Click += (_, _) => Dispatch(_host.OpenSettingsWindow);
+        setupItem.Click += (_, _) => Dispatch(_host.OpenSetupWizard);
         _pauseItem.Click += (_, _) => Dispatch(() => _host.SetPaused(!_host.IsPaused));
+        _visibilityItem.Click += (_, _) => Dispatch(() =>
+        {
+            if (_host.IsHidden) _host.ShowNotch();
+            else _host.HideNotch();
+        });
         _startupItem.Click += (_, _) => Dispatch(ToggleStartup);
+        restartItem.Click += (_, _) => Dispatch(_host.RestartApplication);
         exitItem.Click += (_, _) => Dispatch(_host.QuitApplication);
         menu.Opening += (_, _) => RefreshMenuState();
         menu.Items.Add(settingsItem);
+        menu.Items.Add(setupItem);
         menu.Items.Add(_pauseItem);
+        menu.Items.Add(_visibilityItem);
         menu.Items.Add(_startupItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(restartItem);
         menu.Items.Add(exitItem);
         RefreshMenuState();
         return menu;
@@ -92,6 +107,7 @@ public sealed class TrayIconService : IDisposable
     private void RefreshMenuState()
     {
         _pauseItem.Text = _host.IsPaused ? "Resume notch" : "Pause notch";
+        _visibilityItem.Text = _host.IsHidden ? "Show notch" : "Hide notch";
         var startup = _startup.GetState(StartupService.CurrentExecutablePath());
         _startupItem.Checked = startup.IsEnabled;
         _startupItem.Enabled = startup.CanAccess;
@@ -109,8 +125,8 @@ public sealed class TrayIconService : IDisposable
 
     private void Dispatch(Action action)
     {
-        if (_host.Dispatcher.CheckAccess()) action();
-        else _host.Dispatcher.Invoke(action);
+        if (_window.Dispatcher.CheckAccess()) action();
+        else _window.Dispatcher.Invoke(action);
     }
 
     private static System.Drawing.Icon LoadTrayIcon()

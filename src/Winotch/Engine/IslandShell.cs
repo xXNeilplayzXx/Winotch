@@ -17,10 +17,12 @@ public sealed class IslandShell
     private const double IslandTopPanel = 12;
 
     private readonly SettingsService _settings;
+    private readonly ThemeService _themeService;
     private readonly SecondOrderVec2 _size = new(new Vec2(MiniWidthMin, MiniHeight), 3.2, 0.8, 0);
     private readonly List<Toast> _toasts = new();
     private readonly List<HitButton> _buttons = new();
     private readonly Dictionary<string, SKBitmap> _thumbs = new();
+    private readonly Dictionary<string, SKBitmap> _artCache = new();
 
     // Data the host window feeds in.
     public MediaSnapshot? Media { get; private set; }
@@ -31,10 +33,15 @@ public sealed class IslandShell
         new(TimeSpan.FromMinutes(25), TimeSpan.FromMinutes(5), false);
     public WeatherSnapshot? Weather { get; private set; }
     public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
+    public CallState? Call { get; private set; }
+    public bool MicrophoneActive { get; private set; }
+    public bool CameraActive { get; private set; }
 
     // Actions the host window wires up.
     public event Action? OpenSettingsRequested;
     public event Action? QuitRequested;
+    public event Action? HideRequested;
+    public event Action? RestartRequested;
     public event Action? MediaPrevRequested;
     public event Action? MediaPlayPauseRequested;
     public event Action? MediaNextRequested;
@@ -56,10 +63,27 @@ public sealed class IslandShell
     private double _blend;
     private bool _paused;
     private bool _addMenuOpen;
+    private bool _contextMenuOpen;
+    private double _contextMenuX, _contextMenuY;
     private bool _dataDirty = true;
     private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
 
-    public IslandShell(SettingsService settings) => _settings = settings;
+    /// <summary>Drag-position offset (DIPs) from the monitor's top-center,
+    /// applied to the collapsed pill and panel. Persisted by the host.</summary>
+    public double OffsetX { get; private set; }
+    public double OffsetY { get; private set; }
+
+    /// <summary>True while the user is dragging the pill; suppresses hover
+    /// expansion so the island does not pop open mid-drag.</summary>
+    public bool Dragging { get; set; }
+
+    public IslandShell(SettingsService settings, ThemeService themeService)
+    {
+        _settings = settings;
+        _themeService = themeService;
+        OffsetX = settings.Current.Appearance.OffsetX;
+        OffsetY = settings.Current.Appearance.OffsetY;
+    }
 
     public bool Paused
     {
@@ -76,6 +100,57 @@ public sealed class IslandShell
 
     public bool AnyHoverButton { get; private set; }
 
+    /// <summary>The drag-to-move feature toggle.</summary>
+    public bool DragToMoveEnabled => _settings.Current.Appearance.DragToMove;
+
+    /// <summary>True when the point is over the collapsed pill (plus a small
+    /// margin) — the drag grab zone. Expanded panels are never draggable.</summary>
+    public bool IsCollapsedPillAt(double xDip, double yDip)
+    {
+        if (_paused || _blend > 0.5) return false;
+        const double m = 6;
+        var rect = new SKRect((float)(_x - m), (float)(_y - m),
+            (float)(_x + _w + m), (float)(_y + _h + m));
+        return rect.Contains(new SKPoint((float)xDip, (float)yDip));
+    }
+
+    /// <summary>Move the island by an explicit offset (during drag, and as the
+    /// persisted resting position).</summary>
+    public void SetOffset(double x, double y)
+    {
+        OffsetX = x;
+        OffsetY = y;
+        MarkDataDirty();
+    }
+
+    /// <summary>Open the right-click island menu (Hide / Restart / Close) at a
+    /// point, clamped to stay on screen.</summary>
+    public void OpenContextMenu(double xDip, double yDip)
+    {
+        const double menuW = 168, menuH = 120;
+        _contextMenuX = Math.Clamp(xDip, 4, Math.Max(4, CanvasWidth - menuW - 4));
+        _contextMenuY = Math.Clamp(yDip, 4, Math.Max(4, CanvasHeight - menuH - 4));
+        _contextMenuOpen = true;
+        _addMenuOpen = false;
+        MarkDataDirty();
+    }
+
+    public bool ContextMenuOpen => _contextMenuOpen;
+
+    private void CloseContextMenu()
+    {
+        _contextMenuOpen = false;
+        MarkDataDirty();
+    }
+
+    /// <summary>Re-resolve the palette from the theme service and request a
+    /// repaint (theme/accent/Windows-appearance changes).</summary>
+    public void ApplyTheme()
+    {
+        ShellUi.Theme = _themeService.Current;
+        MarkDataDirty();
+    }
+
     // ------------------------------------------------- idle-paint state
     // The overlay only repaints when one of these is true; a collapsed idle
     // notch otherwise costs ~nothing instead of a full Skia redraw per frame.
@@ -83,6 +158,11 @@ public sealed class IslandShell
     public bool IsExpanded => _blend > 0.5;
     public bool Animating => _blend is > 0.001 and < 0.999;
     public bool ToastsActive => _toasts.Count > 0;
+
+    /// <summary>True when something on screen changes every second with no
+    /// hover — lets the host skip per-second repaints of an idle expanded
+    /// panel (its clock only needs per-minute updates).</summary>
+    public bool NeedsLiveUpdates => Media is { Playing: true } || Focus.IsActive;
 
     /// <summary>True when the cursor sits over (or within hover range of) the
     /// island, so hover expansion reacts immediately.</summary>
@@ -144,6 +224,19 @@ public sealed class IslandShell
     public void SetSystemStats(SystemStatsSnapshot stats)
     {
         SystemStats = stats;
+        MarkDataDirty();
+    }
+
+    public void SetCall(CallState? call)
+    {
+        Call = call;
+        MarkDataDirty();
+    }
+
+    public void SetPrivacy(bool microphoneActive, bool cameraActive)
+    {
+        MicrophoneActive = microphoneActive;
+        CameraActive = cameraActive;
         MarkDataDirty();
     }
 
@@ -222,7 +315,7 @@ public sealed class IslandShell
         var expandedW = Math.Min(ExpandedWidth, Math.Max(120, CanvasWidth - 16));
         var expandedH = ExpandedHeight(settings);
 
-        var target = expanded ? new Vec2(expandedW, expandedH) : new Vec2(miniTarget.Width, MiniHeight);
+        var target = expanded ? new Vec2(expandedW, expandedH) : new Vec2(miniTarget.Width, miniTarget.Height);
         var size = _size.Step(deltaTime, target);
         _w = size.X;
         _h = size.Y;
@@ -234,24 +327,43 @@ public sealed class IslandShell
         _y += (targetTop - _y) * Math.Min(1, deltaTime * 16);
         _x = (CanvasWidth - _w) / 2;
 
-        // Hover toggles expansion with hysteresis.
-        var rect = new SKRect((float)_x, (float)_y, (float)(_x + _w), (float)(_y + _h));
-        var pad = expanded ? 8 : 12;
-        var hoverRect = new SKRect(rect.Left - pad, rect.Top - pad, rect.Right + pad, rect.Bottom + pad);
-        var cursor = new SKPoint((float)_cursorX, (float)_cursorY);
-        if (!_wantExpanded && hoverRect.Contains(cursor) && _blend < 0.5)
-        {
-            _wantExpanded = true;
-        }
-        else if (_wantExpanded && !hoverRect.Contains(cursor))
+        // Apply the drag offset, clamped so the island stays on screen.
+        _x = Math.Clamp(_x + OffsetX, 6, Math.Max(6, CanvasWidth - _w - 6));
+        _y = Math.Clamp(_y + OffsetY, -60, Math.Max(-60, CanvasHeight - _h));
+
+        // Hover toggles expansion with hysteresis (suppressed while dragging).
+        if (Dragging)
         {
             _wantExpanded = false;
-            _addMenuOpen = false;
+        }
+        else
+        {
+            var rect = new SKRect((float)_x, (float)_y, (float)(_x + _w), (float)(_y + _h));
+            var pad = expanded ? 8 : 12;
+            var hoverRect = new SKRect(rect.Left - pad, rect.Top - pad, rect.Right + pad, rect.Bottom + pad);
+            var cursor = new SKPoint((float)_cursorX, (float)_cursorY);
+            if (!_wantExpanded && hoverRect.Contains(cursor) && _blend < 0.5)
+            {
+                _wantExpanded = true;
+            }
+            else if (_wantExpanded && !hoverRect.Contains(cursor))
+            {
+                _wantExpanded = false;
+                _addMenuOpen = false;
+                _contextMenuOpen = false;
+            }
         }
     }
 
     private (double Width, double Height) MiniTarget()
     {
+        var appearance = _settings.Current.Appearance;
+        if (appearance.CustomSize)
+        {
+            var w = Math.Min(appearance.Width, Math.Max(150, CanvasWidth - 16));
+            var h = Math.Min(appearance.Height, Math.Max(30, CanvasHeight - 8));
+            return (w, h);
+        }
         var total = 0.0;
         foreach (var item in BuildMiniRow()) total += item.Width + 8;
         var w = Math.Clamp(total, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16));
@@ -302,6 +414,14 @@ public sealed class IslandShell
                 return true;
             }
         }
+        if (_contextMenuOpen)
+        {
+            if (xDip >= _contextMenuX && xDip <= _contextMenuX + 168 &&
+                yDip >= _contextMenuY && yDip <= _contextMenuY + 120)
+            {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -316,19 +436,36 @@ public sealed class IslandShell
                 return;
             }
         }
-        // Clicked a blank spot with the add menu open — dismiss it.
+        // Clicked a blank spot with a menu open — dismiss it.
         _addMenuOpen = false;
+        _contextMenuOpen = false;
     }
 
     // -------------------------------------------------------------- drawing
+
+    /// <summary>Physical-pixel origin of the overlay window plus its DPI
+    /// scale, used to translate the island's DIP rect to screen pixels for
+    /// the backdrop blur capture.</summary>
+    private int _originXPx, _originYPx;
+    private double _dpiScale = 1;
+
+    public void SetScreenContext(int originXPx, int originYPx, double dpiScale)
+    {
+        _originXPx = originXPx;
+        _originYPx = originYPx;
+        _dpiScale = dpiScale;
+    }
 
     public void Draw(SKCanvas canvas)
     {
         if (_paused) return;
 
         var expanded = _blend > 0.5;
-        var radius = expanded ? 22.0 : MiniHeight / 2;
+        var radius = expanded ? 22.0 : _h / 2;
         var rect = new SKRect((float)_x, (float)_y, (float)(_x + _w), (float)(_y + _h));
+
+        // Resolve the palette for this frame so theme/accent changes apply live.
+        ShellUi.Theme = _themeService.Current;
 
         // Shadow pass (fill translucent dark + drop-shadow filter spread).
         using (var shadowFilter = SKImageFilter.CreateDropShadow(
@@ -351,10 +488,22 @@ public sealed class IslandShell
             path.AddRoundRect(rect, (float)radius, (float)radius);
             canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
 
-            using (var body = ShellUi.Gradient(rect.Top, rect.Bottom))
+            var appearance = _settings.Current.Appearance;
+            var glass = appearance.Glass;
+            var bodyAlpha = glass ? Math.Clamp(appearance.Opacity / 100.0, 0.1, 1.0) : 1.0;
+
+            if (glass && appearance.Blur > 0 && rect.Width > 0 && rect.Height > 0)
+            {
+                BackdropBlur.Draw(canvas, rect, _originXPx, _originYPx, _dpiScale,
+                    appearance.Blur, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255));
+            }
+
+            using (var body = ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha))
             {
                 canvas.DrawRect(rect, body);
             }
+
+            ShellUi.DrawGradientSkin(canvas, rect, appearance.Gradient);
 
             if (_blend < 0.999)
             {
@@ -387,25 +536,73 @@ public sealed class IslandShell
         ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
             (float)radius, 1f, ShellUi.Fade(Col.White, 0.08));
 
+        if (_contextMenuOpen)
+        {
+            DrawContextMenu(canvas);
+        }
+
+        // LED hover tooltip (collapsed pill only — the state readout).
+        if (!expanded && _blend < 0.5)
+        {
+            var (ledX, ledY) = LedCenter(rect);
+            if (Math.Abs(_cursorX - ledX) <= 12 && Math.Abs(_cursorY - ledY) <= 12)
+            {
+                DrawLedTooltip(canvas, ledX, ledY);
+            }
+        }
+
         DrawToasts(canvas);
     }
 
     // -------------------------------------------------------------- pill
 
-    private enum MiniKind { Led, Clock, Battery, Media, Focus }
+    private enum MiniKind { Led, Text, Clock, Battery, Media, Focus, Call }
 
     private readonly record struct MiniItem(MiniKind Kind, double Width);
 
+    /// <summary>The collapsed pill's row. The idle content setting decides the
+    /// base strip (LED + text/battery); live media, call and focus states add
+    /// their chips on top in every mode — the same priority the old app used
+    /// (playing/call always take over the strip).</summary>
     private List<MiniItem> BuildMiniRow()
     {
+        var settings = _settings.Current;
         var items = new List<MiniItem> { new(MiniKind.Led, 10) };
-        var clock = ClockText(_settings.Current);
-        items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
-        if (BatteryText().Length > 0)
+        var idle = settings.Appearance.IdleContent;
+        var clock = ClockText(settings);
+
+        switch (idle)
         {
-            items.Add(new MiniItem(MiniKind.Battery, 16 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
+            case IdleContentMode.DotOnly:
+                break;
+            case IdleContentMode.ClockOnly:
+                items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
+                break;
+            case IdleContentMode.Custom:
+                items.Add(new MiniItem(MiniKind.Text,
+                    TextKit.Measure(IdleText(settings), 11.5f, TextKit.Semibold)));
+                break;
+            case IdleContentMode.BrandClock:
+                items.Add(new MiniItem(MiniKind.Text, TextKit.Measure("Winotch", 11.5f, TextKit.Semibold)));
+                items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
+                break;
+            default: // Auto — the rewrite's default: LED + clock + battery
+                items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
+                if (BatteryText().Length > 0)
+                {
+                    items.Add(new MiniItem(MiniKind.Battery,
+                        16 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
+                }
+                break;
         }
-        if (Media is { Playing: true })
+
+        if (Call is { OnCall: true })
+        {
+            // A call takes over the strip (the legacy pill priority); media
+            // yields so the green pill is never crowded out.
+            items.Add(new MiniItem(MiniKind.Call, 26 + TextKit.Measure(CallLabel(), 11.5f, TextKit.Semibold)));
+        }
+        else if (Media is { Playing: true })
         {
             items.Add(new MiniItem(MiniKind.Media, 22 + TextKit.Measure(MiniTrackLabel(), 11.5f, TextKit.Semibold)));
         }
@@ -414,6 +611,12 @@ public sealed class IslandShell
             items.Add(new MiniItem(MiniKind.Focus, TextKit.Measure(FocusLabel(), 11.5f, TextKit.Semibold) + 20));
         }
         return items;
+    }
+
+    private string IdleText(WinotchSettings settings)
+    {
+        var custom = settings.Appearance.CustomIdleText;
+        return string.IsNullOrWhiteSpace(custom) ? ClockText(settings) : custom;
     }
 
     private void DrawMini(SKCanvas canvas, SKRect rect)
@@ -432,6 +635,9 @@ public sealed class IslandShell
                 case MiniKind.Led:
                     ShellUi.FillCircle(canvas, x + 5, cy, 3.4f, LedColor());
                     break;
+                case MiniKind.Text:
+                    TextKit.Draw(canvas, IdleText(_settings.Current), x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    break;
                 case MiniKind.Clock:
                     TextKit.Draw(canvas, clock, x, cy - 11, 15, ShellUi.Text, TextKit.Semibold);
                     break;
@@ -441,8 +647,23 @@ public sealed class IslandShell
                 case MiniKind.Media:
                     var trackBudget = Math.Max(40, rect.Right - x - 26);
                     var track = ShellUi.Ellipsize(MiniTrackLabel(), trackBudget, 11.5f, TextKit.Semibold);
-                    ShellUi.DrawGlyph(canvas, "\uE768", x + 11, cy, 12, ShellUi.Accent);
-                    TextKit.Draw(canvas, track, x + 20, cy - 8.5f, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    var hasArt = Media?.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 18, out var artThumb);
+                    if (hasArt)
+                    {
+                        canvas.DrawBitmap(artThumb!, new SKRect(x + 1, cy - 9, x + 19, cy + 9));
+                    }
+                    else
+                    {
+                        ShellUi.DrawGlyph(canvas, "\uE768", x + 11, cy, 12, ShellUi.Accent);
+                    }
+                    TextKit.Draw(canvas, track, x + 22, cy - 8.5f, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    break;
+                case MiniKind.Call:
+                    var callW = (float)item.Width - 26;
+                    FillRound(canvas, x + 13 - callW / 2, cy - 11, callW, 22, 11, ShellUi.Fade(ShellUi.Ok, 0.16));
+                    ShellUi.DrawGlyph(canvas, "\uE717", x + 18, cy, 11, ShellUi.Ok);
+                    TextKit.Draw(canvas, ShellUi.Ellipsize(CallLabel(), Math.Max(40, rect.Right - x - 40), 11.5f, TextKit.Semibold),
+                        x + 26, cy - 8.5f, 11.5f, ShellUi.Ok, TextKit.Semibold);
                     break;
                 case MiniKind.Focus:
                     var chipW = (float)item.Width - 20;
@@ -520,6 +741,40 @@ public sealed class IslandShell
         if (_addMenuOpen)
         {
             DrawAddMenu(canvas, right, y + 48);
+        }
+    }
+
+    // ------------------------------------------------------ context menu
+
+    private void DrawContextMenu(SKCanvas canvas)
+    {
+        const double menuW = 168, itemH = 34;
+        var items = new (string Label, Action Action, bool Danger)[]
+        {
+            ("Hide Winotch", () => { CloseContextMenu(); HideRequested?.Invoke(); }, false),
+            ("Restart Winotch", () => { CloseContextMenu(); RestartRequested?.Invoke(); }, false),
+            ("Close Winotch", () => { CloseContextMenu(); QuitRequested?.Invoke(); }, true),
+        };
+        var menuH = itemH * items.Length + 10;
+        var x = (float)_contextMenuX;
+        var y = (float)_contextMenuY;
+
+        FillRound(canvas, x, y, (float)menuW, (float)menuH, 12, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.98));
+        ShellUi.StrokeRound(canvas, x, y, (float)menuW, (float)menuH, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+
+        var rowY = y + 5f;
+        foreach (var (label, action, danger) in items)
+        {
+            var hovering = _cursorX >= x && _cursorX <= x + menuW && _cursorY >= rowY && _cursorY <= rowY + itemH;
+            if (hovering)
+            {
+                FillRound(canvas, x + 4, rowY + 2, (float)menuW - 8, (float)itemH - 4, 8, ShellUi.CardHover);
+            }
+            TextKit.Draw(canvas, label, x + 14, rowY + 10, 12,
+                danger ? ShellUi.Danger : (hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.9f)),
+                TextKit.Semibold);
+            RegisterButton(new SKRect(x, (float)rowY, (float)(x + menuW), (float)(rowY + itemH)), action);
+            rowY += (float)itemH;
         }
     }
 
@@ -674,12 +929,18 @@ public sealed class IslandShell
         if (Media is not { } media) return;
         var cardH = 80f;
         var right = left + width;
+        var hasArt = media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 52, out var art);
+        var textX = left + (hasArt ? 76 : 12);
+        if (hasArt)
+        {
+            canvas.DrawBitmap(art!, new SKRect(left + 12, top + 14, left + 64, top + 66));
+        }
         TextKit.Draw(canvas,
-            ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", width - 130, 12.5f, TextKit.Semibold),
-            left + 12, top + 33, 12.5f, ShellUi.Text, TextKit.Semibold);
+            ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", right - textX - 16 - 100, 12.5f, TextKit.Semibold),
+            textX, top + 33, 12.5f, ShellUi.Text, TextKit.Semibold);
         TextKit.Draw(canvas,
-            ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", width - 130, 10f, TextKit.Regular),
-            left + 12, top + 50, 10f, ShellUi.Fade(ShellUi.Muted, 1));
+            ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", right - textX - 16 - 100, 10f, TextKit.Regular),
+            textX, top + 50, 10f, ShellUi.Fade(ShellUi.Muted, 1));
         DrawTimeline(canvas, left + 12, top + cardH - 9, width - 24, media);
 
         var buttonCy = top + cardH / 2;
@@ -842,6 +1103,64 @@ public sealed class IslandShell
         if (from < 0 || to < 0 || to >= enabled.Count) return;
         (enabled[from], enabled[to]) = (enabled[to], enabled[from]);
         _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+    }
+
+    /// <summary>Reorder a widget to an absolute index (drag-to-reorder).</summary>
+    public void MoveWidgetTo(string id, int targetIndex)
+    {
+        var enabled = _settings.Current.Widgets.Enabled.ToList();
+        var from = enabled.IndexOf(id);
+        if (from < 0 || targetIndex < 0 || targetIndex >= enabled.Count || targetIndex == from) return;
+        enabled.RemoveAt(from);
+        enabled.Insert(targetIndex, id);
+        _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+    }
+
+    /// <summary>The visible widget cards in panel layout order (same math as
+    /// DrawPanel), used to hit-test card headers for drag-to-reorder.</summary>
+    private IEnumerable<(string Id, float Top, float Height)> CardLayout()
+    {
+        var settings = _settings.Current;
+        var y = (float)_y + 66f;
+        foreach (var id in settings.Widgets.Enabled)
+        {
+            var cardH = (float)WidgetCardHeight(id, settings);
+            if (cardH <= 0) continue;
+            yield return (id, y, cardH);
+            y += cardH + 12;
+        }
+    }
+
+    /// <summary>The widget card under the point, or null (expanded panel only).</summary>
+    public string? WidgetCardAt(double xDip, double yDip)
+    {
+        if (_blend <= 0.5) return null;
+        if (xDip < _x + 8 || xDip > _x + _w - 8) return null;
+        foreach (var (id, top, height) in CardLayout())
+        {
+            if (yDip >= top && yDip <= top + height) return id;
+        }
+        return null;
+    }
+
+    /// <summary>The card slot index nearest to a vertical point (drag target).</summary>
+    public int WidgetIndexAtY(double yDip)
+    {
+        var cards = CardLayout().ToList();
+        if (cards.Count == 0) return -1;
+        var best = 0;
+        var bestDistance = double.MaxValue;
+        for (var i = 0; i < cards.Count; i++)
+        {
+            var center = cards[i].Top + cards[i].Height / 2;
+            var distance = Math.Abs(yDip - center);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return best;
     }
 
     private void RemoveWidget(string id)
@@ -1048,6 +1367,16 @@ public sealed class IslandShell
         return $"{(int)(total / 60)}:{total % 60:00}";
     }
 
+    /// <summary>The call pill label: app name + elapsed call timer.</summary>
+    private string CallLabel()
+    {
+        if (Call is not { OnCall: true } call) return "";
+        var elapsed = DateTimeOffset.UtcNow - call.StartedAtUtc;
+        var total = Math.Max(0, (int)elapsed.TotalSeconds);
+        var time = $"{(int)(total / 60)}:{total % 60:00}";
+        return call.AppName is { Length: > 0 } app ? $"{app} \u00B7 {time}" : time;
+    }
+
     /// <summary>Track name shown in the collapsed pill while media plays
     /// (title, else artist, else a placeholder) — the same inline now-playing
     /// the original webview app showed in the pill.</summary>
@@ -1071,11 +1400,56 @@ public sealed class IslandShell
         return $"{Battery.Percent}%";
     }
 
+    /// <summary>The four privacy-aware LED states from the legacy app: green on
+    /// a call, red while the mic is hot, blue on a call with the mic active,
+    /// otherwise the battery/charging colors (grey when fully idle).</summary>
     private Col LedColor()
     {
+        if (Call is { OnCall: true } && MicrophoneActive) return Col.Rgba(0x5B, 0xC8, 0xFF);
+        if (Call is { OnCall: true }) return ShellUi.Ok;
+        if (MicrophoneActive) return ShellUi.Danger;
         if (Battery.IsCharging) return ShellUi.Ok;
         if (Battery.Percent <= 20) return ShellUi.Danger;
         return ShellUi.Accent;
+    }
+
+    private string LedStateText()
+    {
+        if (Call is { OnCall: true } call)
+        {
+            if (MicrophoneActive) return "On a call \u00B7 mic active";
+            if (!string.IsNullOrEmpty(call.AppName)) return $"In a call \u00B7 {call.AppName}";
+            return "In a call";
+        }
+        if (MicrophoneActive) return "Microphone in use";
+        if (CameraActive) return "Camera in use";
+        if (Battery.IsCharging) return "Charging";
+        if (Battery.Percent <= 20) return "Low battery";
+        return "Idle";
+    }
+
+    /// <summary>The LED dot's center, mirroring the pill layout math so the
+    /// hover tooltip can anchor to it.</summary>
+    private (float X, float Y) LedCenter(SKRect rect)
+    {
+        var total = 0.0;
+        foreach (var item in BuildMiniRow()) total += item.Width + 8;
+        var x = rect.Left + (rect.Width - (float)total) / 2;
+        return (x + 5, (float)(rect.Top + rect.Height / 2));
+    }
+
+    private void DrawLedTooltip(SKCanvas canvas, float ledX, float ledY)
+    {
+        var text = LedStateText();
+        var w = TextKit.Measure(text, 10.5f, TextKit.Semibold) + 22;
+        var h = 24f;
+        var x = ledX + 10;
+        var y = ledY + 10;
+        if (x + w > CanvasWidth - 4) x = (float)(CanvasWidth - w - 4);
+        if (y + h > CanvasHeight - 4) y = (float)(CanvasHeight - h - 4);
+        FillRound(canvas, x, y, w, h, 12, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.97));
+        ShellUi.StrokeRound(canvas, x, y, w, h, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+        TextKit.DrawCentered(canvas, text, x + w / 2, y + h / 2, 10.5f, ShellUi.Text, TextKit.Semibold);
     }
 
     private Vec2 CursorPoint => new(_cursorX, _cursorY);
@@ -1118,6 +1492,51 @@ public sealed class IslandShell
         if (Focus.IsActive) Focus = Focus.Stop();
     }
 
+    // ------------------------------------------------------ media artwork
+
+    /// <summary>Decode + cache a media-artwork base64 (downscaled to the given
+    /// diameter); used by the card and the mini pill.</summary>
+    private bool TryGetArt(string base64, int size, out SKBitmap? bitmap)
+    {
+        bitmap = null;
+        if (_artCache.TryGetValue(base64, out var cached))
+        {
+            bitmap = cached;
+            return true;
+        }
+        try
+        {
+            using var data = SKData.CreateCopy(Convert.FromBase64String(base64));
+            using var decoded = SKBitmap.Decode(data);
+            if (decoded is null) return false;
+            var info = new SKImageInfo(size, size, SKColorType.Rgba8888, SKAlphaType.Premul);
+            var resized = decoded.Resize(info, SKFilterQuality.Medium);
+            if (resized is null) return false;
+            CacheBitmap(_artCache, base64, resized);
+            bitmap = resized;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Store a decoded bitmap in a cache map, evicting (and
+    /// disposing) the oldest entry so the map stays bounded after hundreds of
+    /// tracks or clipboard items rather than growing without limit.</summary>
+    private static void CacheBitmap(Dictionary<string, SKBitmap> cache, string key, SKBitmap bitmap)
+    {
+        const int max = 12;
+        if (cache.Count >= max && !cache.ContainsKey(key))
+        {
+            var oldest = cache.Keys.First();
+            cache[oldest].Dispose();
+            cache.Remove(oldest);
+        }
+        cache[key] = bitmap;
+    }
+
     // ------------------------------------------------------------- clipboard
 
     private bool TryGetThumb(string base64, out SKBitmap bitmap)
@@ -1130,7 +1549,7 @@ public sealed class IslandShell
             if (decoded is null) return false;
             bitmap = decoded.Resize(new SKImageInfo(24, 24), SKFilterQuality.Medium);
             if (bitmap is null) return false;
-            _thumbs[base64] = bitmap;
+            CacheBitmap(_thumbs, base64, bitmap);
             return true;
         }
         catch

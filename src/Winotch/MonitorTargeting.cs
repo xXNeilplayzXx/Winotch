@@ -33,6 +33,47 @@ public static class MonitorTargeting
     public static System.Drawing.Point GetCursorPosition() =>
         GetCursorPos(out var point) ? new System.Drawing.Point(point.X, point.Y) : System.Drawing.Point.Empty;
 
+    /// <summary>The foreground window's screen rect, or null when none (the
+    /// shell/desktop has no foreground window). Used by Follow-active.</summary>
+    public static System.Drawing.Rectangle? GetForegroundWindowRect()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return null;
+        if (!GetWindowRect(hwnd, out var rect)) return null;
+        return new System.Drawing.Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
+    }
+
+    /// <summary>The monitors the notch should own for a display mode. All
+    /// returns every monitor (one island per screen); the rest pick one.</summary>
+    public static IReadOnlyList<MonitorSnapshot> SelectTargets(
+        IReadOnlyList<MonitorSnapshot> monitors, DisplayMode mode, string? deviceName)
+    {
+        if (mode == DisplayMode.All)
+        {
+            return monitors;
+        }
+        if (mode == DisplayMode.FollowActive)
+        {
+            // Resolved by the manager's layout poll; fall back to primary here.
+            return new[] { PrimaryOrFirst(monitors) };
+        }
+        var single = SelectSingle(monitors, mode, deviceName);
+        return single is null ? Array.Empty<MonitorSnapshot>() : new[] { single.Value };
+    }
+
+    public static MonitorSnapshot? SelectSingle(
+        IReadOnlyList<MonitorSnapshot> monitors, DisplayMode mode, string? deviceName)
+    {
+        if (monitors.Count == 0) return null;
+        return mode switch
+        {
+            DisplayMode.Named => FindByDeviceName(monitors, deviceName) ?? PrimaryOrFirst(monitors),
+            DisplayMode.FollowActive => SelectMonitor(monitors, GetForegroundWindowRect(),
+                GetCursorPosition(), useCursorMonitor: true, null),
+            _ => PrimaryOrFirst(monitors),
+        };
+    }
+
     public static MonitorSnapshot SelectMonitor(
         IReadOnlyList<MonitorSnapshot> monitors,
         System.Drawing.Rectangle? foregroundRect,
@@ -146,6 +187,13 @@ public static class MonitorTargeting
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);

@@ -2,22 +2,34 @@ using SkiaSharp;
 
 namespace Winotch.Engine;
 
-/// <summary>Visual tokens and low-level drawing helpers shared by the shell.</summary>
+/// <summary>Visual tokens and low-level drawing helpers shared by the shell.
+/// The palette is resolved per frame from <see cref="Theme"/> (set by the host
+/// from the current settings), so the island re-skins live when the theme,
+/// accent or Windows appearance changes.</summary>
 public static class ShellUi
 {
-    // Palette
-    public static readonly Col PanelTop = Col.Rgba(0x1A, 0x1D, 0x24);
-    public static readonly Col PanelBottom = Col.Rgba(0x10, 0x12, 0x17);
-    public static readonly Col Card = Col.Rgba(0x1E, 0x22, 0x2A);
-    public static readonly Col CardHover = Col.Rgba(0x26, 0x2B, 0x34);
-    public static readonly Col Stroke = Col.Rgba(0x2E, 0x34, 0x40);
-    public static readonly Col Text = Col.Rgba(0xF2, 0xF4, 0xF8);
-    public static readonly Col Muted = Col.Rgba(0x9C, 0xA5, 0xB4);
-    public static readonly Col Accent = Col.Rgba(0x50, 0xD6, 0xFF);
-    public static readonly Col Ok = Col.Rgba(0x32, 0xD7, 0x4B);
-    public static readonly Col Warn = Col.Rgba(0xFF, 0xB0, 0x4A);
-    public static readonly Col Danger = Col.Rgba(0xFF, 0x6B, 0x6B);
-    public static readonly Col Hairline = Col.Rgba(0x25, 0x29, 0x31);
+    private static ShellTheme _theme = ShellTheme.Dark;
+
+    /// <summary>The palette used for the current render. The host (overlay
+    /// window / shell) assigns the resolved theme before drawing each frame.</summary>
+    public static ShellTheme Theme
+    {
+        get => _theme;
+        set => _theme = value ?? ShellTheme.Dark;
+    }
+
+    public static Col PanelTop => _theme.PanelTop;
+    public static Col PanelBottom => _theme.PanelBottom;
+    public static Col Card => _theme.Card;
+    public static Col CardHover => _theme.CardHover;
+    public static Col Stroke => _theme.Stroke;
+    public static Col Text => _theme.Text;
+    public static Col Muted => _theme.Muted;
+    public static Col Accent => _theme.Accent;
+    public static Col Ok => _theme.Ok;
+    public static Col Warn => _theme.Warn;
+    public static Col Danger => _theme.Danger;
+    public static Col Hairline => _theme.Hairline;
 
     public static Col Fade(Col color, double alpha) =>
         color.WithAlpha((byte)Math.Clamp(Math.Round(color.A * alpha), 0, 255));
@@ -58,13 +70,39 @@ public static class ShellUi
         TextKit.DrawCentered(canvas, glyph, centerX, centerY, px, Fade(color, alpha), TextKit.Icons);
     }
 
-    public static SKPaint Gradient(float top, float bottom)
+    /// <summary>Solid vertical body gradient, alpha-tinted by the given factor
+    /// (1 = opaque solid, 0.x = translucent glass).</summary>
+    public static SKPaint Gradient(float top, float bottom, double alpha = 1)
     {
+        var a = (byte)Math.Clamp(Math.Round(255 * alpha), 0, 255);
         var shader = SKShader.CreateLinearGradient(
             new SKPoint(0, top), new SKPoint(0, bottom),
-            new[] { PanelTop.ToSk(), PanelBottom.ToSk() },
+            new[] { PanelTop.WithAlpha(a).ToSk(), PanelBottom.WithAlpha(a).ToSk() },
             new[] { 0f, 1f }, SKShaderTileMode.Clamp);
         return new SKPaint { Shader = shader, IsAntialias = true };
+    }
+
+    /// <summary>Diagonal translucent wash for a gradient skin, drawn over the
+    /// body so the tint sits under the content but above the glass blur.</summary>
+    public static void DrawGradientSkin(SKCanvas canvas, SKRect rect, string gradientId)
+    {
+        var stops = GradientSkin.Stops(gradientId);
+        if (stops.Length == 0) return;
+
+        var colors = new SKColor[stops.Length];
+        var positions = new float[stops.Length];
+        for (var i = 0; i < stops.Length; i++)
+        {
+            var (r, g, b, alpha) = stops[i];
+            colors[i] = new SKColor(r, g, b, (byte)Math.Clamp(Math.Round(255 * alpha), 0, 255));
+            positions[i] = stops.Length == 1 ? 0f : (float)i / (stops.Length - 1);
+        }
+
+        var shader = SKShader.CreateLinearGradient(
+            new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom),
+            colors, positions, SKShaderTileMode.Clamp);
+        using var paint = new SKPaint { Shader = shader, IsAntialias = true };
+        canvas.DrawRect(rect, paint);
     }
 
     /// <summary>Shorten text to fit maxWidth, appending an ellipsis.</summary>

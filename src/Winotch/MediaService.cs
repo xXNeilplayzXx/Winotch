@@ -1,10 +1,13 @@
+using SkiaSharp;
 using Windows.Media.Control;
+using Windows.Storage.Streams;
 
 namespace Winotch;
 
 public sealed record MediaSnapshot(
     string Title, string Artist, bool Playing,
-    double PositionSeconds = 0, double DurationSeconds = 0)
+    double PositionSeconds = 0, double DurationSeconds = 0,
+    string? ArtBase64 = null)
 {
     public string Key => $"{Title}|{Artist}";
 }
@@ -33,6 +36,8 @@ public sealed class MediaService : IDisposable
     private string _lastKey = "";
     private bool _lastPlaying;
     private bool _hasLast;
+    private string _lastArtKey = "";
+    private string? _lastArt;
 
     public void Start()
     {
@@ -62,6 +67,8 @@ public sealed class MediaService : IDisposable
                             {
                                 _hasLast = false;
                                 _lastKey = "";
+                                _lastArtKey = "";
+                                _lastArt = null;
                                 Changed?.Invoke(this, null);
                             }
                         }
@@ -87,6 +94,8 @@ public sealed class MediaService : IDisposable
                     {
                         _hasLast = false;
                         _lastKey = "";
+                        _lastArtKey = "";
+                        _lastArt = null;
                         Changed?.Invoke(this, null);
                     }
                     try { await Task.Delay(5000, token); }
@@ -161,7 +170,7 @@ public sealed class MediaService : IDisposable
         catch { return false; }
     }
 
-    private static async Task<MediaSnapshot?> ReadAsync(GlobalSystemMediaTransportControlsSessionManager manager)
+    private async Task<MediaSnapshot?> ReadAsync(GlobalSystemMediaTransportControlsSessionManager manager)
     {
         try
         {
@@ -188,7 +197,67 @@ public sealed class MediaService : IDisposable
             }
             catch { }
 
-            return new MediaSnapshot(title, artist, playing, position, duration);
+            // Album art is re-derivable on every 1s poll; decode it only once
+            // per track identity (the base64 is byte-identical across polls).
+            var artKey = $"{title}|{artist}";
+            string? art;
+            if (string.Equals(artKey, _lastArtKey, StringComparison.Ordinal))
+            {
+                art = _lastArt;
+            }
+            else
+            {
+                art = await DecodeArtworkAsync(props.Thumbnail);
+                _lastArtKey = artKey;
+                _lastArt = art;
+            }
+            return new MediaSnapshot(title, artist, playing, position, duration, art);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Read the SMTC album-art thumbnail and downscale it to a small
+    /// PNG base64 the shell can draw (capped so a huge artwork never bloats
+    /// memory). Null when the app exposes no art or it cannot be decoded.</summary>
+    private static async Task<string?> DecodeArtworkAsync(IRandomAccessStreamReference? thumbnail)
+    {
+        if (thumbnail is null) return null;
+        try
+        {
+            using var stream = await thumbnail.OpenReadAsync();
+            var size = stream.Size;
+            if (size <= 0 || size > 4_000_000) return null;
+
+            using var reader = new DataReader(stream.GetInputStreamAt(0));
+            await reader.LoadAsync((uint)size);
+            var bytes = new byte[(long)size];
+            reader.ReadBytes(bytes);
+
+            using var data = SKData.CreateCopy(bytes);
+            using var decoded = SKBitmap.Decode(data);
+            if (decoded is null) return null;
+
+            const int maxDim = 96;
+            var scale = Math.Min(1.0, (double)maxDim / Math.Max(decoded.Width, decoded.Height));
+            if (scale >= 1.0)
+            {
+                using var image = SKImage.FromBitmap(decoded);
+                using var png = image.Encode(SKEncodedImageFormat.Png, 80);
+                return Convert.ToBase64String(png.ToArray());
+            }
+
+            var info = new SKImageInfo(
+                Math.Max(1, (int)Math.Round(decoded.Width * scale)),
+                Math.Max(1, (int)Math.Round(decoded.Height * scale)),
+                SKColorType.Rgba8888, SKAlphaType.Premul);
+            using var resized = decoded.Resize(info, SKFilterQuality.Medium);
+            if (resized is null) return null;
+            using var image2 = SKImage.FromBitmap(resized);
+            using var png2 = image2.Encode(SKEncodedImageFormat.Png, 80);
+            return Convert.ToBase64String(png2.ToArray());
         }
         catch
         {

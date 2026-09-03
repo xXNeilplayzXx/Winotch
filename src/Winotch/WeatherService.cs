@@ -42,6 +42,23 @@ public sealed class WeatherService : IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Get,
             "https://geocoding-api.open-meteo.com/v1/search?name=" +
             Uri.EscapeDataString(city) + "&count=1&language=en&format=json");
+        return await ParseGeocodingAsync(request, city);
+    }
+
+    /// <summary>Reverse-geocode coordinates to a nearby city (used by the
+    /// "Use Windows location" weather flow).</summary>
+    public async Task<(string Name, double Lat, double Lon)?> SearchByCoordinatesAsync(double lat, double lon)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            "https://geocoding-api.open-meteo.com/v1/search?reverse=true&latitude=" +
+            lat.ToStringInvariant() + "&longitude=" + lon.ToStringInvariant() +
+            "&count=1&language=en&format=json");
+        return await ParseGeocodingAsync(request, null);
+    }
+
+    private async Task<(string Name, double Lat, double Lon)?> ParseGeocodingAsync(
+        HttpRequestMessage request, string? fallbackName)
+    {
         using var response = await _http.SendAsync(request);
         if (!response.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -52,10 +69,14 @@ public sealed class WeatherService : IDisposable
         {
             return null;
         }
-        var name = hit.TryGetProperty("name", out var n) ? n.GetString() : city;
+        var name = hit.TryGetProperty("name", out var n) ? n.GetString() : null;
         var region = hit.TryGetProperty("admin1", out var a1) ? a1.GetString() : null;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = fallbackName is { Length: > 0 } ? fallbackName : $"({lat.GetDouble():0.##}, {lon.GetDouble():0.##})";
+        }
         if (!string.IsNullOrWhiteSpace(region)) name += ", " + region;
-        return (name ?? city, lat.GetDouble(), lon.GetDouble());
+        return (name, lat.GetDouble(), lon.GetDouble());
     }
 
     /// <summary>Fetch current + today's min/max for a location.</summary>

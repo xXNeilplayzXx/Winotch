@@ -24,8 +24,13 @@ public sealed class SettingsService
     public SettingsService(string path)
     {
         _path = path;
+        WasCreated = !File.Exists(path);
         _current = Load(path);
     }
+
+    /// <summary>True when no settings file existed at construction — the first
+    /// run of a fresh install, used to auto-open the setup wizard.</summary>
+    public bool WasCreated { get; }
 
     public event EventHandler<WinotchSettings>? Changed;
 
