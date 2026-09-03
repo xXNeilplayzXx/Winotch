@@ -1,6 +1,6 @@
 [package]
 name = "winotch-webview"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 
 # Release artifact is winotch.exe (matches scripts/release.bat and the CI
@@ -37,6 +37,8 @@ windows = { version = "0.58", features = [
   "Storage_Streams",
   "Win32_System_Power",
   "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
   "Win32_System_Registry",
   "Win32_UI_Shell",
   "Devices_Geolocation",

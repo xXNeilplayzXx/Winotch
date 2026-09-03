@@ -23,12 +23,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build winotch.exe
+      - name: Build winotch.exe + NSIS installer
         # The frontend is plain HTML/CSS/JS (webview/ui) — no npm build step.
         # npm exec pulls the prebuilt Tauri v2 CLI; run from webview/ where
-        # src-tauri lives. --no-bundle keeps just the raw exe.
+        # src-tauri lives. --bundles nsis produces the setup exe too
+        # (bundle.targets = nsis in tauri.conf.json).
         working-directory: webview
-        run: npm exec --yes --package @tauri-apps/cli@^2 -- tauri build --no-bundle
+        run: npm exec --yes --package @tauri-apps/cli@^2 -- tauri build --bundles nsis
 
       - name: Determine release tag
         id: tag
@@ -40,7 +41,7 @@ jobs:
             echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Attach exe to release
+      - name: Attach exe + installer to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -48,3 +49,4 @@ jobs:
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
           gh release upload "$TAG" webview/src-tauri/target/release/winotch.exe --clobber
+          gh release upload "$TAG" webview/src-tauri/target/release/bundle/nsis/*-setup.exe --clobber

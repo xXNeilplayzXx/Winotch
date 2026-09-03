@@ -33,15 +33,15 @@ where gh >nul 2>nul || (echo [release] gh not found - install GitHub CLI: winget
 where npm >nul 2>nul || (echo [release] npm not found - install Node.js from https://nodejs.org & exit /b 1)
 
 rem 2. Release build from webview/ (the Tauri project). The frontend is plain
-rem    HTML/CSS/JS, so there is no npm build step. --no-bundle skips
-rem    installers/MSI; we only want the raw exe.
-echo [release] Building winotch.exe... first run downloads and compiles a lot.
+rem    HTML/CSS/JS, so there is no npm build step. --bundles nsis also builds
+rem    the setup installer (bundle.targets = nsis in tauri.conf.json).
+echo [release] Building winotch.exe + installer... first run downloads and compiles a lot.
 pushd webview
-call npm exec --yes --package @tauri-apps/cli@^2 -- tauri build --no-bundle
+call npm exec --yes --package @tauri-apps/cli@^2 -- tauri build --bundles nsis
 if errorlevel 1 (popd & exit /b 1)
 popd
 
-rem 3. Locate and attach the exe.
+rem 3. Locate and attach the exe + installer.
 set "EXE=webview\src-tauri\target\release\winotch.exe"
 if not exist "%EXE%" (
     echo [release] Expected exe missing: %EXE%
@@ -49,4 +49,7 @@ if not exist "%EXE%" (
     exit /b 1
 )
 gh release upload "%TAG%" "%EXE%" || exit /b 1
-echo [release] Done - attached winotch.exe to %TAG%
+for %%f in (webview\src-tauri\target\release\bundle\nsis\*-setup.exe) do (
+    gh release upload "%TAG%" "%%f" || exit /b 1
+)
+echo [release] Done - attached winotch.exe + installer to %TAG%

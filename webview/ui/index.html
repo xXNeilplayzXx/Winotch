@@ -90,7 +90,11 @@
   body {
     font-family: var(--ui);
     color: var(--text);
-    background: var(--ink);
+    /* Transparent in the notch window (the pill floats over the desktop;
+       an opaque paint here is the "black box" that flashes around the
+       rounded island during resize/expand). The settings window is a normal
+       opaque window and re-paints its own background via body.settings-view. */
+    background: transparent;
     overflow: hidden;
     -webkit-user-select: none;
     user-select: none;
@@ -118,6 +122,11 @@
     overflow: hidden;
     will-change: width, height, border-radius;
     backface-visibility: hidden;
+    /* Layer isolation + padding-box clip keep the GPU compositor from
+       painting a square dark bounding box outside the rounded corners while
+       width/height animate alongside backdrop-filter. */
+    isolation: isolate;
+    background-clip: padding-box;
     transform-origin: top center;
     transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
                 height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
@@ -414,16 +423,16 @@
     animation: widget-in 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   @keyframes widget-in {
-    0% { opacity: 0; transform: translateY(-16px); filter: blur(4px); }
+    0% { opacity: 0; transform: translateY(-16px); }
     55% { opacity: 1; }
-    100% { opacity: 1; transform: none; filter: none; }
+    100% { opacity: 1; transform: none; }
   }
   .widget.widget-removing {
     animation: widget-out 0.26s ease both;
     pointer-events: none;
   }
   @keyframes widget-out {
-    to { opacity: 0; transform: scale(0.966) translateY(8px); filter: blur(3px); }
+    to { opacity: 0; transform: scale(0.966) translateY(8px); }
   }
   .widget-edit { padding: 2px 0 4px; }
   .widget-edit-hint { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
@@ -561,6 +570,59 @@
     border-color: rgba(196, 43, 28, 0.5);
     background: linear-gradient(180deg, rgba(255, 245, 245, 0.98), rgba(252, 238, 238, 0.98));
   }
+
+  /* status toasts — compact alert pills that hang BELOW the notch. The OS
+     window grows to fit them via syncWindow; they carry priority alerts
+     (battery/charger/Wi-Fi/mic-cam), media changes and focus-timer
+     completions, ported from the reference Winotch. */
+  .status-toast {
+    position: fixed;
+    left: 50%;
+    transform: translate(-50%, 0);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: max-content;
+    max-width: 320px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--glass-2);
+    color: var(--text);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+    animation: toast-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  :root[data-theme="light"] .status-toast { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16); }
+  .status-toast .st-ico { font-size: 16px; flex: none; }
+  .status-toast .st-body b { display: block; font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
+  .status-toast .st-body span { display: block; font-size: 11px; color: var(--text-2); white-space: nowrap; }
+  .status-toast .st-fill { position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; border-radius: 0 0 14px 14px; overflow: hidden; }
+  .status-toast .st-fill i { display: block; height: 100%; background: var(--ok); transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1); }
+  .status-toast.out { transition: opacity 0.2s ease, transform 0.2s ease; opacity: 0; transform: translate(-50%, 6px); }
+  @keyframes toast-pop { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .status-toast, .status-toast.out { transition: none; animation: none; }
+  }
+
+  /* focus timer widget */
+  .focus-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .focus-phase { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
+  .focus-rem { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .focus-bar { height: 4px; border-radius: 999px; background: var(--hairline); overflow: hidden; margin: 8px 0 10px; }
+  .focus-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--led-strong)); transition: width 1s linear; }
+  .focus-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* clipboard history widget */
+  .clip-list { display: flex; flex-direction: column; gap: 4px; }
+  .clip-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--hairline); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+  :root[data-theme="light"] .clip-row { background: rgba(255, 255, 255, 0.55); }
+  .clip-ico { font-size: 13px; flex: none; }
+  .clip-thumb { width: 26px; height: 26px; object-fit: cover; border-radius: 5px; flex: none; }
+  .clip-txt { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clip-foot { margin-top: 8px; display: flex; justify-content: flex-end; }
 
   /* first-run hint lives INSIDE the collapsed pill (the OS window hugs the
      island, so anything outside it is invisible) */
@@ -804,7 +866,7 @@
   /* mount reveal — a gravity cascade when the deck first opens. The island
      hangs from the top edge and grows downward, so the content pours down
      from the same anchor: the header, then the tip, then each card drops in
-     with a springy settle and a blur-to-sharp glass glaze. Delayed cards
+     with a springy settle and an opacity-to-sharp glaze. Delayed cards
      hold the `from` state (fill-mode both) so the stack lands in order.
      The reduced-motion media query collapses this to instant. */
   .head-reveal {
@@ -825,9 +887,9 @@
     animation: deck-reveal 0.46s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   @keyframes deck-reveal {
-    0% { opacity: 0; transform: translateY(-16px); filter: blur(4px); }
+    0% { opacity: 0; transform: translateY(-16px); }
     55% { opacity: 1; }
-    100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+    100% { opacity: 1; transform: translateY(0); }
   }
 
   /* closing exit — the gravity cascade in reverse. The header leads, then the
@@ -840,8 +902,8 @@
   .island.closing .section,
   .island.closing .widget { animation: deck-exit 0.26s ease-in both; }
   @keyframes deck-exit {
-    from { opacity: 1; transform: translateY(0); filter: blur(0); }
-    to { opacity: 0; transform: translateY(-18px); filter: blur(4px); }
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-18px); }
   }
 
   /* commit acknowledgment — when Apply lands, the rows whose settings
@@ -1315,11 +1377,11 @@ const store = {
 };
 
 /* ---------- widget inventory ---------- */
-const WIDGET_TYPES = ["clock", "system", "media", "notes", "weather", "launcher"];
-const WIDGET_LABELS = { clock: "Clock", system: "System stats", media: "Now playing", notes: "Notes", weather: "Weather", launcher: "App launcher" };
+const WIDGET_TYPES = ["clock", "system", "media", "notes", "weather", "launcher", "focus", "clipboard"];
+const WIDGET_LABELS = { clock: "Clock", system: "System stats", media: "Now playing", notes: "Notes", weather: "Weather", launcher: "App launcher", focus: "Focus timer", clipboard: "Clipboard" };
 const NS_OPTIONS = [["brand", "Brand + clock"], ["clock", "Clock only"], ["custom", "Custom text"], ["system", "System stats"], ["blank", "Nothing (dot only)"]];
-const DEFAULT_ORDER = ["clock", "system", "media", "notes", "weather", "launcher"];
-const DEFAULT_WIDGETS = { clock: true, system: true, media: true, notes: true, weather: true, launcher: true };
+const DEFAULT_ORDER = ["clock", "system", "media", "notes", "weather", "launcher", "focus", "clipboard"];
+const DEFAULT_WIDGETS = { clock: true, system: true, media: true, notes: true, weather: true, launcher: true, focus: false, clipboard: false };
 
 const QUICK_APPS = [
   { label: "Chrome", path: "chrome.exe" },
@@ -1349,10 +1411,11 @@ function mapWeather(code) {
   return { emoji: "🌡️", label: "Unknown" };
 }
 
-/* upgrade older persisted 4-widget bool sets to the 6-widget set */
+/* upgrade older persisted widget sets to the current one (merge defaults in
+   so new widget types appear without clobbering existing toggles) */
 function migrateWidgets() {
   const old = store.load("widgets", null);
-  if (old && typeof old === "object" && !("weather" in old) && !("launcher" in old)) {
+  if (old && typeof old === "object" && ["weather", "launcher", "focus", "clipboard"].some((k) => !(k in old))) {
     const merged = { ...DEFAULT_WIDGETS };
     for (const k of Object.keys(old)) if (k in merged) merged[k] = !!old[k];
     return merged;
@@ -1380,6 +1443,10 @@ const state = {
   notes: store.load("notes", ""),
   weather: store.load("weather", { city: "", lat: null, lon: null }),
   launcherApps: store.load("launcherApps", QUICK_APPS),
+  // focus timer (ported from the reference Winotch) — persists across restarts
+  focusTimer: store.load("focusTimer", { status: "stopped", phase: "focus", preset: "25", focusMin: 25, breakMin: 5, autoCycle: false, startedAt: 0, pausedElapsed: 0, pausedAt: null, cycles: 0 }),
+  // clipboard history — in-memory only, filled from the backend listener
+  clipboardItems: [],
   // runtime
   expanded: false,
   settingsOpen: false,
@@ -1426,6 +1493,7 @@ function persist() {
   store.save("widgets", state.widgets); store.save("widgetOrder", state.widgetOrder);
   store.save("sysMetrics", state.sysMetrics); store.save("notes", state.notes);
   store.save("weather", state.weather); store.save("launcherApps", state.launcherApps);
+  store.save("focusTimer", state.focusTimer);
 }
 
 /* ---------- system stats (live from the backend) ----------
@@ -1436,7 +1504,7 @@ const fmtTime = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).pad
 
 /* ---------- clock ---------- */
 let now = new Date();
-setInterval(() => { now = new Date(); tickClock(); }, 1000);
+setInterval(() => { now = new Date(); tickClock(); focusTick(); }, 1000);
 const timeParts = () => {
   const t = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const i = t.indexOf(":");
@@ -2381,6 +2449,101 @@ function buildWidgetCard(type) {
     return card;
   }
 
+  if (type === "focus") {
+    const t = state.focusTimer;
+    if (state.editing === "focus") {
+      const ed = h("div", "widget-edit");
+      ed.appendChild(h("p", "widget-edit-hint", "Session length"));
+      const seg = h("div", "segmented");
+      [["25", "25 / 5"], ["50", "50 / 10"], ["custom", "Custom"]].forEach(([k, lab]) => {
+        const b = h("button", "widget-btn" + (t.preset === k ? " widget-btn-primary" : ""), lab);
+        b.onclick = () => { t.preset = k; focusSave(); render(); };
+        seg.appendChild(b);
+      });
+      ed.appendChild(seg);
+      if (t.preset === "custom") {
+        const mkRow = (label, key, dflt, min, max) => {
+          const row = h("div", "row");
+          row.innerHTML = `<span class="row-label">${label}</span>`;
+          const inp = h("input", "widget-input");
+          inp.type = "number"; inp.min = min; inp.max = max; inp.value = t[key];
+          inp.onchange = () => { t[key] = Math.min(max, Math.max(min, Math.round(+inp.value) || dflt)); focusSave(); render(); };
+          row.appendChild(inp);
+          return row;
+        };
+        ed.appendChild(mkRow("Focus (min)", "focusMin", 25, 1, 180));
+        ed.appendChild(mkRow("Break (min)", "breakMin", 5, 1, 60));
+      }
+      const row = h("div", "row");
+      row.innerHTML = `<span class="row-label">Auto-cycle focus → break</span>`;
+      const sw = h("button", "switch" + (t.autoCycle ? " on" : ""));
+      sw.onclick = () => { t.autoCycle = !t.autoCycle; focusSave(); render(); };
+      row.appendChild(sw);
+      ed.appendChild(row);
+      card.appendChild(ed);
+      return card;
+    }
+    const active = t.status !== "stopped";
+    const wrap = h("div", "focus-widget");
+    const phaseLabel = active
+      ? (t.phase === "focus" ? (t.status === "paused" ? "Focus · paused" : "Focus") : "Break")
+      : "Ready";
+    wrap.innerHTML =
+      `<div class="focus-top"><span class="focus-phase">${phaseLabel}</span>` +
+      `<span class="focus-rem">${active ? focusFmt(focusRemaining()) : (t.preset === "custom" ? t.focusMin + " min" : t.preset + " min")}</span></div>` +
+      `<div class="focus-bar"><i style="width:${active ? (focusProgress() * 100).toFixed(1) : 0}%"></i></div>` +
+      `<div class="focus-actions">${active
+        ? `<button class="widget-btn" data-fa="pp">${t.status === "paused" ? "Resume" : "Pause"}</button>` +
+          `<button class="widget-btn" data-fa="skip">Skip</button>` +
+          `<button class="widget-btn widget-btn-danger" data-fa="stop">Stop</button>`
+        : `<button class="widget-btn widget-btn-primary" data-fa="start">Start</button>` +
+          `<button class="widget-btn" data-fa="cfg">⚙</button>`}</div>`;
+    const fa = (k, fn) => { const b = wrap.querySelector('[data-fa="' + k + '"]'); if (b) b.onclick = fn; };
+    fa("start", focusStart);
+    fa("pp", focusPauseResume);
+    fa("skip", focusSkip);
+    fa("stop", focusStop);
+    fa("cfg", () => { state.editing = "focus"; render(); });
+    card.appendChild(wrap);
+    return card;
+  }
+
+  if (type === "clipboard") {
+    const wrap = h("div", "clipboard-widget");
+    const items = state.clipboardItems;
+    if (!items.length) {
+      wrap.appendChild(h("p", "widget-empty",
+        "Copied text, files and images appear here — <b>in memory only</b>, cleared when Winotch exits."));
+    } else {
+      const list = h("div", "clip-list");
+      items.slice(0, 6).forEach((it) => {
+        const row = h("div", "clip-row");
+        const text = it.text || "";
+        const preview = it.kind === "text"
+          ? esc(String(text).slice(0, 56)) + (String(text).length > 56 ? "…" : "")
+          : it.kind === "files"
+            ? (it.files || []).map((f) => esc(String(f).split(/[\\/]/).pop())).join(", ")
+            : "Image";
+        row.innerHTML =
+          (it.thumb ? `<img class="clip-thumb" src="data:image/png;base64,${it.thumb}">` : `<span class="clip-ico">${it.kind === "text" ? "📄" : "📁"}</span>`) +
+          `<span class="clip-txt" title="${esc(text || (it.files || []).join(", "))}">${preview}</span>` +
+          `<button class="widget-act" data-ca="copy" title="Copy again">⧉</button>` +
+          `<button class="widget-act" data-ca="del" title="Remove">✕</button>`;
+        row.querySelector('[data-ca="copy"]').onclick = () => clipAction("clipboard_copy", it.id);
+        row.querySelector('[data-ca="del"]').onclick = () => clipAction("clipboard_delete", it.id);
+        list.appendChild(row);
+      });
+      wrap.appendChild(list);
+      const foot = h("div", "clip-foot");
+      const clr = h("button", "widget-btn", "Clear history");
+      clr.onclick = () => clipAction("clipboard_clear", 0);
+      foot.appendChild(clr);
+      wrap.appendChild(foot);
+    }
+    card.appendChild(wrap);
+    return card;
+  }
+
   return card;
 }
 
@@ -2637,6 +2800,146 @@ function toast(msg, kind) {
   t.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("show"), kind === "err" ? 2600 : 1800);
+}
+
+/* ---------- focus timer (ported from the reference Winotch) ---------- */
+// 25/5, 50/10 or custom 1..180 min sessions; pause/resume/skip/stop with
+// optional auto-cycle; persists across restarts; completion toasts + phase
+// swap, exactly like FocusTimerState in the reference. Pure frontend state
+// machine — no backend involved.
+const focusFmt = (ms) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+};
+function focusPhaseMin() { const t = state.focusTimer; return t.phase === "focus" ? t.focusMin : t.breakMin; }
+function focusElapsed() {
+  const t = state.focusTimer;
+  return t.pausedAt ? t.pausedElapsed : (Date.now() - t.startedAt) + t.pausedElapsed;
+}
+function focusRemaining() {
+  const t = state.focusTimer;
+  if (t.status === "stopped") return 0;
+  return Math.max(0, focusPhaseMin() * 60000 - focusElapsed());
+}
+function focusProgress() {
+  const t = state.focusTimer;
+  const dur = focusPhaseMin() * 60000;
+  if (t.status === "stopped" || dur <= 0) return 0;
+  return Math.min(1, Math.max(0, focusElapsed() / dur));
+}
+function focusSave() { store.save("focusTimer", state.focusTimer); }
+function focusStart() {
+  const t = state.focusTimer;
+  if (t.preset === "25") { t.focusMin = 25; t.breakMin = 5; }
+  else if (t.preset === "50") { t.focusMin = 50; t.breakMin = 10; }
+  t.status = "running"; t.phase = "focus"; t.startedAt = Date.now();
+  t.pausedElapsed = 0; t.pausedAt = null;
+  focusSave(); render();
+}
+function focusPauseResume() {
+  const t = state.focusTimer;
+  if (t.status === "running") {
+    t.pausedElapsed += Date.now() - t.startedAt;
+    t.pausedAt = Date.now(); t.status = "paused";
+  } else if (t.status === "paused") {
+    t.startedAt = Date.now(); t.pausedAt = null; t.status = "running";
+  }
+  focusSave(); render();
+}
+function focusAdvance() {
+  // complete the current phase (focus -> break, break -> focus or stop)
+  const t = state.focusTimer;
+  if (t.phase === "focus") {
+    t.phase = "break";
+    t.cycles += 1;
+    statusToast({ icon: "🍅", title: "Focus complete", body: "Take a " + t.breakMin + " min break" });
+  } else if (t.autoCycle) {
+    t.phase = "focus";
+    statusToast({ icon: "⏰", title: "Break over", body: "Back to focus" });
+  } else {
+    t.status = "stopped"; t.phase = "focus";
+    statusToast({ icon: "✅", title: "Session complete", body: t.cycles + " focus " + (t.cycles === 1 ? "cycle" : "cycles") + " finished" });
+    focusSave(); render(); return;
+  }
+  t.startedAt = Date.now(); t.pausedElapsed = 0; t.pausedAt = null;
+  focusSave(); render();
+}
+function focusSkip() {
+  const t = state.focusTimer;
+  if (t.status === "stopped") return;
+  if (t.status === "paused") { t.pausedElapsed += Date.now() - t.startedAt; t.pausedAt = null; }
+  focusAdvance();
+}
+function focusStop() {
+  const t = state.focusTimer;
+  t.status = "stopped"; t.phase = "focus"; t.startedAt = 0; t.pausedElapsed = 0; t.pausedAt = null;
+  focusSave(); render();
+}
+function focusTick() {
+  const t = state.focusTimer;
+  if (t.status !== "running") return;
+  if (focusRemaining() > 0) {
+    const el = $("#island .focus-rem");
+    if (el) el.textContent = focusFmt(focusRemaining());
+    const bar = $("#island .focus-bar i");
+    if (bar) bar.style.width = (focusProgress() * 100).toFixed(1) + "%";
+    return;
+  }
+  focusAdvance();
+}
+
+/* ---------- status toasts (priority alerts + media/timer notices) ---------- */
+// Rendered as a compact pill hanging below the notch; the OS window grows to
+// fit it via syncWindow and shrinks back on dismiss. Queue is capped so a
+// burst of alerts (charger + wifi + mic) can't pile up forever.
+const statusQueue = [];
+let statusToastEl = null;
+let statusToastTimer = null;
+function statusToast(a) {
+  if (statusQueue.length > 4) statusQueue.splice(0, statusQueue.length - 4);
+  statusQueue.push(a);
+  if (!statusToastEl) pumpStatusToast();
+}
+function pumpStatusToast() {
+  const a = statusQueue.shift();
+  if (!a) return;
+  clearTimeout(statusToastTimer);
+  let t = statusToastEl;
+  if (!t) { t = h("div", "status-toast", ""); t.id = "statusToast"; document.body.appendChild(t); statusToastEl = t; }
+  const island = $("#island");
+  t.style.top = (island ? island.offsetHeight : 36) + 8 + "px";
+  t.innerHTML = `<span class="st-ico">${esc(a.icon || "🔔")}</span>` +
+    `<span class="st-body"><b>${esc(a.title)}</b><span>${esc(a.body)}</span></span>`;
+  if (a.flourish) {
+    const fill = h("div", "st-fill", '<i style="width:0%"></i>');
+    t.appendChild(fill);
+    const bar = fill.firstElementChild;
+    requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = Math.min(100, Math.max(0, a.percent ?? 0)) + "%"; }));
+  }
+  syncWindow(true);
+  statusToastTimer = setTimeout(() => {
+    if (!t.isConnected) return;
+    t.classList.add("out");
+    setTimeout(() => {
+      t.remove();
+      if (statusToastEl === t) statusToastEl = null;
+      syncWindow(true);
+      pumpStatusToast();
+    }, 200);
+  }, a.flourish ? 3400 : 3000);
+}
+
+/* ---------- clipboard history (in-memory, from the backend) ---------- */
+function setClipboardList(list) {
+  state.clipboardItems = list || [];
+  if (state.widgets.clipboard && state.expanded && !SETTINGS_VIEW) render();
+}
+function clipAction(cmd, id) {
+  if (!TAURI) return;
+  TAURI.core.invoke(cmd, { id }).then((list) => {
+    state.clipboardItems = list || [];
+    if (state.widgets.clipboard && !SETTINGS_VIEW) render();
+  }).catch(() => {});
 }
 
 /* ---------- first-run hint ---------- */
@@ -3643,7 +3946,11 @@ function syncWindow(force = false) {
     return;
   }
   const w = parseFloat(island.style.width) || 330;
-  const h = parseFloat(island.style.height) || 36;
+  // A status toast hangs below the pill — grow the window to fit it while
+  // visible, then shrink back on dismiss (syncWindow re-measures each time).
+  const toastEl = $("#statusToast");
+  const toastH = toastEl && !toastEl.classList.contains("out") ? toastEl.offsetHeight + 8 : 0;
+  const h = (parseFloat(island.style.height) || 36) + toastH;
   // Only snap back to the screen edge when a position preset = default is
   // active. If the user dragged the notch somewhere (custom/left/right), keep
   // the window attached to its live center so the deck grows in place.
@@ -3726,8 +4033,14 @@ function setLiveMedia(m) {
   // Re-render the island only when the strip-visible state changes (track
   // identity or play/pause); position ticks just refresh the cards.
   if (playing !== prevPlaying || key !== lastMediaKey) {
+    const trackChanged = key !== lastMediaKey;
     lastMediaKey = key;
     render();
+    // Media-change toast (reference parity): only on a NEW playing track,
+    // never on position ticks or on pause.
+    if (trackChanged && playing && liveMedia && liveMedia.title) {
+      statusToast({ icon: "🎵", title: String(liveMedia.title).slice(0, 40), body: liveMedia.artist || "Now playing" });
+    }
   } else {
     refreshWidgets();
   }
@@ -3768,6 +4081,13 @@ function wireLiveData() {
   TAURI.event.listen("media://state", (e) => setLiveMedia(e.payload)).catch(() => {});
   TAURI.event.listen("call://state", (e) => setLiveCall(e.payload)).catch(() => {});
   TAURI.event.listen("mic://state", (e) => setLiveMic(e.payload)).catch(() => {});
+  // Priority status alerts (battery/charger/Wi-Fi/mic-cam) and the in-memory
+  // clipboard history — both pushed from the backend.
+  TAURI.event.listen("winotch://status", (e) => statusToast(e.payload)).catch(() => {});
+  TAURI.event.listen("winotch://clipboard", (e) => setClipboardList(e.payload)).catch(() => {});
+  TAURI.core.invoke("get_clipboard_history")
+    .then((l) => { state.clipboardItems = l || []; if (state.widgets.clipboard) render(); })
+    .catch(() => {});
   // Live Windows theme/accent — also pulls once immediately (get_system_theme
   // re-emits, so the single listener catches both).
   TAURI.event.listen("winotch://theme", (e) => setWinTheme(e.payload)).catch(() => {});

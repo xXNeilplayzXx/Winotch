@@ -10,10 +10,12 @@
 //! island floats on the desktop with no visible box around it.
 
 mod autostart;
+mod clipboard;
 mod config;
 mod launcher;
 mod media;
 mod stats;
+mod status;
 mod theme;
 mod tray;
 mod weather;
@@ -509,6 +511,12 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(cfg))
         .setup(move |app| {
+            // Priority status alerts (battery/Wi-Fi/mic-cam) and the in-memory
+            // clipboard history — both push events the page renders as
+            // compact toasts / the clipboard widget. Ported from the
+            // reference C# Winotch.
+            status::spawn(app.handle().clone());
+            clipboard::spawn(app.handle().clone());
             // The notch window: fully transparent, no frame, no shadow, no
             // taskbar entry, always on top. Sized to the collapsed pill; the
             // page grows it via fit_island_to_content as panels open.
@@ -598,6 +606,10 @@ pub fn run() {
             restart_app,
             quit_app,
             get_system_theme,
+            clipboard::get_clipboard_history,
+            clipboard::clipboard_copy,
+            clipboard::clipboard_delete,
+            clipboard::clipboard_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Winotch");
