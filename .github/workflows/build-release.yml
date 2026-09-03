@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the exe to (e.g. v0.2.8)"
+        description: "Release tag to attach the exe to (e.g. v1.0.0)"
         required: true
   push:
     tags:
@@ -23,13 +23,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Frontend dependencies
-        # npm install (not ci): reconciles a lockfile that drifted from
-        # package.json when deps were added without a Node toolchain.
-        run: npm install
-
       - name: Build winotch.exe
-        run: npx tauri build --no-bundle
+        # The frontend is plain HTML/CSS/JS (webview/ui) — no npm build step.
+        # npm exec pulls the prebuilt Tauri v2 CLI; run from webview/ where
+        # src-tauri lives. --no-bundle keeps just the raw exe.
+        working-directory: webview
+        run: npm exec --yes --package @tauri-apps/cli@^2 -- tauri build --no-bundle
 
       - name: Determine release tag
         id: tag
@@ -48,4 +47,4 @@ jobs:
         shell: bash
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
-          gh release upload "$TAG" src-tauri/target/release/winotch.exe --clobber
+          gh release upload "$TAG" webview/src-tauri/target/release/winotch.exe --clobber

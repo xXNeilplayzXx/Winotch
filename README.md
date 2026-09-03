@@ -1,20 +1,20 @@
 # Winotch
 
-A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top edge of your screen and expands on hover into a media player, weather, clock, app launcher, and settings panel. Inspired by macOS notch apps like boring.notch and [notchy.dev](https://notchy.dev). Built with Tauri 2 (Rust + React).
+A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top edge of your screen and expands on hover into a media player, weather, clock, app launcher, and settings panel. Inspired by macOS notch apps like boring.notch and [notchy.dev](https://notchy.dev). Built with Tauri 2 — a Rust shell driving a hand-crafted HTML/CSS/JS page in WebView2.
 
 <p align="center">
-  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.8/winotch.exe">
+  <a href="https://github.com/xXNeilplayzXx/Winotch/releases/download/v1.0.0/winotch.exe">
     <img alt="Download winotch.exe for Windows" src="https://img.shields.io/badge/Download%20winotch.exe%20for%20Windows-0078d7?style=for-the-badge" />
   </a>
 </p>
 
-> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v0.2.8** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
+> The repo is private — you must be logged into GitHub as `xXNeilplayzXx` for any link to work. Latest version: **v1.0.0** ([releases page](https://github.com/xXNeilplayzXx/Winotch/releases)).
 
 ---
 
 ## 🪟 For non-technical people (3 steps)
 
-1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.8/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
+1. **Click the blue button above** (or [this link](https://github.com/xXNeilplayzXx/Winotch/releases/download/v1.0.0/winotch.exe)) and save `winotch.exe` — it's one single file, no installers, no extra downloads.
 2. **Double-click `winotch.exe`.** If Windows pops up *"Windows protected your PC"* (SmartScreen — we haven't bought a code-signing certificate yet, so Windows doesn't trust the file), click **More info**, then **Run anyway**. If Windows Defender blocks it again or quarantines the file, add an exclusion (below). See [docs/SMARTSCREEN.md](docs/SMARTSCREEN.md) for the full walkthrough.
 3. **Answer the 2-page setup**, click **Get started**, and the notch appears at the top-center of your screen. Move your mouse over it to expand it.
 
@@ -53,7 +53,7 @@ Grab the latest build from the Releases page:
 
 **https://github.com/xXNeilplayzXx/Winotch/releases**
 
-Direct download for v0.2.5: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v0.2.8/winotch.exe**
+Direct download: **https://github.com/xXNeilplayzXx/Winotch/releases/download/v1.0.0/winotch.exe**
 
 ## Install
 
@@ -105,35 +105,29 @@ Everything is reachable from the notch itself — no settings app, no launcher.
 - **The call pill never appears** — it only shows for known desktop call apps (Zoom, Teams, Discord, Slack, Skype, WhatsApp, Phone Link…); browser-based calls (Meet/Zoom web in Chrome/Edge) aren't detected yet, and silent mic-only apps that aren't call apps won't trigger it.
 - **The mic dot stays grey while I'm talking** — the watcher meters capture devices; if your mic is an exotic/external device or the Windows meter reads ~0, it may not trip the threshold (privacy Settings → Microphone also matters).
 - **Weather says "Windows location is unavailable"** — allow location in Settings → Privacy → Location, then retry the **Use Windows location** button.
-- **A blank/flashed window on dev builds** — see the dev-server note below (port 1420 conflict).
+- **The window snaps back to the default spot after a drag** — the Tauri bridge wasn't active (the page silently falls back to browser mode when `window.__TAURI__` is missing); run the real app (`tauri dev` / the built exe), never the raw `index.html` in a plain browser.
 
 ## Building from source
 
+Winotch is **Windows-only** — the release exe must be built on a Windows machine (Tauri cannot cross-build it from macOS). The frontend is a static HTML/CSS/JS page, so there is no Node build step:
+
 ```bash
-npm install
-npm run tauri dev    # run with live reload
-npm run tauri build  # produce a release bundle
+cd webview
+npm exec --yes --package @tauri-apps/cli@^2 -- tauri dev     # run with the page hot-reloaded from webview/ui
+npm exec --yes --package @tauri-apps/cli@^2 -- tauri build  # produce the release exe
 ```
 
-The Windows exe in the releases is cross-compiled from macOS with the `x86_64-pc-windows-gnullvm` target (portable llvm-mingw toolchain).
+Or, on Windows, one command end-to-end: `scripts\release.bat v1.0.0` builds `winotch.exe` and attaches it to the matching GitHub release. CI does the same automatically whenever a `v*` tag is pushed (`.github/workflows/build-release.yml`).
 
-## Development server notes
+The repo also contains an earlier **egui experiment** in `native/` — a self-contained desktop port that compiles independently; it is not part of the releases.
 
-`tauri dev` starts Vite automatically on **http://127.0.0.1:1420** (HMR on 1421) and the Rust shell loads that URL — you normally don't run anything by hand. If the webview ever shows `ERR_CONNECTION_REFUSED` or a blank window:
+## Development
 
-1. A previous dev session probably died uncleanly and something still holds port 1420 (or the Vite process is simply not running). Free the ports and relaunch:
-
-   ```bash
-   npm run tauri:dev   # frees ports 1420/1421, then runs tauri dev
-   ```
-
-   (On Windows use `scripts\kill-dev-ports.bat` before `npm run tauri dev`.)
-
-2. The dev server and the app must agree on the address: Vite binds `127.0.0.1:1420` (`vite.config.ts`, `strictPort`) and `tauri.conf.json` points `devUrl` at the same `http://127.0.0.1:1420`. Both are pinned to the explicit IPv4 loopback so a `localhost` → `::1` resolution mismatch on Windows can never produce a refused connection.
-
-3. `strictPort: true` means Vite **fails loudly** if 1420 is taken instead of silently drifting to 1421 (which the webview wouldn't know about) — combined with the cleanup script this keeps the pair in sync.
+`tauri dev` from `webview/` opens the app window pointed at the static page in `webview/ui/`. Because the page runs inside the real Tauri shell, the notch window is transparent, frameless, and always-on-top — opening `webview/ui/index.html` in a plain browser works for layout iteration but the Tauri bridge (`window.__TAURI__`) is absent there, so window moves, system stats, media, and settings windows are stubbed out.
 
 ## Project layout
 
-- `src/` — React frontend (island UI, widgets, styles, theme manager)
-- `src-tauri/` — Rust shell: window management, always-on-top + flush-top placement, SMTC media watcher (`src/media.rs`), call-activity watcher (`src/calls.rs`), mic-in-use watcher (`src/mic.rs`), Windows geolocation (`src/geo.rs`), display enumeration + multi-window mode (`src/monitors.rs`), theme/accent watcher (`src/theme.rs`), app launcher (`src/launcher.rs`), system tray (`src/tray.rs`)
+- `webview/` — the current app: `src-tauri/` (Rust shell: window management, always-on-top + flush-top placement, SMTC media watcher (`media.rs`), call-activity + mic watchers, Windows geolocation (`weather.rs`), display enumeration + multi-monitor docking (`lib.rs`), theme/accent watcher (`theme.rs`), app launcher (`launcher.rs`), autostart (`autostart.rs`), system tray (`tray.rs`)) and `ui/` (the island page — the whole UI, no framework)
+- `native/` — the earlier egui/eframe port (kept for reference)
+- `scripts/release.bat` — Windows one-shot release build + upload
+- `.github/workflows/build-release.yml` — CI that builds `winotch.exe` on a Windows runner and attaches it to tagged releases

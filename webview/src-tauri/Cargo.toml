@@ -1,0 +1,47 @@
+[package]
+name = "winotch-webview"
+version = "1.0.0"
+edition = "2021"
+
+# Release artifact is winotch.exe (matches scripts/release.bat and the CI
+# workflow, which attach target/release/winotch.exe to GitHub releases).
+[[bin]]
+name = "winotch"
+path = "src/main.rs"
+
+[lib]
+name = "winotch_webview_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+
+# shared with the native port — same implementations, no UI deps
+sysinfo = { version = "0.33", features = ["component", "network"] }
+ureq = { version = "2", features = ["json"] }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tray-icon = "0.24"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+  "Foundation",
+  "Media_Control",
+  "Storage_Streams",
+  "Win32_System_Power",
+  "Win32_System_Com",
+  "Win32_System_Registry",
+  "Win32_UI_Shell",
+  "Devices_Geolocation",
+] }
+
+[profile.release]
+strip = true
+lto = "thin"

@@ -1,0 +1,3406 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<script>
+/* TEST HARNESS SHIM — simulates the Tauri runtime + canned network responses.
+   Everything below the island's real designv2 code runs unmodified. */
+window.__TAURI_MOCK = { geoResult: { lat: 37.3230, lon: -122.0322 }, geoError: null, fits: [] };
+window.__TAURI_MOCK.media = { title: "Test Track", artist: "Tester", duration: 200, position: 10, playing: true };
+window.__TAURI__ = {
+  core: {
+    invoke: (cmd, args) => {
+      const m = window.__TAURI_MOCK;
+      if (cmd === "weather_geo") {
+        return m.geoError ? Promise.reject(m.geoError) : Promise.resolve(m.geoResult);
+      }
+      if (cmd === "system_stats") return Promise.resolve({ cpu: 12, tempC: 55, memUsedGb: 8, memTotalGb: 32, battery: { pct: 76 }, network: { downBytesPerSec: 204800, upBytesPerSec: 51200 } });
+      if (cmd === "media_get_state") return Promise.resolve(m.media);
+      if (cmd === "fit_island_to_content") { m.fits.push(args && args.width != null ? [args.width, args.height] : null); return Promise.resolve(null); }
+      if (cmd === "call_get_state") return Promise.resolve({ onCall: false });
+      if (cmd === "mic_get_state") return Promise.resolve({ on: false });
+      if (cmd === "get_system_theme") return Promise.resolve({ theme: "dark", accent: [79, 195, 255] });
+      return Promise.resolve(null);
+    },
+  },
+  event: { listen: () => Promise.resolve(() => {}) },
+};
+const __realFetch = window.fetch.bind(window);
+window.fetch = (url, opts) => {
+  const u = String(url);
+  if (u.includes("geocoding-api.open-meteo.com/v1/reverse")) {
+    return Promise.resolve(new Response(JSON.stringify({ results: [{ name: "Cupertino", admin1: "California" }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  }
+  if (u.includes("api.open-meteo.com/v1/forecast")) {
+    return Promise.resolve(new Response(JSON.stringify({ current: { temperature_2m: 21.4, weather_code: 2, apparent_temperature: 20.9 }, daily: { temperature_2m_max: [24.1], temperature_2m_min: [14.2] } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  }
+  if (u.includes("geocoding-api.open-meteo.com/v1/search")) {
+    return Promise.resolve(new Response(JSON.stringify({ results: [{ name: "Paris", admin1: "Ile-de-France", latitude: 48.8566, longitude: 2.3522 }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  }
+  return __realFetch(url, opts);
+};
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Winotch — instrument deck (live)</title>
+<style>
+  :root {
+    color-scheme: dark;
+
+    /* ink — display black, cool, the room-glow */
+    --ink: #0a0d14;
+    --ink-2: #0e131d;
+    --panel: #10151f;
+    --panel-2: #141a26;
+
+    /* instrument white / steel */
+    --text: #e9edf4;
+    --text-2: #9aa7bb;
+    --text-3: #5d6b80;
+
+    /* the LED — Fluent blue, the Windows material */
+    --accent: #4fc3ff;
+    --accent-strong: rgba(79, 195, 255, 0.32);
+    --accent-soft: rgba(79, 195, 255, 0.14);
+    --led-strong: #7cd4ff;
+    --on-accent: #06121c;
+
+    /* status LEDs */
+    --ok: #3ddc97;
+    --alarm: #ff6b6b;
+    --warn: #ffc14d;
+
+    --hairline: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    --glass-1: rgba(255, 255, 255, 0.045);
+    --glass-2: rgba(255, 255, 255, 0.075);
+
+    --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --ui: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif;
+
+    --glass-opacity: 0.65;
+    --glass-blur: 14px;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+
+    --ink: #eef1f6;
+    --ink-2: #e7ebf2;
+    --panel: #ffffff;
+    --panel-2: #f6f8fb;
+
+    --text: #10151f;
+    --text-2: #4a5568;
+    --text-3: #8b96a8;
+
+    --accent: #0078d4;
+    --accent-strong: rgba(0, 120, 212, 0.28);
+    --accent-soft: rgba(0, 120, 212, 0.12);
+    --led-strong: #0067b8;
+    --on-accent: #ffffff;
+
+    --ok: #0e8a5f;
+    --alarm: #c42b1c;
+    --warn: #b46a00;
+
+    --hairline: rgba(10, 13, 20, 0.08);
+    --border: rgba(10, 13, 20, 0.12);
+    --border-strong: rgba(10, 13, 20, 0.22);
+
+    --glass-1: rgba(10, 13, 20, 0.03);
+    --glass-2: rgba(10, 13, 20, 0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--ui);
+    color: var(--text);
+    background: var(--ink);
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+
+  /* ================= the island ================= */
+  .island-shell {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+  }
+
+  .island {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    will-change: width, height, border-radius;
+    backface-visibility: hidden;
+    transform-origin: top center;
+    transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+                height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+                border-radius 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+                background 0.25s ease;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(21, 26, 36, 0.94), rgba(13, 17, 25, 0.96));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  :root[data-theme="light"] .island {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 241, 246, 0.97));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16),
+                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
+  .island.glass {
+    background: linear-gradient(180deg,
+        rgb(26 28 34 / calc(0.5 * var(--glass-opacity))) 0%,
+        rgb(10 12 16 / calc(0.62 * var(--glass-opacity))) 55%,
+        rgb(7 9 13 / calc(0.68 * var(--glass-opacity))) 100%);
+    backdrop-filter: blur(calc(var(--glass-blur)));
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur)));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38),
+                inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+  :root[data-theme="light"] .island.glass {
+    background: linear-gradient(180deg,
+        rgb(255 255 255 / calc(0.55 * var(--glass-opacity))) 0%,
+        rgb(250 250 252 / calc(0.65 * var(--glass-opacity))) 55%,
+        rgb(240 240 246 / calc(0.72 * var(--glass-opacity))) 100%);
+  }
+
+  /* frosted: a heavier, milkier blur — the surface reads as etched glass.
+     Deliberately much lighter than the plain glass so the two are distinct. */
+  .island.glass.frosted {
+    background: linear-gradient(180deg,
+        rgb(212 220 234 / calc(0.62 * var(--glass-opacity))) 0%,
+        rgb(180 190 208 / calc(0.7 * var(--glass-opacity))) 55%,
+        rgb(162 174 196 / calc(0.76 * var(--glass-opacity))) 100%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 14px)) saturate(150%);
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 14px)) saturate(150%);
+    border-color: rgba(208, 218, 234, 0.34);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+  }
+  :root[data-theme="light"] .island.glass.frosted {
+    background: linear-gradient(180deg,
+        rgb(255 255 255 / calc(0.82 * var(--glass-opacity))) 0%,
+        rgb(245 248 252 / calc(0.88 * var(--glass-opacity))) 55%,
+        rgb(232 238 246 / calc(0.94 * var(--glass-opacity))) 100%);
+    border-color: rgba(120, 140, 170, 0.3);
+  }
+
+  .island-grad { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+  .grad-aurora { background: linear-gradient(160deg, rgba(16, 185, 129, 0.42) 0%, rgba(37, 99, 235, 0.1) 45%, rgba(139, 92, 246, 0.18) 100%); }
+  .grad-sunset { background: linear-gradient(160deg, rgba(255, 122, 89, 0.5) 0%, rgba(239, 68, 68, 0.14) 45%, rgba(168, 85, 247, 0.2) 100%); }
+  .grad-ocean { background: linear-gradient(160deg, rgba(14, 165, 233, 0.44) 0%, rgba(37, 99, 235, 0.12) 50%, rgba(6, 182, 212, 0.22) 100%); }
+  .grad-candy { background: linear-gradient(160deg, rgba(236, 72, 153, 0.44) 0%, rgba(168, 85, 247, 0.13) 50%, rgba(59, 130, 246, 0.18) 100%); }
+  .grad-graphite { background: linear-gradient(160deg, rgba(148, 163, 184, 0.3) 0%, rgba(100, 116, 139, 0.1) 55%, rgba(71, 85, 105, 0.22) 100%); }
+
+  /* the strip — the pill's face. The LED + idle content cluster is centered
+     as one unit so every idle state (clock, brand, stats, call, now playing,
+     custom text, arrange) sits balanced in the pill. */
+  .island-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 36px;
+    padding: 0 14px;
+    flex: 0 0 36px;
+    cursor: default;
+    position: relative;
+    z-index: 2;
+  }
+
+  .led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-3);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.15);
+    flex: none;
+  }
+  .led[data-call="on"] { background: var(--ok); box-shadow: 0 0 8px rgba(61, 220, 151, 0.7); animation: breathe 2.4s ease-in-out infinite; }
+  .led[data-mic="on"] { background: var(--alarm); box-shadow: 0 0 8px rgba(255, 107, 107, 0.6); animation: breathe 1.8s ease-in-out infinite; }
+  .led[data-call="on"][data-mic="on"] { background: #5bc8ff; box-shadow: 0 0 8px rgba(91, 200, 255, 0.6); }
+  .led.playing { background: var(--accent); box-shadow: 0 0 8px var(--accent-strong); animation: breathe 2.4s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 0.55; } }
+
+  .brand {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .divider { width: 1px; height: 14px; background: var(--hairline); flex: none; }
+
+  .clock {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .clock-time { font-size: 14px; font-weight: 500; letter-spacing: 0.02em; color: var(--text); }
+  .clock .colon { color: var(--accent); animation: colon-blink 1s steps(1) infinite; }
+  @keyframes colon-blink { 50% { opacity: 0.12; } }
+
+  .island-custom-text { font-size: 13px; color: var(--text); white-space: nowrap; }
+  .island-custom-text.is-muted { color: var(--text-3); font-style: italic; font-size: 11.5px; }
+
+  /* arrange mode — the collapsed pill becomes a drag-to-reposition strip with
+     Reset (back to default) and Done (keep this spot) instead of idle content */
+  .arrange { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+  .arrange-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .arrange-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-2);
+    cursor: pointer;
+    flex: none;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .arrange-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .arrange-reset:hover { color: var(--alarm); border-color: rgba(255, 107, 107, 0.45); }
+  .arrange-done { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .arrange-done:hover { background: var(--accent); color: var(--on-accent); opacity: 0.9; }
+
+  /* call pill + mini now playing + sysmini chips */
+  .call-pill { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+  .call-pill .tag { font-size: 9px; letter-spacing: 0.16em; color: var(--ok); text-transform: uppercase; }
+  .mini-nowplaying { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mini-nowplaying .ga { color: var(--accent); font-size: 12px; }
+  .mini-nowplaying .track { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .sysm { display: flex; gap: 6px; align-items: center; }
+  .sysm-chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--glass-2);
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .sysm-chip b { color: var(--text); font-weight: 600; }
+
+  /* ================= the panel ================= */
+  .island-panel {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  .panel-head .led { box-shadow: 0 0 8px var(--accent-strong); }
+  .spacer { flex: 1; }
+  .icon-btn {
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 13px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+  }
+  .icon-btn:hover { background: var(--glass-2); color: var(--text); }
+  .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
+
+  .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+  /* ---- widgets stack ---- */
+  .widgets-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 14px;
+  }
+  .widget {
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 11px 13px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  :root[data-theme="light"] .widget { background: rgba(255, 255, 255, 0.55); }
+  .widget-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 9px;
+  }
+  .widget-head .led { width: 5px; height: 5px; background: var(--accent); box-shadow: 0 0 5px var(--accent-strong); }
+  .widget-actions { display: flex; gap: 2px; margin-left: auto; }
+  .widget-act {
+    width: 20px; height: 20px;
+    display: grid; place-items: center;
+    border: none; border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .widget-act:hover { background: var(--glass-2); color: var(--text); }
+  .widget-act:disabled { opacity: 0.28; cursor: default; }
+  .widget-act:disabled:hover { background: transparent; color: var(--text-3); }
+
+  /* drag-to-reorder grip — the handle itself is a quiet dot row that warms
+     on hover, and the lifted card gets a scale + shadow so it reads as out
+     of flow while the neighbours FLIP around it. */
+  .widget-act-drag { cursor: grab; }
+  .widget-act-drag:hover { color: var(--accent); background: var(--accent-soft); }
+  .widget-act-drag:active { cursor: grabbing; }
+  .widget.widget-dragging {
+    position: relative;
+    z-index: 30;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+    background: var(--glass-1);
+    will-change: transform;
+  }
+  body.wdragging { cursor: grabbing; }
+
+  /* widget stack motion — entrance, exit, and FLIP glide all share the
+     island's spring curve so reordering feels like the deck rearranging.
+     .widget-in plays once on mount (fresh add); .widget-removing plays once
+     before the card is dropped and the neighbours FLIP up into the gap. */
+  .widget.widget-in {
+    animation: widget-in 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes widget-in {
+    0% { opacity: 0; transform: translateY(-16px); filter: blur(4px); }
+    55% { opacity: 1; }
+    100% { opacity: 1; transform: none; filter: none; }
+  }
+  .widget.widget-removing {
+    animation: widget-out 0.26s ease both;
+    pointer-events: none;
+  }
+  @keyframes widget-out {
+    to { opacity: 0; transform: scale(0.966) translateY(8px); filter: blur(3px); }
+  }
+  .widget-edit { padding: 2px 0 4px; }
+  .widget-edit-hint { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+  .widget-edit-row { display: flex; gap: 6px; margin-bottom: 7px; }
+  .widget-input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--glass-2);
+    color: var(--text);
+    font-size: 11.5px;
+    padding: 6px 9px;
+    outline: none;
+  }
+  .widget-input:focus { border-color: var(--accent); }
+  .widget-btn {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 11px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .widget-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .widget-btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+  .widget-btn-danger { color: var(--alarm); border-color: transparent; }
+  .widget-err { font-family: var(--mono); font-size: 10px; color: var(--alarm); margin-top: 6px; }
+  .widget-ok { font-family: var(--mono); font-size: 10px; color: var(--ok); margin-top: 6px; }
+
+  /* launcher */
+  .launcher-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .launcher-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: var(--glass-1);
+    border: 1px solid var(--hairline);
+  }
+  .launcher-row-name { font-size: 11.5px; color: var(--text); white-space: nowrap; }
+  .launcher-row-path { font-family: var(--mono); font-size: 9.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; text-align: right; }
+  .launcher-quick { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .launcher-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+  .launcher-app {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 9px 4px 7px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--glass-1);
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .launcher-app:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .launcher-app:active { transform: scale(0.94); }
+  .launcher-app-icon {
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    border-radius: 8px;
+    background: linear-gradient(150deg, var(--glass-2), var(--glass-1));
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .launcher-app-label { font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70px; }
+
+  /* weather */
+  .weather-main { display: flex; align-items: center; gap: 12px; }
+  .weather-emoji { font-size: 30px; line-height: 1; }
+  .weather-temp { font-family: var(--mono); font-size: 30px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1; }
+  .weather-meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; color: var(--text-3); margin-top: 6px; }
+  .weather-meta b { color: var(--text-2); font-weight: 600; }
+  .weather-city { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+
+  /* add-widget menu */
+  .add-wrap { position: relative; }
+  .add-menu {
+    position: absolute;
+    right: 0; top: 30px;
+    z-index: 40;
+    min-width: 150px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(24, 26, 32, 0.97), rgba(18, 20, 26, 0.97));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    padding: 5px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  :root[data-theme="light"] .add-menu { background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 251, 0.98)); }
+  .add-menu button {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none; border-radius: 8px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .add-menu button:hover { background: var(--glass-2); color: var(--text); }
+  .add-menu .empty { padding: 7px 10px; color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
+
+  /* toast */
+  .toast {
+    position: fixed;
+    left: 50%; bottom: 40px;
+    transform: translate(-50%, 8px);
+    z-index: 70;
+    max-width: 80vw;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--accent-strong);
+    background: linear-gradient(180deg, rgba(24, 26, 32, 0.95), rgba(18, 20, 26, 0.95));
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  :root[data-theme="light"] .toast { background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 251, 0.98)); }
+
+  .widget-empty {
+    text-align: center;
+    padding: 26px 18px;
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .widget-empty b { color: var(--text-2); font-weight: 600; }
+
+  .clock-widget { display: flex; align-items: baseline; gap: 14px; }
+  .clock-widget .big {
+    font-family: var(--mono);
+    font-size: 34px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    line-height: 1;
+  }
+  .clock-widget .big .colon { color: var(--accent); animation: colon-blink 1s steps(1) infinite; }
+  .clock-widget .date { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--text-3); text-transform: uppercase; }
+
+  /* system widget */
+  .sys-row { display: flex; align-items: center; gap: 10px; min-height: 22px; }
+  .sys-row + .sys-row { margin-top: 7px; }
+  .sys-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); width: 52px; flex: none; }
+  .sys-bar { flex: 1; height: 4px; border-radius: 999px; background: var(--hairline); overflow: hidden; }
+  .sys-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--led-strong)); transition: width 0.6s ease; }
+  .sys-row.hot .sys-bar i { background: linear-gradient(90deg, var(--warn), var(--alarm)); }
+  .sys-value { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text); width: 62px; text-align: right; flex: none; }
+
+  /* media widget */
+  .media-meta { min-width: 0; }
+  .media-title { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .media-artist { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--text-3); margin-top: 1px; }
+  .media-progress { display: flex; align-items: center; gap: 10px; margin: 9px 0 6px; }
+  .media-bar { flex: 1; height: 4px; border-radius: 999px; background: var(--hairline); overflow: hidden; }
+  .media-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .media-time { font-family: var(--mono); font-size: 9.5px; font-variant-numeric: tabular-nums; color: var(--text-3); }
+  .media-ctl { display: flex; align-items: center; gap: 6px; }
+  .mbtn {
+    width: 30px; height: 26px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  .mbtn:hover { color: var(--text); border-color: var(--border-strong); }
+  .mbtn.main { width: 34px; background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .mbtn.main:hover { background: var(--led-strong); }
+
+  /* notes widget */
+  .notes-input {
+    width: 100%;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.55;
+    min-height: 74px;
+  }
+  .notes-input::placeholder { color: var(--text-3); }
+  .notes-count { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; color: var(--text-3); text-align: right; margin-top: 2px; }
+
+  /* ---- the deck (settings) ---- */
+  .deck-scroll {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 14px 10px;
+  }
+  .settings-tip {
+    margin: 10px 4px 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-3);
+  }
+  .settings-tip strong { color: var(--text-2); font-weight: 600; }
+
+  /* each section is its own glass card — rounded, bordered, with air
+     between neighbours. overflow stays visible so the custom dropdown
+     popup (which opens inside the Idle section) can overlay freely. */
+  .section {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--glass-1);
+  }
+  .section:last-child { margin-bottom: 2px; }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 15px 14px 13px;
+    border: none;
+    border-radius: 13px;
+    background: transparent;
+    color: var(--text-2);
+    font-family: var(--ui);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s ease;
+  }
+  .section.open .section-head { border-radius: 13px 13px 0 0; }
+  .section-head:hover { background: var(--glass-2); }
+  .section-mark { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; transition: background 0.15s ease, box-shadow 0.15s ease; }
+  .section.open .section-mark { background: var(--accent); box-shadow: 0 0 6px var(--accent-strong); }
+  .section-head:hover .section-mark { background: var(--accent); box-shadow: 0 0 6px var(--accent-strong); }
+  .section-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; margin-right: auto; }
+  .section-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    transition: color 0.15s ease;
+  }
+  .section-head:hover .section-title { color: var(--text); }
+  .section-sub { font-size: 10px; letter-spacing: 0.04em; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* mount reveal — a gravity cascade when the deck first opens. The island
+     hangs from the top edge and grows downward, so the content pours down
+     from the same anchor: the header, then the tip, then each card drops in
+     with a springy settle and a blur-to-sharp glass glaze. Delayed cards
+     hold the `from` state (fill-mode both) so the stack lands in order.
+     The reduced-motion media query collapses this to instant. */
+  .head-reveal {
+    animation: head-reveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes head-reveal {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .tip-reveal {
+    animation: tip-reveal 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes tip-reveal {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: none; }
+  }
+  .section.reveal {
+    animation: deck-reveal 0.46s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes deck-reveal {
+    0% { opacity: 0; transform: translateY(-16px); filter: blur(4px); }
+    55% { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+  }
+
+  /* closing exit — the gravity cascade in reverse. The header leads, then the
+     tip, then each card rises up out through the top anchor with a blur fade
+     while the pill's height spring runs down underneath (see collapsePanel,
+     which staggers .section/.widget delays inline to override the entrance
+     ones and swaps the DOM once the last card has fully exited). */
+  .island.closing .panel-head { animation: deck-exit 0.16s ease-in both; }
+  .island.closing .settings-tip { animation: deck-exit 0.22s ease-in both; }
+  .island.closing .section,
+  .island.closing .widget { animation: deck-exit 0.26s ease-in both; }
+  @keyframes deck-exit {
+    from { opacity: 1; transform: translateY(0); filter: blur(0); }
+    to { opacity: 0; transform: translateY(-18px); filter: blur(4px); }
+  }
+
+  /* commit acknowledgment — when Apply lands, the rows whose settings
+     actually changed get a brief accent flare that blooms then dissolves, so
+     the commit reads as "this just landed" instead of a silent instant swap.
+     Applied per row with a small stagger (set inline at apply time), and the
+     changed section's marker dot pulses in sympathy. Reduced motion collapses
+     both (the media query below nukes every animation). */
+  .section.applied-flash .section-mark {
+    animation: mark-tick 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes mark-tick {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+    100% { box-shadow: 0 0 10px 5px transparent; }
+  }
+  .row-flash {
+    border-radius: 8px;
+    animation: row-flash 1.05s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes row-flash {
+    0% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 0 22px -6px color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+    55% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent), inset 0 0 18px -8px color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, var(--accent) 4%, transparent); }
+    100% { box-shadow: inset 0 0 0 1px transparent, inset 0 0 18px -8px transparent; background: transparent; }
+  }
+
+  /* value summary: the current choice for that section, right-aligned before
+     the chevron, so closed sections still tell you what they configure. */
+  .section-summary {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+    text-align: right;
+    transition: color 0.15s ease;
+  }
+  .section-head:hover .section-summary { color: var(--text-2); }
+  .section-chevron { font-family: var(--mono); font-size: 10px; color: var(--text-3); transition: transform 0.2s ease; flex: none; }
+  .section.open .section-chevron { transform: rotate(90deg); }
+  .section-body { padding: 2px 14px 12px; }
+
+  .row { display: flex; align-items: center; gap: 8px 14px; min-height: 46px; padding: 9px 0; flex-wrap: wrap; }
+  .row + .row { border-top: 1px solid rgba(255, 255, 255, 0.04); }
+  :root[data-theme="light"] .row + .row { border-top-color: rgba(10, 13, 20, 0.05); }
+  /* Rows wrap as a last resort on narrow form factors; the label stays
+     shrinkable so normal-width rows never wrap. Tight controls (segmented
+     buttons) wrap internally instead — see .segmented below. */
+  .row-label { font-size: 13px; color: var(--text); flex: 1 1 auto; min-width: 0; }
+  .row-label small { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--text-3); margin-top: 2px; }
+
+  .value { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+  .value.led { color: var(--accent); }
+
+  .switch {
+    width: 30px; height: 17px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    position: relative;
+    cursor: pointer;
+    flex: none;
+    transition: background 0.15s ease;
+    border: none;
+    padding: 0;
+  }
+  :root[data-theme="light"] .switch { background: rgba(10, 13, 20, 0.14); }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: #cfd6e2;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .switch.on { background: var(--accent-soft); }
+  .switch.on::after { transform: translateX(13px); background: var(--accent); box-shadow: 0 0 6px var(--accent-strong); }
+
+  .segmented { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--glass-2); flex-wrap: wrap; max-width: 100%; }
+  .segmented button {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 11.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.seg-active { background: var(--glass-1); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+  .seg-selected { background: var(--accent-soft) !important; color: var(--accent) !important; box-shadow: inset 0 0 0 1px var(--accent-strong) !important; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.on { border-color: var(--accent); color: var(--led-strong); background: var(--accent-soft); }
+
+  .slider-row { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 0; }
+  .slider-head { display: flex; align-items: baseline; }
+  .slider-head .value { margin-left: auto; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--hairline);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-strong);
+    border: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+  }
+
+  /* custom dropdown — a tiny island of its own, in the deck's visual
+     language: glass blur, hairline, mono type, LED accent on the pick. */
+  .notch-select { position: relative; }
+  .ns-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+    min-width: 158px;
+    max-width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--glass-2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.12s ease;
+  }
+  .ns-trigger:hover { border-color: var(--border-strong); }
+  .ns-trigger[aria-expanded="true"] { border-color: var(--accent); }
+  .ns-trigger .ns-value { overflow: hidden; text-overflow: ellipsis; }
+  .ns-trigger .ns-chev { color: var(--text-3); font-size: 9px; flex: none; transition: transform 0.15s ease, color 0.15s ease; }
+  .ns-trigger[aria-expanded="true"] .ns-chev { transform: rotate(90deg); color: var(--accent); }
+  .ns-pop {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 45;
+    min-width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(26, 28, 34, 0.97), rgba(18, 20, 26, 0.97));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    padding: 5px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .ns-pop.up { top: auto; bottom: calc(100% + 6px); }
+  :root[data-theme="light"] .ns-pop { background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 251, 0.98)); }
+  .ns-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .ns-opt::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: transparent;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+  }
+  .ns-opt:hover { background: var(--glass-2); color: var(--text); }
+  .ns-opt.on { color: var(--accent); }
+  .ns-opt.on::before { background: var(--accent); box-shadow: 0 0 5px var(--accent-strong); }
+
+  .settings-text-input {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--glass-2);
+    color: var(--text);
+    font-size: 11.5px;
+    padding: 6px 10px;
+    outline: none;
+    width: 150px;
+  }
+  .settings-text-input:focus { border-color: var(--accent); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; max-width: 100%; }
+  .swatch {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .swatch.on { border-color: var(--text); box-shadow: 0 0 8px var(--accent-strong); }
+  .swatch input[type="color"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: none; }
+
+  .deck-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 14px 14px;
+    border-top: 1px solid var(--hairline);
+    background: linear-gradient(180deg, rgba(21, 26, 36, 0.98), rgba(13, 17, 25, 0.99));
+    box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+  }
+  .deck-foot-actions { display: flex; gap: 8px; }
+  .deck-foot .text-btn { width: auto; flex: none; padding: 4px 2px; text-align: left; }
+  :root[data-theme="light"] .deck-foot {
+    background: linear-gradient(180deg, rgba(248, 250, 253, 0.98), rgba(240, 243, 248, 0.99));
+    box-shadow: 0 -8px 20px rgba(10, 13, 20, 0.08);
+  }
+
+  .deck-foot-left { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .text-btn.danger, .text-btn.danger:hover { color: var(--alarm); }
+  .text-btn.danger.armed { border-bottom: 1px solid currentColor; }
+
+  /* small form factors: tighten the panel chrome so the deck keeps full rows */
+  @media (max-width: 520px) {
+    .deck-scroll { padding: 6px 10px 10px; }
+    .deck-foot { padding: 12px 10px 14px; }
+    .panel-head { padding: 10px 10px 8px; }
+    .island-strip { padding: 0 12px; }
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 700; }
+  .btn.primary:hover:not(:disabled) { background: var(--led-strong); }
+  .btn.ghost { border-color: transparent; color: var(--text-3); }
+  .btn.primary.bump { animation: apply-pulse 1.4s ease; }
+  @keyframes apply-pulse { 30% { transform: scale(1.05); box-shadow: 0 0 18px var(--accent-strong); } }
+
+  .text-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 4px 14px 10px;
+    width: 100%;
+    text-align: center;
+  }
+  .text-btn:hover { color: var(--text-2); }
+
+  /* ================= context menu ================= */
+  .ctx-menu {
+    position: fixed;
+    z-index: 50;
+    min-width: 160px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(24, 26, 32, 0.97), rgba(18, 20, 26, 0.97));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    padding: 5px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  :root[data-theme="light"] .ctx-menu { background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 251, 0.98)); }
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ctx-item:hover { background: var(--glass-2); color: var(--text); }
+  .ctx-item.danger { color: var(--alarm); }
+  .ctx-item.danger:hover { background: rgba(255, 107, 107, 0.12); }
+
+  /* ================= setup modal ================= */
+
+  .modal-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 9vh;
+    background: rgba(5, 7, 12, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  :root[data-theme="light"] .modal-wrap { background: rgba(20, 24, 34, 0.3); }
+  .modal-wrap.open { display: flex; }
+  .modal {
+    width: min(440px, 92vw);
+    max-height: 84vh;
+    overflow-y: auto;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--panel), var(--ink-2));
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    padding: 20px 20px 16px;
+  }
+  :root[data-theme="light"] .modal { background: linear-gradient(180deg, #ffffff, #f0f2f7); }
+  .modal h1 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+  .modal .sub { font-size: 11.5px; color: var(--text-3); margin: 4px 0 14px; line-height: 1.5; }
+  .modal h2 {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 14px 0 7px;
+  }
+  .setup-grid { display: flex; gap: 8px; }
+  .setup-tile {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--glass-1);
+    padding: 12px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .setup-tile:hover { border-color: var(--border-strong); }
+  .setup-tile.on { border-color: var(--accent); background: var(--accent-soft); }
+  .setup-tile strong { font-size: 12.5px; color: var(--text); }
+  .setup-tile small { font-size: 10px; color: var(--text-3); line-height: 1.4; }
+  .setup-preview {
+    height: 26px;
+    border-radius: 999px;
+    background: var(--text);
+    opacity: 0.85;
+    margin-bottom: 4px;
+    position: relative;
+  }
+  .setup-preview.notch { border-radius: 0 0 18px 18px; height: 18px; width: 70%; margin: 0 auto 8px; }
+  .setup-actions { display: flex; gap: 8px; margin-top: 18px; }
+
+  /* Reduced-motion class — kept for completeness; the app never adds it, so
+     every animation always plays regardless of the Windows "Animation
+     effects" accessibility setting. */
+  body.reduce-motion *,
+  body.reduce-motion *::before,
+  body.reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+</style>
+</head>
+<body>
+  <div class="island-shell" id="shell">
+    <div class="island" id="island"></div>
+  </div>
+
+  <div class="ctx-menu" id="ctx" hidden></div>
+
+  <div class="modal-wrap" id="setupWrap">
+    <div class="modal" id="setupModal"></div>
+  </div>
+
+<script>
+"use strict";
+
+/* ---------- tiny helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+const store = {
+  load(key, dflt) {
+    try {
+      const v = localStorage.getItem("winotch." + key);
+      return v == null ? dflt : JSON.parse(v);
+    } catch { return dflt; }
+  },
+  save(key, val) {
+    try { localStorage.setItem("winotch." + key, JSON.stringify(val)); } catch {}
+  },
+};
+
+/* ---------- widget inventory ---------- */
+const WIDGET_TYPES = ["clock", "system", "media", "notes", "weather", "launcher"];
+const WIDGET_LABELS = { clock: "Clock", system: "System stats", media: "Now playing", notes: "Notes", weather: "Weather", launcher: "App launcher" };
+const NS_OPTIONS = [["brand", "Brand + clock"], ["clock", "Clock only"], ["custom", "Custom text"], ["system", "System stats"], ["blank", "Nothing (dot only)"]];
+const DEFAULT_ORDER = ["clock", "system", "media", "notes", "weather", "launcher"];
+const DEFAULT_WIDGETS = { clock: true, system: true, media: true, notes: true, weather: true, launcher: true };
+
+const QUICK_APPS = [
+  { label: "Chrome", path: "chrome.exe" },
+  { label: "Edge", path: "msedge.exe" },
+  { label: "Terminal", path: "wt.exe" },
+  { label: "VS Code", path: "code.exe" },
+  { label: "Notepad", path: "notepad.exe" },
+  { label: "Calculator", path: "calc.exe" },
+  { label: "Paint", path: "mspaint.exe" },
+  { label: "Spotify", path: "%APPDATA%\\Spotify\\Spotify.exe" },
+  { label: "Steam", path: "C:\\Program Files (x86)\\Steam\\steam.exe" },
+];
+
+/* WMO codes → emoji + label, mirroring the real app. */
+function mapWeather(code) {
+  if (code === 0) return { emoji: "☀️", label: "Clear" };
+  if (code === 1) return { emoji: "🌤️", label: "Mostly clear" };
+  if (code === 2) return { emoji: "⛅", label: "Partly cloudy" };
+  if (code === 3) return { emoji: "☁️", label: "Overcast" };
+  if (code === 45 || code === 48) return { emoji: "🌫️", label: "Fog" };
+  if (code >= 51 && code <= 57) return { emoji: "🌦️", label: "Drizzle" };
+  if (code >= 61 && code <= 67) return { emoji: "🌧️", label: "Rain" };
+  if (code >= 71 && code <= 77) return { emoji: "❄️", label: "Snow" };
+  if (code >= 80 && code <= 82) return { emoji: "🌦️", label: "Showers" };
+  if (code === 85 || code === 86) return { emoji: "🌨️", label: "Snow showers" };
+  if (code >= 95) return { emoji: "⛈️", label: "Thunderstorm" };
+  return { emoji: "🌡️", label: "Unknown" };
+}
+
+/* upgrade older persisted 4-widget bool sets to the 6-widget set */
+function migrateWidgets() {
+  const old = store.load("widgets", null);
+  if (old && typeof old === "object" && !("weather" in old) && !("launcher" in old)) {
+    const merged = { ...DEFAULT_WIDGETS };
+    for (const k of Object.keys(old)) if (k in merged) merged[k] = !!old[k];
+    return merged;
+  }
+  return store.load("widgets", { ...DEFAULT_WIDGETS });
+}
+
+/* ---------- state ---------- */
+const state = {
+  shape: store.load("shape", "notch"),
+  theme: store.load("theme", "dark"),          // light | dark | system | color
+  accent: store.load("accent", "#4fc3ff"),     // "system" | "#rrggbb"
+  glass: store.load("glass", true),
+  frosted: store.load("frosted", false),
+  opacity: store.load("glassOpacity", 65),
+  blur: store.load("glassBlur", 14),
+  gradient: store.load("gradient", "none"),    // none | sunset | ocean | aurora | candy | graphite
+  size: store.load("size", { width: 330, height: 36 }),
+  idleContent: store.load("idleContent", "brand"), // brand | clock | custom | system | blank
+  idleText: store.load("idleText", ""),
+  pos: store.load("pos", { mode: "default", x: 0, y: 0 }), // default | left | right | custom
+  widgets: migrateWidgets(),
+  widgetOrder: store.load("widgetOrder", DEFAULT_ORDER),
+  sysMetrics: store.load("sysMetrics", { cpu: true, temp: true, mem: true, bat: true, net: true }),
+  notes: store.load("notes", ""),
+  weather: store.load("weather", { city: "", lat: null, lon: null }),
+  launcherApps: store.load("launcherApps", QUICK_APPS),
+  // runtime
+  expanded: false,
+  settingsOpen: false,
+  arranging: false,     // arrange session: collapsed pill shows Reset/Done while dragging
+  arrangeOrigin: null,  // position captured when arrange started (for Escape/Reset)
+  hidden: false,
+  editing: null,      // widget type whose card is in edit mode
+  addOpen: false,     // "+" add-widget menu open?
+  dial: { call: false, mic: false, playing: false },
+  onboarded: store.load("onboarded", false), // first-run: auto-open the setup wizard once
+  // The deck opens as one full settings sheet (like the real app's settings),
+  // with every section visible and each header showing its current value.
+  openSections: { general: true, shape: true, size: true, appearance: true, theme: true, idle: true, widgets: true },
+  dirty: false,
+  applied: false,
+  callStart: 0,
+};
+
+/* draft copy for staged Apply */
+let draft = null;
+function snapshot() {
+  return {
+    shape: state.shape, theme: state.theme, accent: state.accent, glass: state.glass, frosted: state.frosted,
+    opacity: state.opacity, blur: state.blur, gradient: state.gradient,
+    size: { ...state.size }, idleContent: state.idleContent, idleText: state.idleText,
+    widgets: { ...state.widgets }, widgetOrder: [...state.widgetOrder],
+    sysMetrics: { ...state.sysMetrics },
+  };
+}
+function isDirty() {
+  const d = draft, s = state;
+  return !(d.shape === s.shape && d.theme === s.theme && d.accent === s.accent &&
+    d.glass === s.glass && d.frosted === s.frosted && d.opacity === s.opacity && d.blur === s.blur &&
+    d.gradient === s.gradient && d.idleContent === s.idleContent && d.idleText === s.idleText &&
+    d.size.width === s.size.width && d.size.height === s.size.height &&
+    JSON.stringify(d.widgets) === JSON.stringify(s.widgets) &&
+    JSON.stringify(d.sysMetrics) === JSON.stringify(s.sysMetrics));
+}
+function persist() {
+  store.save("shape", state.shape); store.save("theme", state.theme); store.save("accent", state.accent);
+  store.save("glass", state.glass); store.save("frosted", state.frosted); store.save("glassOpacity", state.opacity); store.save("glassBlur", state.blur);
+  store.save("gradient", state.gradient); store.save("size", state.size); store.save("idleContent", state.idleContent);
+  store.save("idleText", state.idleText); store.save("pos", state.pos);
+  store.save("widgets", state.widgets); store.save("widgetOrder", state.widgetOrder);
+  store.save("sysMetrics", state.sysMetrics); store.save("notes", state.notes);
+  store.save("weather", state.weather); store.save("launcherApps", state.launcherApps);
+}
+
+/* ---------- system stats (live from the backend) ----------
+   Filled by wireLiveData()'s system_stats poll before first paint of the
+   widgets; rows whose value is still null simply hide until data arrives. */
+const stats = { cpu: null, temp: null, mem: null, bat: null, netUp: null, netDown: null };
+const fmtTime = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+
+/* ---------- clock ---------- */
+let now = new Date();
+setInterval(() => { now = new Date(); tickClock(); }, 1000);
+const timeParts = () => {
+  const t = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const i = t.indexOf(":");
+  return i === -1 ? { lead: t, tail: "" } : { lead: t.slice(0, i), tail: t.slice(i + 1) };
+};
+function tickClock() {
+  const t = timeParts();
+  $$("#island .lead").forEach((e) => (e.textContent = t.lead));
+  $$("#island .tail").forEach((e) => (e.textContent = t.tail));
+  const el = $("#callTimer");
+  if (el && state.dial.call) el.textContent = fmtTime(Math.floor((Date.now() - state.callStart) / 1000));
+}
+
+/* ---------- theme ---------- */
+const ACCENT_SWATCHES = ["#4fc3ff", "#7cd4ff", "#3ddc97", "#ffc14d", "#ff6b6b", "#b18cff", "#e9b949"];
+function effectiveTheme() {
+  if (state.theme === "light") return "light";
+  if (state.theme === "dark") return "dark";
+  // system: the REAL Windows theme reported by the backend (live-updated).
+  if (winTheme) return winTheme.theme === "light" ? "light" : "dark";
+  return _matchMediaTheme(); // pre-boot fallback until the first theme event
+}
+function effectiveAccent() {
+  if (state.accent === "system") {
+    // Follow the real Windows accent color when the backend reports it.
+    if (winTheme && Array.isArray(winTheme.accent) && winTheme.accent.length === 3) {
+      const [r, g, b] = winTheme.accent;
+      return "#" + [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
+    }
+    return effectiveTheme() === "light" ? "#0078d4" : "#4fc3ff";
+  }
+  return state.accent;
+}
+function applyTheme() {
+  const t = effectiveTheme();
+  document.documentElement.dataset.theme = t;
+  const a = effectiveAccent();
+  document.documentElement.style.setProperty("--accent", a);
+  document.documentElement.style.setProperty("--led-strong", t === "light" ? "#0067b8" : "#7cd4ff");
+  document.documentElement.style.setProperty("--accent-soft", hexToRgba(a, t === "light" ? 0.12 : 0.14));
+  document.documentElement.style.setProperty("--accent-strong", hexToRgba(a, 0.32));
+  document.documentElement.style.setProperty("--glass-opacity", String(state.opacity / 100));
+  document.documentElement.style.setProperty("--glass-blur", state.blur + "px");
+}
+function hexToRgba(hex, a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return "rgba(79, 195, 255, " + a + ")";
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+// raised by render() when the settings deck is being mounted fresh (absent
+// before this draw) so buildDeck can stagger the cards in. Every later
+// re-render — staging a chip, moving a slider — rebuilds the deck but leaves
+// this false, so the cascade never replays on interactions.
+let deckFreshMount = false;
+
+function render() {
+  applyTheme();
+  const island = $("#island");
+  const expanded = state.expanded;
+  const arranging = state.arranging;
+  deckFreshMount = state.settingsOpen && !$("#deck");
+
+  // ---- preserve panel scroll + focus across the full rebuild ----
+  // render() wipes and recreates the .panel-body scroller, which would reset
+  // the scroll position to the top on EVERY interaction (clicking a chip down
+  // in the deck would teleport you back to the top). Capture the offsets and
+  // the focused control first so they can be restored after the draw below.
+  const prevView = state.settingsOpen ? "settings" : "widgets";
+  const prevScroll = (() => {
+    const sc = island.querySelector(".panel-body");
+    return sc ? { top: sc.scrollTop, left: sc.scrollLeft } : null;
+  })();
+  const focusKey = (() => {
+    const act = document.activeElement;
+    if (!act || act === document.body || !island.contains(act)) return null;
+    if (act.id) return "id:" + act.id;
+    const keys = Object.keys(act.dataset);
+    if (keys.length) return "data:" + keys[0] + "=" + (act.dataset[keys[0]] ?? "");
+    return null;
+  })();
+  island.className = "island shape-" + state.shape +
+    (arranging ? " mode-collapsed" : (expanded ? " mode-expanded" : " mode-collapsed")) +
+    (state.glass ? " glass" : "") + (state.frosted ? " frosted" : "");
+
+  island.innerHTML = "";
+  if (state.gradient !== "none") {
+    island.appendChild(h("div", "island-grad grad-" + state.gradient, ""));
+  }
+
+  /* ---- strip ---- */
+  const strip = h("header", "island-strip");
+  const dot = h("span", "led");
+  dot.dataset.mic = state.dial.mic ? "on" : "off";
+  dot.dataset.call = state.dial.call ? "on" : "off";
+  if (state.dial.playing && !state.dial.call) dot.classList.add("playing");
+  strip.appendChild(dot);
+
+  const body = h("div", "island-strip-body");
+  // flex:0 1 auto keeps the content clustered so the strip's centered
+  // justify-content centers the whole LED + content group, not just the text.
+  body.style.cssText = "display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;";
+  strip.appendChild(body);
+
+  if (state.arranging) {
+    // Arrange session: the pill shows Reset/Done instead of the idle content
+    // so the user knows exactly how to finish (or undo) the reposition.
+    const ar = h("div", "arrange");
+    ar.innerHTML = `<span class="arrange-hint">drag to reposition</span>
+      <button type="button" class="arrange-btn arrange-reset" id="arReset">Reset</button>
+      <button type="button" class="arrange-btn arrange-done" id="arDone">Done</button>`;
+    ar.querySelector("#arReset").onclick = (e) => {
+      e.stopPropagation();
+      state.pos = { mode: "default", x: 0, y: 0 };
+      state.arranging = false;
+      persist();
+      syncWindow(true); // re-center the real window on top
+      render();
+    };
+    ar.querySelector("#arDone").onclick = (e) => {
+      e.stopPropagation();
+      state.arranging = false;
+      persist();
+      // Done keeps the dragged spot — the window is already there under
+      // Tauri (move_island_window fired on every pointermove); just persist.
+      render();
+    };
+    body.appendChild(ar);
+  } else if (state.dial.call) {
+    const cp = h("div", "call-pill");
+    const now = Math.floor((Date.now() - state.callStart) / 1000);
+    cp.innerHTML = `<span class="tag">● call</span><span id="callTimer">${fmtTime(now)}</span><span class="value" style="opacity:.6">— ${esc(state.dial.mic ? "mic live" : "muted")}</span>`;
+    body.appendChild(cp);
+  } else if (state.dial.playing) {
+    const mnp = h("div", "mini-nowplaying");
+    const t = mediaTrack();
+    mnp.innerHTML = `<span class="ga">♪</span><span class="track">${esc(t.title)}${t.artist ? " — " + esc(t.artist) : ""}</span>`;
+    body.appendChild(mnp);
+  } else if (state.idleContent === "system") {
+    const sm = h("div", "sysm");
+    sm.innerHTML =
+      (state.sysMetrics.cpu ? `<span class="sysm-chip" data-k="cpu">CPU <b>${Math.round(stats.cpu)}%</b></span>` : "") +
+      (state.sysMetrics.mem ? `<span class="sysm-chip" data-k="mem">MEM <b>${Math.round(stats.mem)}%</b></span>` : "") +
+      (state.sysMetrics.bat && stats.bat != null ? `<span class="sysm-chip" data-k="bat">BAT <b>${Math.round(stats.bat)}%</b></span>` : "");
+    body.appendChild(sm);
+  } else if (state.idleContent === "brand") {
+    body.appendChild(h("span", "brand", "Winotch"));
+    body.appendChild(h("span", "divider", ""));
+    const c = h("span", "clock");
+    const t = timeParts();
+    c.innerHTML = `<span class="clock-time"><span class="lead">${esc(t.lead)}</span><span class="colon" aria-hidden>:</span><span class="tail">${esc(t.tail)}</span></span>`;
+    body.appendChild(c);
+  } else if (state.idleContent === "clock") {
+    const c = h("span", "clock");
+    const t = timeParts();
+    c.innerHTML = `<span class="clock-time"><span class="lead">${esc(t.lead)}</span><span class="colon" aria-hidden>:</span><span class="tail">${esc(t.tail)}</span></span>`;
+    body.appendChild(c);
+  } else if (state.idleContent === "custom") {
+    const txt = state.idleText.trim();
+    if (txt) body.appendChild(h("span", "island-custom-text", esc(txt)));
+    else body.appendChild(h("span", "island-custom-text is-muted", "No text set — open settings"));
+  }
+  // blank: just the LED
+  island.appendChild(strip);
+
+  /* ---- panel ---- */
+  if (expanded) {
+    const panel = h("section", "island-panel");
+    const head = h("div", "panel-head");
+    // On a fresh mount (deckFreshMount, set at the top of render) let the
+    // header lead the gravity cascade; re-renders skip it so staging and
+    // slider drags stay calm.
+    if (deckFreshMount) head.classList.add("head-reveal");
+    head.innerHTML = `<span class="led"></span><span class="panel-title">${state.settingsOpen ? "Settings" : "Widgets"}</span><span class="spacer"></span>`;
+
+    if (!state.settingsOpen) {
+      const addWrap = h("div", "add-wrap");
+      const add = h("button", "icon-btn" + (state.addOpen ? " active" : ""), "+");
+      add.title = "Add widget";
+      add.onclick = (e) => { e.stopPropagation(); state.addOpen = !state.addOpen; render(); };
+      addWrap.appendChild(add);
+      if (state.addOpen) {
+        const menu = h("div", "add-menu");
+        const avail = WIDGET_TYPES.filter((t) => !state.widgets[t]);
+        if (avail.length === 0) menu.appendChild(h("div", "empty", "All widgets added"));
+        else avail.forEach((t) => {
+          const b = h("button", "", WIDGET_LABELS[t]);
+          b.onclick = (e) => { e.stopPropagation(); addWidget(t); };
+          menu.appendChild(b);
+        });
+        addWrap.appendChild(menu);
+      }
+      head.appendChild(addWrap);
+    }
+
+    const gear = h("button", "icon-btn" + (state.settingsOpen ? " active" : ""), "⚙");
+    gear.title = "Settings";
+    gear.onclick = (e) => { e.stopPropagation(); state.settingsOpen = !state.settingsOpen; state.addOpen = false; render(); };
+    const close = h("button", "icon-btn", "✕");
+    close.title = "Collapse";
+    close.onclick = (e) => { e.stopPropagation(); collapsePanel(); };
+    head.appendChild(gear);
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    const pb = h("div", "panel-body");
+    if (state.settingsOpen) pb.appendChild(buildDeck());
+    else pb.appendChild(buildWidgets());
+    panel.appendChild(pb);
+    island.appendChild(panel);
+  }
+
+  /* drag affordance (arrange mode only) */
+  island.style.cursor = arranging ? "grab" : "default";
+  island.style.touchAction = arranging ? "none" : "";
+  if (arranging) {
+    island.dataset.drag = "on";
+    island.title = "Drag to reposition — Done to keep, Reset for default";
+  } else {
+    delete island.dataset.drag;
+    island.title = "";
+  }
+
+  // ---- restore focus, then pin the scroll LAST ----
+  // Switching settings <-> widgets is deliberate navigation and starts at the
+  // top; editing a control in-place keeps exactly where the user was. The deck
+  // is rebuilt on every interaction, and both focus() and applyIslandSize()
+  // can nudge the scroller (focus's scroll-into-view ignores preventScroll
+  // here), so the position is re-asserted after everything else, and again on
+  // the next frame in case the layout settles late.
+  const nextView = state.settingsOpen ? "settings" : "widgets";
+  if (focusKey) {
+    let el = null;
+    if (focusKey.startsWith("id:")) {
+      el = island.querySelector("#" + CSS.escape(focusKey.slice(3)));
+    } else if (focusKey.startsWith("data:")) {
+      const sep = focusKey.indexOf("=", 5);
+      el = island.querySelector(`[data-${focusKey.slice(5, sep)}="${focusKey.slice(sep + 1)}"]`);
+    }
+    if (el && typeof el.focus === "function") el.focus({ preventScroll: true });
+  }
+
+  applyIslandSize();
+  applyPosition();
+  syncWindow();
+  syncNativeEffect();
+
+  if (prevView === nextView && prevScroll) {
+    const pin = () => {
+      const sc = island.querySelector(".panel-body");
+      if (sc) {
+        sc.scrollTop = prevScroll.top;
+        sc.scrollLeft = prevScroll.left;
+      }
+    };
+    pin();
+    requestAnimationFrame(pin);
+  }
+}
+
+/* ---------- island geometry (top-center, size to content) ---------- */
+function applyIslandSize() {
+  const island = $("#island");
+  const expanded = state.expanded;
+  // Cap so small form factors get a fluid, narrower island instead of settings
+  // clipped at the screen edges. Under Tauri the window is sized to the island
+  // (see syncWindow), so `window.innerWidth` would feed back and shrink us on
+  // every render — use the real screen size instead (a no-op in a browser).
+  const capW = window.screen.width - 16;
+  const want = Math.min(expanded ? Math.max(380, state.size.width, 460) : state.size.width, capW);
+  island.style.width = want + "px";
+
+  if (!expanded) {
+    island.style.height = "36px";
+    island.style.borderRadius = state.shape === "notch" ? "0 0 22px 22px" : "999px";
+    return;
+  }
+  island.style.borderRadius = state.shape === "notch" ? "0 0 30px 30px" : "32px";
+
+  // Measure the real panel content height, then pin the morph to it —
+  // synchronously. Do NOT pin the height before measuring: the panel-body is
+  // an internal scroll container (overflow-y: auto), so a squeezed island
+  // would report only the strip + panel head (~85px) and clip every widget.
+  // Let flex lay out naturally (height: auto), read the true content, then
+  // set the morph size. Making this a sync layout read also keeps it reliable
+  // in throttled/background contexts where requestAnimationFrame stalls.
+  island.style.height = "auto";
+  const pb = island.querySelector(".panel-body");
+  // Clearing max-height below momentarily fits the whole content, which makes
+  // the browser clamp scrollTop to 0 — that would teleport the user to the top
+  // on EVERY interaction. Capture the position first and restore it after the
+  // measure/pin dance.
+  const keepScroll = pb ? { top: pb.scrollTop, left: pb.scrollLeft } : null;
+  if (pb) pb.style.maxHeight = "";
+  // Same rationale as the width cap: under Tauri the window height tracks the
+  // island, so cap against the real screen rather than the (shrinking) window.
+  const capH = window.screen.height;
+  const capped = Math.min(island.scrollHeight, Math.round(capH * 0.88));
+  island.style.height = capped + "px";
+  if (pb) {
+    pb.style.maxHeight = (capped - 36) + "px";
+    if (keepScroll) {
+      pb.scrollTop = keepScroll.top;
+      pb.scrollLeft = keepScroll.left;
+    }
+  }
+}
+
+/* ---------- island position (presets + custom drag) ---------- */
+function applyPosition() {
+  const shell = $("#shell");
+  if (!shell) return;
+  // The OS window hugs the island and is placed by syncWindow() — presets
+  // and arrange drags move the WINDOW, not the DOM. Keep the shell anchored
+  // to the window's top edge so it can never drift or clip inside it.
+  shell.style.left = "50%";
+  shell.style.right = "";
+  shell.style.top = "0px";
+  shell.style.transform = "translateX(-50%)";
+}
+
+/** Snap the island to a position preset (immediate + persisted, like Done). */
+function setPos(mode) {
+  state.pos = { mode, x: 0, y: 0 };
+  persist();
+  // Presets move the real OS window. left/right use the backend monitor
+  // geometry so the offset is exact at any DPI; default re-centers top.
+  if (mode === "default") {
+    syncWindow(true);
+  } else {
+    TAURI.core.invoke("move_island_window", { anchor: mode }).catch(() => {});
+  }
+  render();
+}
+
+/**
+ * Factory reset — a completely fresh install. Wipes every persisted key so a
+ * reload boots exactly like day one, resets ALL state (settings, position,
+ * widget arrangement, notes, weather, launchers, live media/dial sims), then
+ * reopens the setup wizard in its first-run mode. Guarded by the two-step
+ * "tap again" confirm on the deck footer button.
+ */
+function factoryReset() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith("winotch."))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch {}
+  Object.assign(state, defaults());
+  state.pos = { mode: "default", x: 0, y: 0 };
+  state.expanded = false; state.settingsOpen = false; state.addOpen = false; state.editing = null;
+  state.arranging = false; state.arrangeOrigin = null;
+  state.applied = false; state.dirty = false;
+  widgetGhost = null;
+  state.dial = { call: false, mic: false, playing: false };
+  wxLive = null;
+  draft = snapshot();
+  render();
+  openSetup("fresh");
+}
+
+/* ---------- widgets stack ---------- */
+function buildWidgets() {
+  const wrap = h("div", "widgets-stack");
+  wrap.id = "widgets";
+
+  // Ghost pass — an Apply changed the stack while we were in Settings. Render
+  // the OLD stack first with the newly-removed cards collapsing out in place
+  // (widget-removing), capture their positions, then after the collapse
+  // re-render the REAL stack: survivors FLIP into their new slots and the
+  // added cards get widget-in. One shot — widgetGhost is consumed here.
+  const ghost = widgetGhost;
+  widgetGhost = null;
+  if (ghost && ghost.types.length > 0) {
+    ghost.types.forEach((t) => {
+      const card = buildWidgetCard(t);
+      if (!state.widgets[t]) card.classList.add("widget-removing");
+      wrap.appendChild(card);
+    });
+    setTimeout(() => {
+      // Measure now, just before the swap: the ghost cards are attached and
+      // the collapse (0.26s) has landed, so survivors still sit at their OLD
+      // slots — exactly the rects the FLIP should glide them from. Removed
+      // cards are ignored afterwards because they don't exist in the new stack.
+      const before = widgetPositions();
+      pendingAdds = ghost.added;
+      render();
+      flipWidgets(before);
+    }, 320); // widget-out runs 0.26s — swap right after it lands
+    return wrap;
+  }
+
+  const enabled = widgetEnabledOrder();
+
+  if (enabled.length === 0) {
+    wrap.appendChild(h("div", "widget-empty", "<b>Nothing on the island yet.</b><br>Press + in the header above to add a widget."));
+    return wrap;
+  }
+
+  const entering = widgetEnter;
+  widgetEnter = null;
+  const adds = pendingAdds;
+  pendingAdds = null;
+  enabled.forEach((t) => {
+    const card = buildWidgetCard(t);
+    if (t === entering || (adds && adds.includes(t))) card.classList.add("widget-in");
+    wrap.appendChild(card);
+  });
+  return wrap;
+}
+
+function cardHead(label, type) {
+  const head = h("div", "widget-head");
+  head.innerHTML = `<span class="led"></span><span>${label}</span>`;
+  const acts = h("div", "widget-actions");
+  // drag grip — the primary way to reorder; arrows stay as the precise/
+  // keyboard-friendly fallback. First/last slots disable their arrows so the
+  // affordance is honest, but dragging works from any slot.
+  const grip = h("button", "widget-act widget-act-drag", "⠿");
+  grip.title = "Drag to reorder";
+  grip.setAttribute("aria-label", "Drag to reorder");
+  grip.onpointerdown = (e) => dragWidgetStart(e, type);
+  acts.appendChild(grip);
+  // reorder arrows — first/last slots are disabled so the affordance is honest
+  const enabled = widgetEnabledOrder();
+  const i = enabled.indexOf(type);
+  const up = h("button", "widget-act", "↑");
+  up.title = "Move up";
+  up.disabled = i <= 0;
+  up.onclick = (e) => { e.stopPropagation(); moveWidget(type, -1); };
+  const down = h("button", "widget-act", "↓");
+  down.title = "Move down";
+  down.disabled = i < 0 || i >= enabled.length - 1;
+  down.onclick = (e) => { e.stopPropagation(); moveWidget(type, 1); };
+  acts.append(up, down);
+  if (type === "weather" || type === "launcher" || type === "system") {
+    const gear = h("button", "widget-act", "⚙");
+    gear.title = type === "system" ? "Metrics" : "Settings";
+    gear.onclick = () => { state.editing = state.editing === type ? null : type; render(); };
+    acts.appendChild(gear);
+  }
+  const x = h("button", "widget-act", "✕");
+  x.title = "Remove widget";
+  x.onclick = () => removeWidget(type);
+  acts.appendChild(x);
+  head.appendChild(acts);
+  return head;
+}
+
+/* enabled widgets in display order — the source of truth for arrows + FLIP */
+function widgetEnabledOrder() {
+  return state.widgetOrder.filter((t) => state.widgets[t]);
+}
+
+/* ---- widget stack motion ----
+   Moving uses FLIP: snapshot the current card positions, let render() build
+   the new order, then start each card at its old spot and animate to rest
+   with the island's spring. Add/remove set a one-shot flag consumed by
+   buildWidgets (entrance) or collapse the card before swapping (exit). */
+function widgetPositions() {
+  const m = new Map();
+  document.querySelectorAll("#widgets .widget").forEach((el) => {
+    m.set(el.dataset.wtype, el.getBoundingClientRect().top);
+  });
+  return m;
+}
+
+function moveWidget(type, dir) {
+  const enabled = widgetEnabledOrder();
+  const i = enabled.indexOf(type);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= enabled.length) return;
+  // swap the two types in widgetOrder
+  const a = enabled[i], b = enabled[j];
+  const ia = state.widgetOrder.indexOf(a), ib = state.widgetOrder.indexOf(b);
+  state.widgetOrder[ia] = b;
+  state.widgetOrder[ib] = a;
+  persist();
+  const before = widgetPositions();
+  render();
+  flipWidgets(before);
+}
+
+function flipWidgets(before) {
+  const cards = document.querySelectorAll("#widgets .widget");
+  if (!cards.length) return;
+  cards.forEach((el) => {
+    const from = before.get(el.dataset.wtype);
+    if (from == null) return;
+    const to = el.getBoundingClientRect().top;
+    const dy = from - to;
+    if (!dy) return;
+    el.style.transition = "none";
+    el.style.transform = `translateY(${dy}px)`;
+  });
+  // force reflow so the transforms take, then let the spring glide them home
+  void document.body.offsetHeight;
+  cards.forEach((el) => {
+    el.style.transition = "transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)";
+    el.style.transform = "";
+  });
+  setTimeout(() => {
+    cards.forEach((el) => {
+      el.style.transition = "";
+      el.style.transform = "";
+    });
+  }, 480);
+}
+
+/* ---- drag-to-reorder ----
+   Pointer-driven: the grip starts a drag, the card is lifted out of flow
+   (scale + shadow) and pinned to the pointer, and the neighbours FLIP live
+   as the dragged card crosses their midpoint. On drop the card springs back
+   into its slot. Reuses widgetPositions/flipWidgets so the motion matches
+   the arrow reorder exactly. */
+let wdrag = null; // { type, grabDy, pointerY }
+
+function cardEl(type) {
+  return document.querySelector(`#widgets .widget[data-wtype="${type}"]`);
+}
+
+function dragWidgetStart(e, type) {
+  if (e.button !== 0) return;
+  const card = cardEl(type);
+  if (!card) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const r = card.getBoundingClientRect();
+  wdrag = { type, grabDy: e.clientY - r.top, pointerY: e.clientY };
+  document.body.classList.add("wdragging");
+  // Lift the card out and anchor it to the pointer immediately.
+  card.style.transition = "none";
+  card.style.transform = "scale(1.025)";
+  card.classList.add("widget-dragging");
+  window.addEventListener("pointermove", dragWidgetMove, { passive: false });
+  window.addEventListener("pointerup", dragWidgetEnd);
+  window.addEventListener("pointercancel", dragWidgetEnd);
+}
+
+function dragWidgetMove(e) {
+  if (!wdrag) return;
+  e.preventDefault();
+  wdrag.pointerY = e.clientY;
+
+  // Auto-scroll the panel-body when nearing its top/bottom edge.
+  const scroller = document.querySelector(".panel-body");
+  if (scroller) {
+    const sr = scroller.getBoundingClientRect();
+    if (e.clientY < sr.top + 26) scroller.scrollTop -= 9;
+    else if (e.clientY > sr.bottom - 26) scroller.scrollTop += 9;
+  }
+
+  // Where should the dragged card land? Count the cards whose midpoint sits
+  // above the pointer — that's the new index. Compute from live rects so the
+  // neighbours FLIP as the card crosses each midpoint.
+  const enabled = widgetEnabledOrder();
+  const cur = enabled.indexOf(wdrag.type);
+  let target = 0;
+  document.querySelectorAll("#widgets .widget").forEach((el) => {
+    if (el.dataset.wtype === wdrag.type) return;
+    const r = el.getBoundingClientRect();
+    if (r.top + r.height / 2 < e.clientY) target++;
+  });
+  // Exclude the dragged card itself from the count's frame of reference.
+  if (target > cur) target--;
+
+  if (target !== cur) {
+    // Commit the reorder and FLIP the neighbours around.
+    const a = enabled[cur], b = enabled[target];
+    const ia = state.widgetOrder.indexOf(a), ib = state.widgetOrder.indexOf(b);
+    state.widgetOrder[ia] = b;
+    state.widgetOrder[ib] = a;
+    persist();
+    const before = widgetPositions();
+    render();
+    flipWidgets(before);
+    // Re-attach the lift to the re-rendered card and keep it under the pointer.
+    const card = cardEl(wdrag.type);
+    if (card) {
+      card.style.transition = "none";
+      card.style.transform = `translateY(${e.clientY - wdrag.grabDy - card.getBoundingClientRect().top}px) scale(1.025)`;
+      card.classList.add("widget-dragging");
+    }
+  } else {
+    // No reorder yet — just keep the card pinned to the pointer.
+    const card = cardEl(wdrag.type);
+    if (card) {
+      card.style.transition = "none";
+      card.style.transform = `translateY(${e.clientY - wdrag.grabDy - card.getBoundingClientRect().top}px) scale(1.025)`;
+    }
+  }
+}
+
+function dragWidgetEnd() {
+  if (!wdrag) return;
+  const { type } = wdrag;
+  wdrag = null;
+  document.body.classList.remove("wdragging");
+  window.removeEventListener("pointermove", dragWidgetMove);
+  window.removeEventListener("pointerup", dragWidgetEnd);
+  window.removeEventListener("pointercancel", dragWidgetEnd);
+  const card = cardEl(type);
+  if (card) {
+    // Spring back into the slot, matching the arrow-reorder glide.
+    card.style.transition = "transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)";
+    card.style.transform = "";
+    card.classList.remove("widget-dragging");
+    setTimeout(() => { card.style.transition = ""; }, 480);
+  }
+}
+
+let widgetEnter = null;   // type added most recently — entrance anim on its card
+let widgetExit = null;    // type being removed — collapse before re-render
+// One-shot "ghost" pass set by the Settings Apply button: { types, added }
+// holds the pre-apply widget stack so the widgets view can play the change —
+// removed cards collapse out in place, survivors FLIP to their new slots, and
+// freshly enabled cards drop in. Cleared the moment the ghost pass mounts.
+let widgetGhost = null;
+let pendingAdds = null;   // types to mark widget-in on the next widgets draw
+
+function removeWidget(type) {
+  const card = document.querySelector(`#widgets .widget[data-wtype="${type}"]`);
+  if (card) {
+    widgetExit = type;
+    card.classList.add("widget-removing");
+    const commit = () => {
+      if (widgetExit !== type) return;
+      widgetExit = null;
+      const before = widgetPositions();
+      state.widgets[type] = false;
+      state.widgetOrder = state.widgetOrder.filter((t) => t !== type);
+      if (state.editing === type) state.editing = null;
+      persist();
+      render();
+      flipWidgets(before);
+    };
+    card.addEventListener("animationend", commit, { once: true });
+    // safety net if the animation never fires
+    setTimeout(() => { if (widgetExit === type) commit(); }, 400);
+  } else {
+    state.widgets[type] = false;
+    state.widgetOrder = state.widgetOrder.filter((t) => t !== type);
+    if (state.editing === type) state.editing = null;
+    persist();
+    render();
+  }
+}
+
+function addWidget(type) {
+  if (state.widgets[type]) return;
+  state.widgets[type] = true;
+  if (!state.widgetOrder.includes(type)) state.widgetOrder.push(type);
+  state.addOpen = false;
+  widgetEnter = type;
+  persist();
+  render();
+}
+
+function buildWidgetCard(type) {
+  const card = h("div", "widget widget-" + type);
+  card.dataset.wtype = type;
+  card.appendChild(cardHead(WIDGET_LABELS[type], type));
+
+  if (type === "clock") {
+    const cw = h("div", "clock-widget");
+    const t = timeParts();
+    cw.innerHTML = `
+      <span class="big"><span class="lead">${esc(t.lead)}</span><span class="colon" aria-hidden>:</span><span class="tail">${esc(t.tail)}</span></span>
+      <span class="date">${esc(now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }))}</span>`;
+    card.appendChild(cw);
+    return card;
+  }
+
+  if (type === "system") {
+    if (state.editing === "system") {
+      const ed = h("div", "widget-edit");
+      ed.appendChild(h("p", "widget-edit-hint", "Which metrics to show"));
+      [
+        ["cpu", "CPU load"], ["temp", "Temperature"], ["mem", "Memory"],
+        ["bat", "Battery"], ["net", "Network"],
+      ].forEach(([k, lab]) => {
+        const row = h("div", "row");
+        row.innerHTML = `<span class="row-label">${lab}</span>`;
+        const sw = h("button", "switch" + (state.sysMetrics[k] ? " on" : ""));
+        sw.onclick = () => {
+          state.sysMetrics[k] = !state.sysMetrics[k];
+          persist();
+          render();
+        };
+        row.appendChild(sw);
+        ed.appendChild(row);
+      });
+      card.appendChild(ed);
+      return card;
+    }
+    const rows = h("div");
+    card.appendChild(rows);
+    card._update = () => { rows.innerHTML = systemRows(); };
+    card._update();
+    return card;
+  }
+
+  if (type === "media") {
+    const mm = h("div", "media-meta");
+    const bar = h("div", "media-bar");
+    const time1 = h("span", "media-time", "0:00");
+    const time2 = h("span", "media-time", "0:00");
+    const ctl = h("div", "media-ctl");
+    const prev = h("button", "mbtn", "⏮");
+    const play = h("button", "mbtn main", "▶");
+    const next = h("button", "mbtn", "⏭");
+    prev.onclick = () => mediaCommand("media_previous");
+    next.onclick = () => mediaCommand("media_next");
+    play.onclick = () => mediaCommand("media_play_pause");
+    ctl.append(prev, play, next);
+    const prog = h("div", "media-progress");
+    prog.append(time1, bar, time2);
+    card.append(mm, prog, ctl);
+    card._update = () => {
+      const t = mediaTrack();
+      mm.innerHTML = `<div class="media-title">${esc(t.title)}</div><div class="media-artist">${esc(t.artist)}</div>`;
+      bar.innerHTML = `<i style="width:${t.dur > 0 ? ((t.pos / t.dur) * 100).toFixed(1) : 0}%"></i>`;
+      time1.textContent = fmtTime(t.pos);
+      time2.textContent = fmtTime(t.dur);
+      play.textContent = t.playing ? "❚❚" : "▶";
+    };
+    card._update();
+    return card;
+  }
+
+  if (type === "notes") {
+    const ta = document.createElement("textarea");
+    ta.className = "notes-input";
+    ta.placeholder = "Jot something down…";
+    ta.value = state.notes;
+    const cnt = h("div", "notes-count", state.notes.length + " chars");
+    ta.addEventListener("input", () => {
+      state.notes = ta.value;
+      cnt.textContent = ta.value.length + " chars";
+      store.save("notes", state.notes);
+    });
+    card.append(ta, cnt);
+    return card;
+  }
+
+  if (type === "weather") {
+    if (state.editing === "weather") {
+      const ed = h("div", "widget-edit");
+      ed.appendChild(h("p", "widget-edit-hint", "City / location"));
+      const row = h("div", "widget-edit-row");
+      const input = document.createElement("input");
+      input.className = "widget-input";
+      input.placeholder = "e.g. Berlin";
+      input.value = state.weather.city;
+      const save = h("button", "widget-btn widget-btn-primary", "Save");
+      save.onclick = () => saveWeather(input.value, ed);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") saveWeather(input.value, ed); });
+      row.append(input, save);
+      ed.appendChild(row);
+      // Skip typing a city — ask the OS where the device is.
+      const geoBtn = h("button", "widget-btn", "📌 Use Windows location");
+      geoBtn.style.marginTop = "6px";
+      geoBtn.onclick = () => {
+        geoBtn.disabled = true;
+        geoBtn.textContent = "Locating…";
+        useOsLocation(ed, geoBtn);
+      };
+      ed.appendChild(geoBtn);
+      ed.appendChild(h("p", "widget-err weather-err"));
+      card.appendChild(ed);
+      return card;
+    }
+    const wd = weatherData();
+    if (!wd) {
+      // No location yet — offer one-tap auto-detect first, manual entry as
+      // the fallback (e.g. when Windows location access is off).
+      card.appendChild(h("div", "widget-edit", '<p class="widget-edit-hint">No location set yet.</p>'));
+      const auto = h("button", "widget-btn widget-btn-primary", "📌 Detect my location");
+      auto.onclick = () => {
+        auto.disabled = true;
+        auto.textContent = "Locating…";
+        useOsLocation(null, auto);
+      };
+      const set = h("button", "widget-btn", "Enter a city");
+      set.style.marginTop = "6px";
+      set.onclick = () => { state.editing = "weather"; render(); };
+      card.appendChild(auto);
+      card.appendChild(set);
+      return card;
+    }
+    card.appendChild(h("div", "weather-main",
+      `<span class="weather-emoji">${wd.emoji}</span><span class="weather-temp">${Math.round(wd.temp)}°</span>`));
+    card.appendChild(h("div", "weather-meta",
+      `${esc(wd.label)} · feels <b>${Math.round(wd.feels)}°</b> · H <b>${Math.round(wd.max)}°</b> L <b>${Math.round(wd.min)}°</b>`));
+    card.appendChild(h("div", "weather-city", esc(state.weather.city)));
+    return card;
+  }
+
+  if (type === "launcher") {
+    if (state.editing === "launcher") {
+      card.appendChild(buildLauncherEdit());
+      return card;
+    }
+    const apps = state.launcherApps;
+    if (apps.length === 0) {
+      card.appendChild(h("div", "widget-edit", '<p class="widget-edit-hint">No apps yet. Open the ⚙ on this card to add some.</p>'));
+      return card;
+    }
+    const grid = h("div", "launcher-grid");
+    apps.forEach((a) => {
+      const tile = h("button", "launcher-app",
+        `<span class="launcher-app-icon">${esc(initial(a.label))}</span><span class="launcher-app-label">${esc(a.label)}</span>`);
+      tile.title = "Launch " + a.label;
+      tile.onclick = () => {
+        TAURI.core.invoke("launch_app", { path: a.path })
+          .then(() => toast("Launched " + a.label))
+          .catch(() => toast("Couldn't launch " + a.label));
+      };
+      grid.appendChild(tile);
+    });
+    card.appendChild(grid);
+    return card;
+  }
+
+  return card;
+}
+
+function initial(s) { return s.trim().charAt(0).toUpperCase() || "•"; }
+
+function buildLauncherEdit() {
+  const ed = h("div", "widget-edit");
+  const hint = h("p", "widget-edit-hint", "App shortcuts");
+  ed.appendChild(hint);
+
+  const list = h("div", "launcher-list");
+  const paint = () => {
+    list.innerHTML = "";
+    state.launcherApps.forEach((a, i) => {
+      const row = h("div", "launcher-row",
+        `<span class="launcher-row-name">${esc(a.label)}</span><span class="launcher-row-path">${esc(a.path)}</span>`);
+      const rm = h("button", "widget-btn widget-btn-danger", "✕");
+      rm.onclick = () => {
+        state.launcherApps = state.launcherApps.filter((_, j) => j !== i);
+        persist();
+        paint();
+      };
+      row.appendChild(rm);
+      list.appendChild(row);
+    });
+  };
+  paint();
+  ed.appendChild(list);
+
+  const row = h("div", "widget-edit-row");
+  const label = document.createElement("input");
+  label.className = "widget-input";
+  label.placeholder = "Name (optional)";
+  label.style.flex = "0 0 90px";
+  const path = document.createElement("input");
+  path.className = "widget-input";
+  path.placeholder = "App path or name, e.g. chrome.exe";
+  const add = h("button", "widget-btn widget-btn-primary", "Add");
+  const doAdd = () => {
+    const p = path.value.trim();
+    if (!p) return;
+    const nm = label.value.trim() || p.split(/[\\/]/).pop() || p;
+    state.launcherApps = [...state.launcherApps, { label: nm, path: p }];
+    label.value = ""; path.value = "";
+    persist();
+    paint();
+  };
+  add.onclick = doAdd;
+  path.addEventListener("keydown", (e) => { if (e.key === "Enter") doAdd(); });
+  row.append(label, path, add);
+  ed.appendChild(row);
+
+  const quick = h("div", "launcher-quick");
+  QUICK_APPS.forEach((a) => {
+    if (state.launcherApps.some((x) => x.path === a.path)) return;
+    const chip = h("button", "chip", "+ " + a.label);
+    chip.onclick = () => {
+      state.launcherApps = [...state.launcherApps, { ...a }];
+      persist();
+      paint();
+    };
+    quick.appendChild(chip);
+  });
+  ed.appendChild(quick);
+  return ed;
+}
+
+/* ---------- weather ---------- */
+let wxLive = null;
+
+function weatherData() {
+  // Data is only meaningful when a location is set — otherwise a stale
+  // wxLive (e.g. from a previous session's coordinates) would render with
+  // an empty city label.
+  if (!state.weather || typeof state.weather.lat !== "number") return null;
+  return wxLive;
+}
+
+function saveWeather(city, ed) {
+  const errEl = ed.querySelector(".weather-err");
+  const btn = ed.querySelector(".widget-btn-primary");
+  const c = (city || "").trim();
+  if (!c) { if (errEl) errEl.textContent = "Enter a city name first."; return; }
+  btn.disabled = true;
+  if (errEl) errEl.textContent = "";
+  btn.textContent = "…";
+  fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(c)}&count=1&language=en&format=json`)
+    .then((r) => { if (!r.ok) throw new Error("geo"); return r.json(); })
+    .then((j) => {
+      const hit = j.results && j.results[0];
+      if (!hit) throw new Error("not found");
+      state.weather = { city: hit.name + (hit.admin1 ? ", " + hit.admin1 : ""), lat: hit.latitude, lon: hit.longitude, osLocation: false };
+      return fetch(`https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`);
+    })
+    .then((r) => r.json())
+    .then((j) => {
+      const cur = j.current ?? {};
+      const daily = j.daily ?? {};
+      wxLive = {
+        ...mapWeather(cur.weather_code ?? 0),
+        temp: cur.temperature_2m ?? 0,
+        feels: cur.apparent_temperature ?? cur.temperature_2m ?? 0,
+        max: daily.temperature_2m_max?.[0] ?? 0,
+        min: daily.temperature_2m_min?.[0] ?? 0,
+      };
+      state.editing = null;
+      state.addOpen = false;
+      persist();
+      render();
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = "Save";
+      if (errEl) errEl.textContent = "Couldn't find that place (offline?) — try again or use Windows location.";
+    });
+}
+
+/* Fetch + render weather for an explicit lat/lon. Name is display-only; when
+   omitted (OS-location flow) a readable city name is resolved from the
+   coordinates via Open-Meteo's reverse geocoding, falling back to "My location". */
+function loadWeatherAt(lat, lon, name, ed, restoreBtn) {
+  const withName = (cityName) => {
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,apparent_temperature&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`)
+      .then((r) => { if (!r.ok) throw new Error("forecast"); return r.json(); })
+      .then((j) => {
+        const cur = j.current ?? {};
+        const daily = j.daily ?? {};
+        wxLive = {
+          ...mapWeather(cur.weather_code ?? 0),
+          temp: cur.temperature_2m ?? 0,
+          feels: cur.apparent_temperature ?? cur.temperature_2m ?? 0,
+          max: daily.temperature_2m_max?.[0] ?? 0,
+          min: daily.temperature_2m_min?.[0] ?? 0,
+        };
+        state.weather = { city: cityName, lat, lon, osLocation: !name };
+        if (ed) { state.editing = null; }
+        state.addOpen = false;
+        persist();
+        render();
+      })
+      .catch(() => {
+        if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📌 Use Windows location"; }
+        toast("Weather lookup failed (offline?)");
+      });
+  };
+  if (name) { withName(name); return; }
+  // Reverse-geocode the coordinates into a place name (best effort — the
+  // forecast itself does not depend on this succeeding).
+  fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&count=1&language=en&format=json`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      const hit = j && j.results && j.results[0];
+      withName((hit && (hit.name + (hit.admin1 ? ", " + hit.admin1 : ""))) || "My location");
+    })
+    .catch(() => withName("My location"));
+}
+
+/* Auto-detect: ask the OS where the device is and load that weather.
+   Used by the editor button and by the silent first-run auto-detect. */
+function useOsLocation(ed, restoreBtn) {
+  TAURI.core.invoke("weather_geo")
+    .then((g) => loadWeatherAt(g.lat, g.lon, null, ed, restoreBtn))
+    .catch((err) => {
+      if (restoreBtn) { restoreBtn.disabled = false; restoreBtn.textContent = "📌 Use Windows location"; }
+      toast(String(err).replace(/[^\x20-\x7e]/g, "").trim() || "Location unavailable");
+    });
+}
+
+/* Auto-refresh every 15 minutes. When the location came from the OS, re-resolve
+   it too (so a laptop that moved cities follows along); a manually-typed city
+   just re-fetches its fixed coordinates. */
+setInterval(() => {
+  if (!state.widgets.weather) return;
+  if (state.weather && state.weather.osLocation) {
+    useOsLocation(null, null);
+  } else if (state.weather && typeof state.weather.lat === "number" && typeof state.weather.lon === "number") {
+    loadWeatherAt(state.weather.lat, state.weather.lon, state.weather.city);
+  }
+}, 15 * 60 * 1000);
+
+/* First-run auto-detect: once per boot, if the weather widget is enabled and
+   no location has ever been set (and the user hasn't declined), silently ask
+   the OS and load that location. Skipped when location access is off — the
+   widget keeps its "Set location" card as the guide instead of nagging. */
+let osLocationTried = false;
+function maybeAutoDetectLocation() {
+  if (osLocationTried) return;
+  if (!state.widgets.weather) return;
+  if (state.weather && (typeof state.weather.lat === "number" || state.weather.cityDismissed)) return;
+  osLocationTried = true;
+  TAURI.core.invoke("weather_geo")
+    .then((g) => loadWeatherAt(g.lat, g.lon, null, null, null))
+    .catch(() => {
+      // Permission denied / location off — remember so we don't re-ask on
+      // every boot; the widget shows its "Set location" card instead.
+      state.weather = state.weather || {};
+      state.weather.cityDismissed = true;
+      persist();
+    });
+}
+
+/* ---------- custom dropdown ---------- */
+let nsOpenWrap = null;
+
+function closeNotchSelect() {
+  if (!nsOpenWrap) return;
+  const pop = nsOpenWrap.querySelector(".ns-pop");
+  if (pop) pop.remove();
+  const trig = nsOpenWrap.querySelector(".ns-trigger");
+  if (trig) trig.setAttribute("aria-expanded", "false");
+  nsOpenWrap = null;
+  if (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("ns-opt")) {
+    document.activeElement.blur();
+  }
+}
+
+function toggleNotchSelect(trig, onPick) {
+  const wrap = trig.closest(".notch-select");
+  if (nsOpenWrap === wrap) { closeNotchSelect(); return; }
+  closeNotchSelect();
+
+  const pop = h("div", "ns-pop");
+  pop.setAttribute("role", "listbox");
+  NS_OPTIONS.forEach(([v, lab]) => {
+    const on = draft.idleContent === v;
+    const o = h("button", "ns-opt" + (on ? " on" : ""), lab);
+    o.type = "button";
+    o.setAttribute("role", "option");
+    o.setAttribute("aria-selected", String(on));
+    o.addEventListener("click", (ev) => { ev.stopPropagation(); closeNotchSelect(); onPick(v); });
+    pop.appendChild(o);
+  });
+  wrap.appendChild(pop);
+  nsOpenWrap = wrap;
+  trig.setAttribute("aria-expanded", "true");
+
+  // open upward if the popup would run past the bottom edge
+  const rect = wrap.getBoundingClientRect();
+  if (rect.bottom + pop.offsetHeight + 12 > window.innerHeight) pop.classList.add("up");
+
+  // put focus on the selected option so arrows/Enter work immediately
+  const sel = pop.querySelector(".on") || pop.firstElementChild;
+  if (sel) sel.focus();
+}
+
+/* ---------- toast ---------- */
+let toastTimer = null;
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) { t = h("div", "toast", ""); t.id = "toast"; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+function systemRows() {
+  const m = state.sysMetrics;
+  const row = (label, pct, val, hot) => `
+    <div class="sys-row${hot ? " hot" : ""}">
+      <span class="sys-label">${label}</span>
+      <span class="sys-bar"><i style="width:${Math.max(2, Math.min(100, pct))}%"></i></span>
+      <span class="sys-value">${val}</span>
+    </div>`;
+  let s = "";
+  if (m.cpu) s += row("CPU", stats.cpu, Math.round(stats.cpu) + "%", stats.cpu > 82);
+  if (m.temp && stats.temp != null) s += row("TEMP", Math.max(2, ((stats.temp - 35) / 55) * 100), Math.round(stats.temp) + "°", stats.temp > 75);
+  if (m.mem) s += row("MEM", stats.mem, Math.round(stats.mem) + "%");
+  if (m.bat && stats.bat != null) s += row("BAT", stats.bat, Math.round(stats.bat) + "%", stats.bat < 20);
+  if (m.net && stats.netDown != null) s += row("NET", 45, "↓" + (stats.netDown > 1024 ? (stats.netDown / 1024).toFixed(1) + "M" : Math.round(stats.netDown) + "k") + " ↑" + (stats.netUp != null ? stats.netUp.toFixed(1) : "0") + "k");
+  return s;
+}
+
+function refreshWidgets() {
+  if (state.settingsOpen) return;
+  $$("#island .widget").forEach((c) => { if (c._update) c._update(); });
+  $$("#island .sysm-chip[data-k]").forEach((chip) => {
+    const k = chip.dataset.k;
+    let v = k === "cpu" ? Math.round(stats.cpu) + "%" : k === "mem" ? Math.round(stats.mem) + "%" : (stats.bat != null ? Math.round(stats.bat) + "%" : null);
+    const b = chip.querySelector("b");
+    if (v != null && b) b.textContent = v;
+    else if (v == null && chip.parentElement) chip.remove();
+  });
+}
+
+/* ---------- the deck (settings) ---------- */
+function buildDeck() {
+  const wrap = h("div");
+  wrap.id = "deck";
+
+  wrap.appendChild(h("p", "settings-tip", "Changes are staged until you press <strong>Apply</strong> — <strong>Reset</strong> discards them."));
+
+  const scroll = h("div", "deck-scroll");
+  wrap.appendChild(scroll);
+
+  const d = () => draft;
+
+  scroll.appendChild(section("general", "General", "start here", sectionSummary("general"), `
+    <div class="row">
+      <span class="row-label">Rerun setup<small>reopen the wizard</small></span>
+      <button class="btn" id="stRerun">Start</button>
+    </div>
+    <div class="row">
+      <span class="row-label">Drag mode<small>reposition the island on screen</small></span>
+      <button class="btn" id="stDrag">Arrange…</button>
+    </div>
+    <div class="row">
+      <span class="row-label">Position<small>quick presets</small></span>
+      <div class="chips">
+        <button class="chip ${state.pos.mode === "default" ? "on" : ""}" data-pos="default">Default</button>
+        <button class="chip ${state.pos.mode === "left" ? "on" : ""}" data-pos="left">Left</button>
+        <button class="chip ${state.pos.mode === "right" ? "on" : ""}" data-pos="right">Right</button>
+      </div>
+    </div>
+  `));
+
+  scroll.appendChild(section("shape", "Shape", "notch or pill + which screen", sectionSummary("shape"), `
+    <div class="row">
+      <span class="row-label">Mode</span>
+      <div class="segmented">
+        <button class="${d().shape === "notch" ? "seg-active seg-selected" : ""}" data-shape="notch">Notch</button>
+        <button class="${d().shape === "pill" ? "seg-active seg-selected" : ""}" data-shape="pill">Pill</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="row-label">Display<small>where the notch lives</small></span>
+      <div class="chips" id="displayChips"><span class="value" style="color:var(--text-3)">Detecting…</span></div>
+    </div>
+  `));
+
+  scroll.appendChild(section("size", "Size", "how wide the idle pill is", sectionSummary("size"), `
+    <div class="row">
+      <span class="row-label">Size preset</span>
+      <div class="chips">
+        ${[["Compact", 240], ["Standard", 300], ["Wide", 460]].map(([lab, w]) =>
+          `<button class="chip ${d().size.width === w ? "on" : ""}" data-preset="${w}">${lab}</button>`).join("")}
+      </div>
+    </div>
+    <div class="row">
+      <span class="row-label">Idle width</span>
+      <span class="value" id="stWidthVal">${d().size.width}px</span>
+    </div>
+    <div class="row slider-row">
+      <input type="range" min="200" max="520" step="10" value="${d().size.width}" id="stWidth" aria-label="Idle width" />
+    </div>
+    <div class="row">
+      <span class="row-label">Idle height<small>fixed at 36px — slim hardware</small></span>
+      <span class="value">36px</span>
+    </div>
+  `));
+
+  scroll.appendChild(section("appearance", "Appearance", "surface, glass and gradients", sectionSummary("appearance"), `
+    <div class="row">
+      <span class="row-label">Surface</span>
+      <div class="segmented">
+        <button class="${!d().glass ? "seg-active seg-selected" : ""}" data-glass="0">Solid</button>
+        <button class="${d().glass && !d().frosted ? "seg-active seg-selected" : ""}" data-glass="1">Glass</button>
+        <button class="${d().glass && d().frosted ? "seg-active seg-selected" : ""}" data-glass="2">Frosted</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="row-label">Gradient</span>
+      <div class="chips">
+        ${[["none","None"],["sunset","Sunset"],["ocean","Ocean"],["aurora","Aurora"],["candy","Candy"],["graphite","Graphite"]].map(([id, lab]) =>
+          `<button class="chip ${d().gradient === id ? "on" : ""}" data-grad="${id}">${lab}</button>`).join("")}
+      </div>
+    </div>
+    ${d().glass ? `
+    <div class="row slider-row">
+      <div class="slider-head"><span class="row-label">Opacity</span><span class="value" id="stOpVal">${d().opacity}%</span></div>
+      <input type="range" min="10" max="100" step="5" value="${d().opacity}" id="stOp" aria-label="Glass opacity" />
+    </div>
+    <div class="row slider-row">
+      <div class="slider-head"><span class="row-label">Blur</span><span class="value" id="stBlurVal">${d().blur}px</span></div>
+      <input type="range" min="4" max="40" step="2" value="${d().blur}" id="stBlur" aria-label="Glass blur" />
+    </div>` : ""}
+  `));
+
+  scroll.appendChild(section("theme", "Theme", "light, dark and the LED color", sectionSummary("theme"), `
+    <div class="row">
+      <span class="row-label">Theme</span>
+      <div class="segmented">
+        ${[["light","Light"],["dark","Dark"],["system","System"],["color","Color"]].map(([id, lab]) =>
+          `<button class="${d().theme === id ? "seg-active seg-selected" : ""}" data-theme-pick="${id}">${lab}</button>`).join("")}
+      </div>
+    </div>
+    ${d().theme === "color" ? `
+    <div class="row">
+      <span class="row-label">LED color<small>accent across the island</small></span>
+      <div class="swatches">
+        ${ACCENT_SWATCHES.map((c) =>
+          `<button class="swatch${d().accent === c ? " on" : ""}" data-accent="${c}" style="background:${c}" aria-label="Accent ${c}"></button>`).join("")}
+        <button class="swatch" style="background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);position:relative" aria-label="Custom color">
+          <input type="color" value="${/^#[0-9a-f]{6}$/i.test(d().accent) ? d().accent : "#4fc3ff"}" id="stColor" />
+        </button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="row-label">Follow the OS accent</span>
+      <button class="chip ${d().accent === "system" ? "on" : ""}" id="stAccentSys">Windows accent</button>
+    </div>` : ""}
+  `));
+
+  scroll.appendChild(section("idle", "Idle", "what the bar shows when nothing is happening", sectionSummary("idle"), `
+    <div class="row">
+      <span class="row-label">When idle</span>
+      <div class="notch-select" data-nsidle>
+        <button type="button" class="ns-trigger" data-ns-trigger aria-haspopup="listbox" aria-expanded="false">
+          <span class="ns-value">${esc(NS_OPTIONS.find(([v]) => v === d().idleContent)?.[1] ?? "Brand + clock")}</span>
+          <span class="ns-chev" aria-hidden>›</span>
+        </button>
+      </div>
+    </div>
+    ${d().idleContent === "custom" ? `
+    <div class="row">
+      <span class="row-label">Idle text</span>
+      <input class="settings-text-input" maxlength="40" value="${esc(d().idleText)}" id="stIdleText" placeholder="e.g. Lunch at 1" />
+    </div>` : ""}
+  `));
+
+  scroll.appendChild(section("widgets", "Widgets", "what the expanded island holds", sectionSummary("widgets"), `
+    ${WIDGET_TYPES.map((k) => `
+      <div class="row">
+        <span class="row-label">${WIDGET_LABELS[k]}</span>
+        <button class="switch ${d().widgets[k] ? "on" : ""}" data-widget="${k}" aria-pressed="${d().widgets[k]}"></button>
+      </div>`).join("")}
+    ${d().widgets.system ? `
+      <div class="row"><span class="row-label">System metrics<small>what the stats rows show</small></span><span class="spacer"></span></div>
+      ${[["cpu","CPU load"],["temp","Temperature"],["mem","Memory"],["bat","Battery"],["net","Network"]].map(([k, lab]) => `
+        <div class="row">
+          <span class="row-label">${lab}</span>
+          <button class="switch ${d().sysMetrics[k] ? "on" : ""}" data-metric="${k}" aria-pressed="${d().sysMetrics[k]}"></button>
+        </div>`).join("")}` : ""}
+  `));
+
+  /* actions — sticky bar: Reset-to-default on the left, draft actions right.
+     The link lives IN the bar (not at the end of the long scroll) so it's
+     always visible. When a gradient skin is on, the bar layers the same
+     gradient over its base so it matches the island instead of staying flat. */
+  const foot = h("div", "deck-foot");
+  if (state.gradient !== "none") {
+    const gradEl = document.querySelector(".island-grad");
+    if (gradEl) {
+      const g = getComputedStyle(gradEl).backgroundImage;
+      const base = effectiveTheme() === "light"
+        ? "linear-gradient(180deg, rgba(248, 250, 253, 0.9), rgba(240, 243, 248, 0.94))"
+        : "linear-gradient(180deg, rgba(21, 26, 36, 0.86), rgba(13, 17, 25, 0.92))";
+      foot.style.backgroundImage = `${g}, ${base}`;
+    }
+  }
+  // Factory reset: two-step tap-to-confirm so the destructive op can't fire
+  // from a stray click. Any deck re-render replaces this node and disarms it.
+  const factory = h("button", "text-btn danger", "Factory reset…");
+  let factoryArmed = false, factoryTimer = null;
+  factory.onclick = () => {
+    if (!factoryArmed) {
+      factoryArmed = true;
+      factory.classList.add("armed");
+      factory.textContent = "Tap again — wipe everything?";
+      factoryTimer = setTimeout(() => {
+        factoryArmed = false;
+        factory.classList.remove("armed");
+        factory.textContent = "Factory reset…";
+      }, 3500);
+      return;
+    }
+    clearTimeout(factoryTimer);
+    factoryReset();
+  };
+  const toDefault = h("button", "text-btn", "Reset to default");
+  toDefault.onclick = () => {
+    Object.assign(state, defaults());
+    draft = snapshot();
+    persist();
+    state.dial = { call: false, mic: false, playing: false };
+    state.editing = null; state.addOpen = false;
+    wxLive = null;
+    render();
+  };
+  const actions = h("div", "deck-foot-actions");
+  const reset = h("button", "btn ghost", "Reset");
+  reset.onclick = () => { draft = snapshot(); render(); };
+  const cancel = h("button", "btn", "Cancel");
+  cancel.onclick = () => collapsePanel();
+  const apply = h("button", "btn primary" + (state.applied ? " bump" : ""), state.applied ? "Applied ✓" : "Apply");
+  apply.id = "applyBtn";
+  apply.disabled = !state.dirty;
+  // Which draft fields each settings section owns — used to acknowledge an
+  // Apply by flaring exactly the sections whose values actually change.
+  const APPLY_FIELDS = {
+    shape: ["shape"],
+    size: ["size"],
+    appearance: ["glass", "frosted", "gradient", "opacity", "blur"],
+    theme: ["theme", "accent"],
+    idle: ["idleContent", "idleText"],
+    widgets: ["widgets", "widgetOrder", "sysMetrics"],
+  };
+  apply.onclick = () => {
+    // Snapshot the LIVE values about to be replaced — not the draft (which is
+    // by definition what gets committed) — plus the live widget stack, so the
+    // commit can be acknowledged per-row instead of silently.
+    const prevLive = {
+      shape: state.shape, size: { ...state.size }, glass: state.glass, frosted: state.frosted,
+      gradient: state.gradient, opacity: state.opacity, blur: state.blur,
+      theme: state.theme, accent: state.accent, idleContent: state.idleContent, idleText: state.idleText,
+      widgets: { ...state.widgets }, widgetOrder: [...state.widgetOrder], sysMetrics: { ...state.sysMetrics },
+    };
+    const prevSet = widgetEnabledOrder();
+    const prevWidgets = { ...state.widgets };
+    Object.assign(state, JSON.parse(JSON.stringify(draft)));
+    persist();
+    const nowSet = widgetEnabledOrder();
+    const changed =
+      prevSet.some((t) => !state.widgets[t]) ||           // something removed
+      nowSet.some((t) => !prevWidgets[t]) ||             // something added
+      JSON.stringify(prevSet) !== JSON.stringify(nowSet); // order shifted
+    if (changed) widgetGhost = { types: prevSet, added: nowSet.filter((t) => !prevWidgets[t]) };
+    state.dirty = false;
+    state.applied = true;
+    render();
+    // Acknowledge the commit: any section whose live value actually changed
+    // flares its rows (staggered) and pulses its marker — the visual "this is
+    // what just landed". Sections the user staged and then staged back stay
+    // calm, because their draft value already matched the live one.
+    const changedSecs = new Set();
+    for (const [sec, fields] of Object.entries(APPLY_FIELDS)) {
+      if (fields.some((f) => JSON.stringify(prevLive[f]) !== JSON.stringify(state[f]))) changedSecs.add(sec);
+    }
+    if (changedSecs.size) {
+      const freshScroll = document.querySelector("#deck .deck-scroll");
+      if (freshScroll) {
+        freshScroll.querySelectorAll(".section").forEach((secEl) => {
+          if (!changedSecs.has(secEl.dataset.key)) return;
+          secEl.classList.add("applied-flash");
+          secEl.querySelectorAll(".row").forEach((r, i) => {
+            // In the widgets section only the toggles that actually flipped
+            // flare — the section's marker still pulses as a whole.
+            if (secEl.dataset.key === "widgets") {
+              const w = r.querySelector("[data-widget]");
+              const m = r.querySelector("[data-metric]");
+              const wHit = w && prevLive.widgets[w.dataset.widget] !== state.widgets[w.dataset.widget];
+              const mHit = m && prevLive.sysMetrics[m.dataset.metric] !== state.sysMetrics[m.dataset.metric];
+              if (!wHit && !mHit) return;
+            }
+            r.classList.add("row-flash");
+            r.style.animationDelay = (i * 40) + "ms";
+          });
+        });
+      }
+    }
+    setTimeout(() => { state.applied = false; render(); }, 1400);
+  };
+  actions.append(reset, cancel, apply);
+  const footLeft = h("div", "deck-foot-left");
+  footLeft.append(toDefault, factory);
+  foot.append(footLeft, actions);
+  wrap.appendChild(foot);
+
+  // Fresh mount: cascade the tip, then the section cards, downward from the
+  // top anchor with a springy settle each (see .tip-reveal / .deck-reveal).
+  // Only on the mount draw — deckFreshMount is cleared here so re-renders
+  // (staging, sliders) are calm.
+  if (deckFreshMount) {
+    deckFreshMount = false;
+    const tip = wrap.querySelector(".settings-tip");
+    if (tip) {
+      tip.classList.add("tip-reveal");
+      tip.style.animationDelay = "20ms";
+    }
+    scroll.querySelectorAll(".section").forEach((s, i) => {
+      s.classList.add("reveal");
+      s.style.animationDelay = (60 + i * 32) + "ms";
+    });
+  }
+
+  // Give every control its handler synchronously, scoped to this deck — the
+  // deck isn't attached to the document yet, so a document-wide query would
+  // find nothing. (The old requestAnimationFrame(wireDeck) worked only by
+  // accident: by then the deck was attached, but under throttled rAF the
+  // controls stayed dead for a frame or longer.)
+  wireDeck(wrap);
+  return wrap;
+}
+
+function defaults() {
+  return {
+    shape: "notch", theme: "dark", accent: "#4fc3ff", glass: true, frosted: false, opacity: 65, blur: 14,
+    gradient: "none", size: { width: 330, height: 36 }, idleContent: "brand", idleText: "",
+    widgets: { ...DEFAULT_WIDGETS }, widgetOrder: [...DEFAULT_ORDER],
+    sysMetrics: { cpu: true, temp: true, mem: true, bat: true, net: true },
+    notes: "", weather: { city: "Set your location", lat: null, lon: null }, launcherApps: QUICK_APPS.slice(),
+  };
+}
+
+function section(key, title, sub, summary, bodyHtml) {
+  const sec = h("div", "section" + (state.openSections[key] ? " open" : ""));
+  sec.dataset.key = key;
+  const head = h("button", "section-head");
+  head.innerHTML = `<span class="section-mark" aria-hidden></span>
+    <span class="section-titles"><span class="section-title">${title}</span><span class="section-sub">${sub}</span></span>
+    ${summary ? `<span class="section-summary">${esc(summary)}</span>` : ""}
+    <span class="section-chevron" aria-hidden>›</span>`;
+  head.onclick = () => { state.openSections[key] = !state.openSections[key]; render(); };
+  const b = h("div", "section-body", bodyHtml);
+  sec.append(head, b);
+  if (!state.openSections[key]) b.style.display = "none";
+  return sec;
+}
+
+/* ---------- deck wiring (runs synchronously, scoped to the deck element) ---------- */
+function wireDeck(root) {
+  const q = (s) => root.querySelector(s);
+  const qa = (s) => Array.from(root.querySelectorAll(s));
+  const d = () => draft;
+
+  const drag = q("#stDrag");
+  if (drag) drag.onclick = () => {
+    // Collapse into the slim pill and start an arrange session: the strip now
+    // shows Reset/Done, and the island follows the pointer until one is pressed.
+    state.arrangeOrigin = { ...state.pos };
+    state.expanded = false;
+    state.settingsOpen = false;
+    state.arranging = true;
+    render();
+  };
+  qa("[data-pos]").forEach((b) => b.onclick = () => { setPos(b.dataset.pos); });
+
+  const rerun = q("#stRerun");
+  if (rerun) rerun.onclick = () => openSetup();
+
+  // Display picker — real monitor enumeration under Tauri; picking one moves
+  // the notch window there (backend command) and persists the choice.
+  const displayChips = q("#displayChips");
+  if (displayChips) {
+    TAURI.core.invoke("get_monitors").then((mons) => {
+      if (!mons || !mons.length) { displayChips.innerHTML = '<span class="value">Main monitor</span>'; return; }
+      const saved = store.load("display", "primary");
+      displayChips.innerHTML = mons.map((m) => {
+        const id = m.is_primary ? "primary" : m.device;
+        const label = (m.is_primary ? "Main" : (m.name || m.device).split(" ")[0]) +
+          ` <small>${m.width}×${m.height}</small>`;
+        return `<button class="chip ${saved === id ? "on" : ""}" data-mon="${esc(id)}">${label}</button>`;
+      }).join("");
+      displayChips.querySelectorAll("[data-mon]").forEach((b) => {
+        b.onclick = () => {
+          const id = b.dataset.mon;
+          store.save("display", id);
+          TAURI.core.invoke("move_notch_to_monitor", { monitorName: id === "primary" ? "primary" : id }).catch(() => {});
+          displayChips.querySelectorAll("[data-mon]").forEach((x) => x.classList.toggle("on", x === b));
+        };
+      });
+    }).catch(() => { displayChips.innerHTML = '<span class="value">Main monitor</span>'; });
+  }
+
+  qa("[data-shape]").forEach((b) => b.onclick = () => { d().shape = b.dataset.shape; markDirty(); render(); });
+  qa("[data-glass]").forEach((b) => b.onclick = () => {
+    const v = b.dataset.glass;
+    d().glass = v !== "0";
+    d().frosted = v === "2";
+    markDirty(); render();
+  });
+  qa("[data-grad]").forEach((b) => b.onclick = () => { d().gradient = b.dataset.grad; markDirty(); render(); });
+  qa("[data-theme-pick]").forEach((b) => b.onclick = () => { d().theme = b.dataset.themePick; markDirty(); render(); });
+  qa("[data-accent]").forEach((b) => b.onclick = () => { d().accent = b.dataset.accent; markDirty(); render(); });
+  qa("[data-widget]").forEach((b) => b.onclick = () => {
+    const t = b.dataset.widget;
+    d().widgets[t] = !d().widgets[t];
+    if (d().widgets[t]) { if (!d().widgetOrder.includes(t)) d().widgetOrder.push(t); }
+    else d().widgetOrder = d().widgetOrder.filter((x) => x !== t);
+    markDirty(); render();
+  });
+  qa("[data-preset]").forEach((b) => b.onclick = () => { d().size.width = Number(b.dataset.preset); markDirty(); render(); });
+  qa("[data-metric]").forEach((b) => b.onclick = () => { d().sysMetrics[b.dataset.metric] = !d().sysMetrics[b.dataset.metric]; markDirty(); render(); });
+
+  const nsTrig = q("[data-ns-trigger]");
+  if (nsTrig) {
+    nsTrig.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleNotchSelect(e.currentTarget, (v) => { d().idleContent = v; markDirty(); render(); });
+    });
+    // keyboard: open with arrows/Enter/Space
+    nsTrig.addEventListener("keydown", (e) => {
+      if (["ArrowDown", "ArrowUp", " ", "Enter"].includes(e.key)) {
+        e.preventDefault();
+        toggleNotchSelect(e.currentTarget, (v) => { d().idleContent = v; markDirty(); render(); });
+      }
+    });
+  }
+  const idleText = q("#stIdleText");
+  if (idleText) idleText.oninput = () => { d().idleText = idleText.value; markDirty(); };
+
+  const width = q("#stWidth");
+  if (width) width.oninput = () => {
+    d().size.width = Number(width.value);
+    const val = q("#stWidthVal");
+    if (val) val.textContent = width.value + "px";
+    // live preview the idle width immediately
+    state.size.width = d().size.width;
+    applyIslandSize();
+    markDirty();
+  };
+  const op = q("#stOp");
+  if (op) op.oninput = () => {
+    d().opacity = Number(op.value);
+    const val = q("#stOpVal");
+    if (val) val.textContent = op.value + "%";
+    state.opacity = d().opacity; applyTheme();
+  };
+  const blur = q("#stBlur");
+  if (blur) blur.oninput = () => {
+    d().blur = Number(blur.value);
+    const val = q("#stBlurVal");
+    if (val) val.textContent = blur.value + "px";
+    state.blur = d().blur; applyTheme();
+  };
+  const color = q("#stColor");
+  if (color) color.oninput = () => {
+    d().accent = color.value;
+    // Live-render the accent like the sliders (NO full render): rebuilding the
+    // deck on every input event would destroy the picker mid-drag and teleport
+    // the view on every frame of the drag.
+    state.accent = color.value;
+    applyTheme();
+    markDirty();
+  };
+
+  const sysAccent = q("#stAccentSys");
+  if (sysAccent) sysAccent.onclick = () => {
+    // Follow the REAL Windows accent color (live-updated via winotch://theme).
+    d().accent = "system";
+    markDirty(); render();
+  };
+
+}
+
+/* Current value for each settings section, shown on its header so closed
+   sections still tell you what they configure (and what's currently set). */
+function sectionSummary(key) {
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  switch (key) {
+    case "general": {
+      const names = { default: "Default", left: "Left edge", right: "Right edge", custom: "Custom" };
+      return "Position · " + (names[state.pos.mode] || "Custom");
+    }
+    case "shape": return state.shape === "notch" ? "Notch" : "Pill";
+    case "size": return state.size.width + "px";
+    case "appearance": {
+      const s = !state.glass ? "Solid" : state.frosted ? "Frosted" : "Glass";
+      return state.gradient !== "none" ? s + " · " + cap(state.gradient) : s;
+    }
+    case "theme": return cap(state.theme);
+    case "idle": {
+      const names = {
+        brand: "Brand + clock", clock: "Clock only",
+        custom: state.idleText ? "Custom text" : "Custom",
+        system: "System stats", blank: "Dot only",
+      };
+      return names[state.idleContent] || "";
+    }
+    case "widgets": return Object.values(state.widgets).filter(Boolean).length + "/" + WIDGET_TYPES.length + " on";
+    default: return "";
+  }
+}
+
+function markDirty() {
+  state.dirty = isDirty();
+  const apply = $("#applyBtn");
+  if (apply) apply.disabled = !state.dirty;
+}
+
+// Deferred close: the mirror of the gravity-cascade open. The deck (and any
+// open widgets view) gets inhaled upward into the top anchor — fade + rise +
+// blur, same language as deck-reveal but reversed — while the pill's height
+// spring runs down to 36px at the same time. The render swap happens after
+// the exit animation so nothing is wiped mid-motion. Interactions are locked
+// out while closing so a stray hover/click can't fight the animation.
+let closeTimer = null;
+function collapsePanel() {
+  if (!state.expanded) return;
+  if (closeTimer) return; // already closing
+  const island = $("#island");
+  island.classList.add("closing");
+  island.style.pointerEvents = "none";
+  // Exit stagger, top card first: the entrance delays (60 + i*32ms) would hold
+  // later cards at opacity 1 past the swap, so override them for the exit.
+  // Last card finishes at ~(n-1)*24 + 240ms; the swap waits for that.
+  // Clear every inline entrance delay (head/tip set none, but sections and the
+  // widgets deck set 60 + i*32ms on mount; the tip sets 20ms) so the exit
+  // stagger below is the only timing in play.
+  island.querySelectorAll("*[style*='animation-delay']").forEach((el) => { el.style.animationDelay = ""; });
+  const exiters = island.querySelectorAll(".section, .widget");
+  exiters.forEach((el, i) => { el.style.animationDelay = (i * 24) + "ms"; });
+  // Start the pill shrink immediately — the CSS transition springs it from the
+  // content height down to the 36px collapsed strip while the deck exits.
+  island.style.height = "36px";
+  island.style.borderRadius = state.shape === "notch" ? "0 0 22px 22px" : "999px";
+  // Reduced motion: exit animations collapse to ~0 via CSS, so swap at once.
+  // Under Tauri we force animations on, so this is always false in the app and
+  // the full collapse spring plays out.
+  const reduce = false; // the app always plays every animation
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    island.classList.remove("closing");
+    island.style.pointerEvents = "";
+    state.expanded = false;
+    state.settingsOpen = false;
+    state.addOpen = false;
+    state.editing = null;
+    render();
+  }, reduce ? 10 : 400 + exiters.length * 24); // cover stagger + 0.26s deck-exit, overlap the 0.42s height spring
+}
+
+/* ---------- context menu ---------- */
+function openCtx(x, y) {
+  const menu = $("#ctx");
+  menu.innerHTML = "";
+  const item = (label, danger, fn) => {
+    const b = h("button", "ctx-item" + (danger ? " danger" : ""), label);
+    b.onclick = () => { menu.hidden = true; fn(); };
+    return b;
+  };
+  menu.append(
+    // Hide parks the island in the system tray, Restart relaunches the exe,
+    // Close quits the process — all real backend commands.
+    item("Hide Winotch", false, () => {
+      hideIsland();
+      if (TAURI) TAURI.core.invoke("hide_island").catch(() => {});
+    }),
+    item("Restart Winotch", false, () => {
+      if (TAURI) TAURI.core.invoke("restart_app").catch(() => {});
+      else location.reload();
+    }),
+    item("Rerun Setup…", false, () => { state.settingsOpen = false; state.expanded = true; render(); openSetup(); }),
+    item("Close Winotch", true, () => {
+      if (TAURI) TAURI.core.invoke("quit_app").catch(() => {});
+      else hideIsland();
+    }),
+  );
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(0, Math.min(x, window.innerWidth - r.width - 8)) + "px";
+  menu.style.top = Math.max(0, Math.min(y, window.innerHeight - r.height - 8)) + "px";
+}
+function hideIsland() {
+  state.expanded = false;
+  state.settingsOpen = false;
+  // The backend hides the OS window; the tray's Show item brings it back.
+}
+
+/* ---------- rerun setup modal ---------- */
+let setupOpen = false;
+
+function openSetup(mode = "rerun") {
+  const wrap = $("#setupWrap");
+  const modal = $("#setupModal");
+  setupOpen = true;
+  const fresh = mode === "fresh";
+  const s = snapshot();
+  const pick = { shape: s.shape, theme: s.theme, glass: s.glass, widgets: { ...s.widgets } };
+  const draw = () => {
+    const seg = (vals, cur, onpick) => vals.map(([id, lab]) =>
+      `<button class="chip ${pick[cur] === id ? "on" : ""}" data-sp="${id}">${lab}</button>`).join("");
+    modal.innerHTML = `
+      <h1>${fresh ? "Set up Winotch" : "Rerun setup"}</h1>
+      <p class="sub">${fresh
+        ? "Everything is back to factory defaults. Pick how the island should look — you can change it any time from settings."
+        : "Same wizard, quicker. Pick how the island should look — you can change it any time from settings."}</p>
+      <h2>Quick presets</h2>
+      <div class="setup-grid">
+        <button class="setup-tile ${pick.shape==="notch"&&pick.glass&&pick.theme==="dark"?" on":""}" data-pre="classic">
+          <span class="setup-preview notch"></span><strong>Classic Notch</strong><small>dark glass, carved in</small>
+        </button>
+        <button class="setup-tile ${pick.shape==="notch"&&!pick.glass?" on":""}" data-pre="solid">
+          <span class="setup-preview notch" style="opacity:.5"></span><strong>Solid Notch</strong><small>opaque, no blur</small>
+        </button>
+        <button class="setup-tile ${pick.shape==="pill"&&pick.glass&&pick.theme==="light"?" on":""}" data-pre="light">
+          <span class="setup-preview"></span><strong>Light Pill</strong><small>floating glass capsule</small>
+        </button>
+      </div>
+      <h2>Theme</h2>
+      <div class="setup-grid">${seg([["light","Light"],["dark","Dark"],["system","System"]], "theme", null)}</div>
+      <h2>Type</h2>
+      <div class="setup-grid">
+        <button class="setup-tile ${pick.shape==="notch"?" on":""}" data-shp="notch"><span class="setup-preview notch"></span><strong>Notch</strong><small>carved into the top edge</small></button>
+        <button class="setup-tile ${pick.shape==="pill"?" on":""}" data-shp="pill"><span class="setup-preview"></span><strong>Pill</strong><small>a floating capsule</small></button>
+      </div>
+      <h2>Feel</h2>
+      <div class="setup-grid">
+        <button class="setup-tile ${pick.glass?" on":""}" data-fl="glass"><strong>Glass</strong><small>blur + translucency</small></button>
+        <button class="setup-tile ${!pick.glass?" on":""}" data-fl="solid"><strong>Solid</strong><small>flat and opaque</small></button>
+      </div>
+      <h2>Widgets</h2>
+      <div class="setup-grid">
+        ${WIDGET_TYPES.map((k) =>
+          `<button class="setup-tile ${pick.widgets[k]?" on":""}" data-wz="${k}"><strong>${WIDGET_LABELS[k]}</strong></button>`).join("")}
+      </div>
+      <div class="setup-actions">
+        <button class="btn ghost" id="stCancel">Cancel</button>
+        <button class="btn primary" id="stGo" style="margin-left:auto">Get started</button>
+      </div>`;
+    modal._pick = pick;
+    modal.querySelectorAll("[data-pre]").forEach((b) => b.onclick = () => {
+      const p = b.dataset.pre;
+      pick.shape = p === "light" ? "pill" : "notch";
+      pick.glass = p !== "solid";
+      pick.theme = p === "light" ? "light" : p === "solid" ? "system" : "dark";
+      draw();
+    });
+    modal.querySelectorAll("[data-sp]").forEach((b) => b.onclick = () => { pick.theme = b.dataset.sp; draw(); });
+    modal.querySelectorAll("[data-shp]").forEach((b) => b.onclick = () => { pick.shape = b.dataset.shp; draw(); });
+    modal.querySelectorAll("[data-fl]").forEach((b) => b.onclick = () => { pick.glass = b.dataset.fl === "glass"; draw(); });
+    modal.querySelectorAll("[data-wz]").forEach((b) => b.onclick = () => { pick.widgets[b.dataset.wz] = !pick.widgets[b.dataset.wz]; draw(); });
+    $("#stCancel").onclick = () => closeSetup();
+    $("#stGo").onclick = () => {
+      Object.assign(state, { shape: pick.shape, theme: pick.theme, glass: pick.glass, widgets: pick.widgets });
+      persist();
+      draft = snapshot();
+      closeSetup();
+      render();
+    };
+  };
+  draw();
+  wrap.classList.add("open");
+  // Two frames: the modal must lay out before its size can be measured, and
+  // webfonts/layout settling can change it once more.
+  requestAnimationFrame(() => requestAnimationFrame(syncWindow));
+  setTimeout(syncWindow, 350); // settle pass (fonts, scrollbars)
+}
+$("#setupWrap").addEventListener("click", (e) => {
+  if (e.target === $("#setupWrap")) closeSetup();
+});
+
+/** Close the setup wizard and return the OS window to the island's size. */
+function closeSetup() {
+  const wrap = $("#setupWrap");
+  wrap.classList.remove("open");
+  if (setupOpen) {
+    setupOpen = false;
+    syncWindow(true); // shrink back to the island now that the modal is gone
+  }
+}
+
+/* ---------- island interactions ---------- */
+function initInteractions() {
+  const shell = $("#shell");
+  const island = $("#island");
+
+  island.addEventListener("click", (e) => {
+    if (e.target.closest("button, input, select, textarea")) return;
+    if (state.arranging) return; // arrange: the pill is for dragging, not toggling
+    const was = state.expanded;
+    state.expanded = !was;
+    if (!state.expanded) state.settingsOpen = false;
+    render();
+  });
+
+  // Open on hover, close on leave — the native Dynamic Island gesture, exactly
+  // like the real app's onMouseEnter/onMouseLeave. Clicking still toggles, so
+  // touch and keyboard users keep a path in.
+  island.addEventListener("mouseenter", () => {
+    if (!state.expanded && !state.arranging) {
+      state.expanded = true;
+      render();
+    }
+  });
+  island.addEventListener("mouseleave", () => {
+    if (state.expanded) collapsePanel();
+  });
+
+  island.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    openCtx(e.clientX, e.clientY);
+  });
+
+  // Drag-to-reposition while arranging: pointerdown on the pill starts a drag
+  // (Reset/Done buttons are excluded), pointermove steers the shell, pointerup
+  // finishes. The position is committed only by Done (or a preset); Reset and
+  // Escape restore the pre-arrange position.
+  let dragState = null;
+  document.addEventListener("pointerdown", (e) => {
+    if (!state.arranging) return;
+    if (!e.target.closest(".island-shell")) return;
+    if (e.target.closest(".arrange-btn")) return;
+    // Grab offset from the ISLAND's top-left — under Tauri the drag moves the
+    // window by exact deltas, so the offset must be measured against the thing
+    // that visually moves (the island pill), not the (window-sized) shell.
+    const r = $("#island").getBoundingClientRect();
+    dragState = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    e.preventDefault();
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!dragState || e.pointerId !== dragState.id) return;
+    const r = $("#island").getBoundingClientRect();
+    // Arrange drags move the REAL window under Tauri (the window hugs the
+    // island, so dragging anything else does nothing). Anchor is the island's
+    // top-left minus the grab offset, clamped to the desktop work area.
+    let x = e.clientX - dragState.dx;
+    let y = e.clientY - dragState.dy;
+    x = Math.max(8, Math.min(x, window.screen.width - r.width - 8));
+    y = Math.max(8, Math.min(y, window.screen.height - r.height - 8));
+    TAURI.core.invoke("move_island_window", { x, y }).catch(() => {});
+    state.pos = { mode: "custom", x, y };
+  });
+  document.addEventListener("pointerup", (e) => {
+    if (dragState && e.pointerId === dragState.id) dragState = null;
+  });
+
+  // Note: use composedPath() (frozen at dispatch start), not e.target.closest() —
+  // deck controls re-render the island mid-click, detaching the target, which
+  // would otherwise make this "outside" check collapse the panel.
+  document.addEventListener("click", (e) => {
+    const inUi = e.composedPath().some((n) =>
+      n.classList && (n.classList.contains("island-shell") || n.classList.contains("ctx-menu") || n.classList.contains("modal-wrap")));
+    if (!e.composedPath().some((n) => n.classList && n.classList.contains("notch-select"))) closeNotchSelect();
+    if (!inUi && !$("#ctx").hidden) $("#ctx").hidden = true;
+    if (inUi) return;
+    if (state.expanded && !state.settingsOpen) collapsePanel();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (nsOpenWrap) { closeNotchSelect(); return; }
+    if ($("#setupWrap").classList.contains("open")) { $("#setupWrap").classList.remove("open"); return; }
+    // Escape cancels an arrange session and restores the pre-arrange position.
+    if (state.arranging) {
+      if (state.arrangeOrigin) {
+        state.pos = { ...state.arrangeOrigin };
+        // Re-apply the restored position to the REAL window.
+        if (state.pos.mode === "custom") {
+          TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+        } else if (state.pos.mode !== "default") {
+          TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+        } else {
+          syncWindow(true);
+        }
+      }
+      state.arranging = false;
+      render();
+      return;
+    }
+    if (!state.expanded) return;
+    collapsePanel();
+  });
+}
+
+/* ---------- Tauri window integration ----------
+   This page runs inside a transparent, always-on-top Tauri window (the real
+   notch). The OS window is grown to match the island's rendered size and
+   anchored top-center on the display, so the notch hugs the screen edge
+   exactly and the deck never clips. */
+// The page ships inside the Tauri webview; TAURI is the global API bridge.
+const TAURI = window.__TAURI__ || null;
+const IS_TAURI = !!(TAURI && TAURI.core && TAURI.core.invoke);
+let resizeSettleTimer = null;
+let pendingCollapse = false;
+let lastExpanded = false;
+let lastSize = null;
+
+function syncWindow(force = false) {
+  if (!TAURI) return;
+  const island = $("#island");
+  if (!island) return;
+  // While the setup wizard is open the window must fit the MODAL (the island
+  // stays collapsed underneath it). Rendered size in CSS px, +16 margin.
+  if (setupOpen) {
+    const modalEl = $("#setupModal");
+    if (modalEl && modalEl.offsetHeight > 0) {
+      const mw = Math.ceil(modalEl.offsetWidth) + 16;
+      const mh = Math.ceil(modalEl.offsetHeight) + 16;
+      TAURI.core.invoke("fit_island_to_content", { width: mw, height: mh }).catch(() => {});
+    }
+    lastExpanded = state.expanded;
+    return;
+  }
+  const w = parseFloat(island.style.width) || 330;
+  const h = parseFloat(island.style.height) || 36;
+  const send = () => {
+    // `force` re-sends even when the size is unchanged (position presets use
+    // it to re-center the window); normally identical sizes are skipped.
+    if (!force && lastSize && lastSize[0] === w && lastSize[1] === h) return;
+    lastSize = [w, h];
+    TAURI.core.invoke("fit_island_to_content", { width: w, height: h }).catch(() => {});
+  };
+  const justCollapsed = lastExpanded === true && state.expanded === false;
+  clearTimeout(resizeSettleTimer);
+  if (state.expanded) {
+    // Expanding needs the room immediately so the panel never clips.
+    pendingCollapse = false;
+    send();
+  } else if (justCollapsed || pendingCollapse) {
+    // Mid-collapse: let the island's close spring (0.42s) finish before the
+    // window shrinks, otherwise the closing panel gets clipped. Boot / stable
+    // collapsed states have no animation, so they shrink immediately below.
+    pendingCollapse = true;
+    resizeSettleTimer = setTimeout(() => {
+      pendingCollapse = false;
+      send();
+    }, 700);
+  } else {
+    // Boot or stable collapsed — no spring running, fit the window at once.
+    send();
+  }
+  lastExpanded = state.expanded;
+}
+
+/* ---- live backend data (real stats / media / calls / mic) ----
+   Everything on the island reflects actual OS state via backend commands
+   and push events. */
+let liveMedia = null;
+let lastMediaKey = null;
+
+function applySystemStats(s) {
+  if (!s) return;
+  stats.cpu = s.cpu;
+  // temp/battery may be absent (no sensor / desktop without a battery) — null
+  // them so systemRows hides the row instead of showing a stale or 0 value.
+  stats.temp = (typeof s.tempC === "number" && s.tempC != null) ? s.tempC : null;
+  if (s.memTotalGb > 0) stats.mem = (s.memUsedGb / s.memTotalGb) * 100;
+  stats.bat = s.battery ? s.battery.pct : null;
+  // Network throughput is null on the very first poll while the baseline is
+  // captured; the NET row hides until a real reading exists.
+  stats.netDown = s.network ? (s.network.downBytesPerSec / 1024) : null; // kB/s
+  stats.netUp = s.network ? (s.network.upBytesPerSec / 1024) : null;
+  refreshWidgets();
+}
+
+/* Resolve the current media track from the live SMTC session.
+   Returns { title, artist, dur, pos, playing }; nothing playing → empty state. */
+function mediaTrack() {
+  if (liveMedia && (liveMedia.title || liveMedia.artist)) {
+    return {
+      title: liveMedia.title || "Unknown track",
+      artist: liveMedia.artist || "",
+      dur: liveMedia.duration || 0,
+      pos: liveMedia.position || 0,
+      playing: !!liveMedia.playing,
+    };
+  }
+  return { title: "Nothing playing", artist: "", dur: 0, pos: 0, playing: false };
+}
+
+function mediaCommand(cmd) {
+  if (TAURI) TAURI.core.invoke(cmd).catch(() => {});
+}
+
+function setLiveMedia(m) {
+  liveMedia = m || null;
+  const prevPlaying = state.dial.playing;
+  const playing = !!(liveMedia && liveMedia.playing);
+  state.dial.playing = playing;
+  const key = liveMedia ? ((liveMedia.title || "") + "|" + (liveMedia.artist || "")) : "";
+  // Re-render the island only when the strip-visible state changes (track
+  // identity or play/pause); position ticks just refresh the cards.
+  if (playing !== prevPlaying || key !== lastMediaKey) {
+    lastMediaKey = key;
+    render();
+  } else {
+    refreshWidgets();
+  }
+}
+
+function setLiveCall(c) {
+  const onCall = !!(c && c.onCall);
+  if (onCall === state.dial.call) return;
+  state.dial.call = onCall;
+  state.callStart = onCall ? Date.now() : 0;
+  render();
+}
+
+function setLiveMic(m) {
+  const on = !!(m && m.on);
+  if (on === state.dial.mic) return;
+  state.dial.mic = on;
+  render();
+}
+
+function wireLiveData() {
+  if (!TAURI) return;
+  setInterval(() => {
+    TAURI.core.invoke("system_stats").then(applySystemStats).catch(() => {});
+  }, 2000);
+  TAURI.core.invoke("media_get_state").then(setLiveMedia).catch(() => {});
+  // Smooth progress: the backend emits position only when it changes by
+  // >0.4s (~2x/second). Interpolate between emissions so the progress bar
+  // and clock advance every second instead of stepping.
+  setInterval(() => {
+    if (liveMedia && liveMedia.playing && liveMedia.duration > 0) {
+      liveMedia.position = Math.min(liveMedia.position + 0.5, liveMedia.duration);
+      refreshWidgets();
+    }
+  }, 500);
+  TAURI.core.invoke("call_get_state").then(setLiveCall).catch(() => {});
+  TAURI.core.invoke("mic_get_state").then(setLiveMic).catch(() => {});
+  TAURI.event.listen("media://state", (e) => setLiveMedia(e.payload)).catch(() => {});
+  TAURI.event.listen("call://state", (e) => setLiveCall(e.payload)).catch(() => {});
+  TAURI.event.listen("mic://state", (e) => setLiveMic(e.payload)).catch(() => {});
+  // Live Windows theme/accent — also pulls once immediately (get_system_theme
+  // re-emits, so the single listener catches both).
+  TAURI.event.listen("winotch://theme", (e) => setWinTheme(e.payload)).catch(() => {});
+  TAURI.core.invoke("get_system_theme").then(setWinTheme).catch(() => {});
+  // Re-assert the saved window position on boot (default → top-center, custom
+  // → the exact spot it was dragged to, left/right → the presets).
+  if (state.pos && state.pos.mode && state.pos.mode !== "default") {
+    if (state.pos.mode === "custom") {
+      TAURI.core.invoke("move_island_window", { x: state.pos.x, y: state.pos.y }).catch(() => {});
+    } else {
+      TAURI.core.invoke("move_island_window", { anchor: state.pos.mode }).catch(() => {});
+    }
+  }
+}
+
+let lastEffect = null;
+function syncNativeEffect() {
+  if (!TAURI) return;
+  const e = state.frosted ? "frosted" : state.glass ? "glass" : "solid";
+  if (e === lastEffect) return;
+  lastEffect = e;
+  TAURI.core.invoke("set_island_effect", { effect: e }).catch(() => {});
+}
+
+/* ---- live Windows theme + accent ----
+   Theme "System" reads the actual Windows app theme; "Color" can follow the
+   real Windows accent. The backend emits winotch://theme on every OS change
+   (Settings → Personalization), and the watcher also re-emits on demand via
+   get_system_theme — so the island reskins live, no restart. */
+let winTheme = null; // { theme: "light"|"dark", accent: [r,g,b] }
+function setWinTheme(t) {
+  if (!t) return;
+  const changed = !winTheme || winTheme.theme !== t.theme ||
+    String(winTheme.accent) !== String(t.accent);
+  winTheme = t;
+  if (changed) {
+    applyTheme();
+    if (state.expanded) render();
+  }
+}
+// effectiveTheme/effectiveAccent consult winTheme when set.
+const _matchMediaTheme = () => {
+  try {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch { return "dark"; }
+};
+
+if (TAURI) {
+  // "Rerun Setup…" from the system tray reopens the designv2 wizard.
+  TAURI.event.listen("winotch://rerun-setup", () => openSetup("rerun")).catch(() => {});
+  // The window is transparent over the real desktop (native DWM blur is
+  // applied via set_island_effect when a glass surface is active).
+  document.body.style.background = "transparent";
+  wireLiveData();
+  // First-run weather auto-detect: silently resolve the user's location from
+  // the OS when none has ever been set (see maybeAutoDetectLocation).
+  setTimeout(maybeAutoDetectLocation, 2500);
+}
+
+/* ---------- boot ---------- */
+draft = snapshot();
+applyTheme();
+initInteractions();
+render();
+// Brand-new install: greet the user with the setup wizard (the factory-reset
+// path opens it explicitly; this covers the very first launch only).
+if (!state.onboarded) {
+  openSetup("fresh");
+  state.onboarded = true;
+  store.save("onboarded", true);
+}
+</script>
+</body>
+</html>
