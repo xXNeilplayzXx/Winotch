@@ -56,6 +56,8 @@ public sealed class IslandShell
     private double _blend;
     private bool _paused;
     private bool _addMenuOpen;
+    private bool _dataDirty = true;
+    private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
 
     public IslandShell(SettingsService settings) => _settings = settings;
 
@@ -67,10 +69,38 @@ public sealed class IslandShell
             _paused = value;
             _wantExpanded = false;
             _blend = 0;
+            _addMenuOpen = false;
+            MarkDataDirty();
         }
     }
 
     public bool AnyHoverButton { get; private set; }
+
+    // ------------------------------------------------- idle-paint state
+    // The overlay only repaints when one of these is true; a collapsed idle
+    // notch otherwise costs ~nothing instead of a full Skia redraw per frame.
+
+    public bool IsExpanded => _blend > 0.5;
+    public bool Animating => _blend is > 0.001 and < 0.999;
+    public bool ToastsActive => _toasts.Count > 0;
+
+    /// <summary>True when the cursor sits over (or within hover range of) the
+    /// island, so hover expansion reacts immediately.</summary>
+    public bool NearCursor(double x, double y)
+    {
+        var margin = IsExpanded ? 8 : 12;
+        return x >= _x - margin && x <= _x + _w + margin &&
+               y >= _y - margin && y <= _y + _h + margin;
+    }
+
+    public bool ConsumeDataDirty()
+    {
+        var dirty = _dataDirty;
+        _dataDirty = false;
+        return dirty;
+    }
+
+    private void MarkDataDirty() => _dataDirty = true;
 
     // -------------------------------------------------------------- data set
 
@@ -86,22 +116,49 @@ public sealed class IslandShell
         _cursorY = yDip;
     }
 
-    public void SetMedia(MediaSnapshot? media) => Media = media;
-    public void SetBattery(BatteryInfo battery) => Battery = battery;
-    public void SetFocus(FocusTimerState focus) => Focus = focus;
-    public void SetWeather(WeatherSnapshot? weather) => Weather = weather;
-    public void SetSystemStats(SystemStatsSnapshot stats) => SystemStats = stats;
+    public void SetMedia(MediaSnapshot? media)
+    {
+        Media = media;
+        _mediaAt = DateTimeOffset.UtcNow;
+        MarkDataDirty();
+    }
+
+    public void SetBattery(BatteryInfo battery)
+    {
+        Battery = battery;
+        MarkDataDirty();
+    }
+
+    public void SetFocus(FocusTimerState focus)
+    {
+        Focus = focus;
+        MarkDataDirty();
+    }
+
+    public void SetWeather(WeatherSnapshot? weather)
+    {
+        Weather = weather;
+        MarkDataDirty();
+    }
+
+    public void SetSystemStats(SystemStatsSnapshot stats)
+    {
+        SystemStats = stats;
+        MarkDataDirty();
+    }
 
     public void SetClipboard(IReadOnlyList<ClipboardEntry> items)
     {
         ClipboardItems = items;
         _thumbs.Clear();
+        MarkDataDirty();
     }
 
     public void ShowToast(ToastSpec spec)
     {
         _toasts.Add(new Toast(spec));
         if (_toasts.Count > 4) _toasts.RemoveAt(0);
+        MarkDataDirty();
     }
 
     public void ShowStatusToast(PriorityStatusAlert alert) =>
@@ -909,11 +966,25 @@ public sealed class IslandShell
     {
         FillRound(canvas, x, y, width, 2, 1, ShellUi.Hairline);
         if (media.DurationSeconds <= 0) return;
-        var ratio = (float)Math.Clamp(media.PositionSeconds / media.DurationSeconds, 0, 1);
+        var ratio = (float)Math.Clamp(MediaPosition(media) / media.DurationSeconds, 0, 1);
         if (ratio > 0.01)
         {
             FillRound(canvas, x, y, width * ratio, 2, 1, ShellUi.Fade(ShellUi.Accent, 0.85));
         }
+    }
+
+    /// <summary>SMTC raises track-level events only on identity/play-state
+    /// change, so extrapolate the position from when the snapshot arrived
+    /// while the track keeps playing.</summary>
+    private double MediaPosition(MediaSnapshot media)
+    {
+        if (!media.Playing) return media.PositionSeconds;
+        var elapsed = (DateTimeOffset.UtcNow - _mediaAt).TotalSeconds;
+        if (media.DurationSeconds > 0)
+        {
+            return Math.Min(media.PositionSeconds + elapsed, media.DurationSeconds);
+        }
+        return media.PositionSeconds + elapsed;
     }
 
     private void DrawToasts(SKCanvas canvas)

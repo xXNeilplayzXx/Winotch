@@ -47,6 +47,9 @@ public sealed class OverlayWindow : Window, IDisposable
     private string? _lastToastKey = "";
     private bool _cursorHand;
     private double _lastSecond = -1;
+    private double _cursorX = double.NaN, _cursorY = double.NaN;
+    private int _lastWholeSecond = -1;
+    private int _lastMinuteOfDay = -1;
     private string? _wifiName;
     private BatteryInfo _battery = new(100, false);
 
@@ -76,7 +79,7 @@ public sealed class OverlayWindow : Window, IDisposable
         // Clipboard: read on the UI thread (WinForms clipboard needs STA).
         _clipboardTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(900),
+            Interval = TimeSpan.FromMilliseconds(2000),
         };
         _clipboardTimer.Tick += (_, _) => PollClipboard();
         _clipboardTimer.Start();
@@ -298,7 +301,7 @@ public sealed class OverlayWindow : Window, IDisposable
     {
         var timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(1500),
+            Interval = TimeSpan.FromMilliseconds(2000),
         };
         timer.Tick += (_, _) => PollBattery();
         timer.Start();
@@ -329,7 +332,7 @@ public sealed class OverlayWindow : Window, IDisposable
                 {
                     _wifiName = null;
                 }
-                token.WaitHandle.WaitOne(4000);
+                token.WaitHandle.WaitOne(10_000);
             }
         }, token);
     }
@@ -449,6 +452,10 @@ public sealed class OverlayWindow : Window, IDisposable
         _lastSecond = now;
 
         var (cursorDipX, cursorDipY) = CursorInLocalDip();
+        var cursorMoved = Math.Abs(cursorDipX - _cursorX) > 0.5 ||
+                          Math.Abs(cursorDipY - _cursorY) > 0.5;
+        _cursorX = cursorDipX;
+        _cursorY = cursorDipY;
         _shell.SetCursor(cursorDipX, cursorDipY);
         _shell.Tick(delta);
 
@@ -459,7 +466,28 @@ public sealed class OverlayWindow : Window, IDisposable
             Cursor = wantHand ? Cursors.Hand : Cursors.Arrow;
         }
 
-        _surface.InvalidateVisual();
+        // Idle repaint suppression: repaint only when something visible
+        // changed. A collapsed idle notch therefore costs ~0% CPU instead of
+        // a full Skia redraw (gradient + shadow + text) every compositor
+        // frame. Animations and live toasts keep full-rate repaints; hover,
+        // data events, the per-second countdown/timeline, and the once-a-
+        // minute pill clock drive the rest.
+        var wholeSecond = (int)now;
+        var secondChanged = wholeSecond != _lastWholeSecond;
+        _lastWholeSecond = wholeSecond;
+
+        var minuteOfDay = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+        var minuteChanged = minuteOfDay != _lastMinuteOfDay;
+        _lastMinuteOfDay = minuteOfDay;
+
+        var dirty =
+            _shell.Animating || _shell.ToastsActive || _shell.ConsumeDataDirty() ||
+            (cursorMoved && (_shell.IsExpanded || _shell.NearCursor(cursorDipX, cursorDipY))) ||
+            (_shell.IsExpanded && secondChanged) ||
+            (!_shell.IsExpanded && _shell.Focus.IsActive && secondChanged) ||
+            (!_shell.IsExpanded && minuteChanged);
+
+        if (dirty) _surface.InvalidateVisual();
     }
 
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
