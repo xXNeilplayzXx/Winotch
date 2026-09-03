@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **This repository is the archived legacy build.** Winotch is being rewritten in **C# / WPF** — active development and releases live at **[xXNeilplayzXx/Winotch](https://github.com/xXNeilplayzXx/Winotch)**. All releases here (v0.2.3 → v1.0.1) remain downloadable as-is.
+
 # Winotch
 
 A Dynamic Island for **Windows 10/11** — a little pill that hangs from the top edge of your screen and expands on hover into a media player, weather, clock, app launcher, and settings panel. Inspired by macOS notch apps like boring.notch and [notchy.dev](https://notchy.dev). Built with Tauri 2 — a Rust shell driving a hand-crafted HTML/CSS/JS page in WebView2.
