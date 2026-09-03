@@ -1,0 +1,47 @@
+name: build-test-release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore Winotch.slnx
+
+      - name: Build
+        run: dotnet build Winotch.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Winotch.slnx -c Release --no-build
+
+      - name: Publish portable exe
+        if: startsWith(github.ref, 'refs/tags/')
+        run: dotnet publish src/Winotch/Winotch.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Package zip
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: powershell
+        run: Compress-Archive -Path publish/* -DestinationPath "Winotch-${{ github.ref_name }}-x64.zip"
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" "publish/Winotch.exe" "Winotch-${{ github.ref_name }}-x64.zip" --clobber

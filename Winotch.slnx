@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Winotch/Winotch.csproj" />
+  <Project Path="tests/Winotch.Tests/Winotch.Tests.csproj" />
+</Solution>

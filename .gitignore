@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+
+# IDE
+.vs/
+.idea/
+*.user
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local tooling / scratch (never committed)
+.freebuff/
+
+# Release scratch
+*.tmp
