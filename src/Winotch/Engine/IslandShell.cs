@@ -350,7 +350,7 @@ public sealed class IslandShell
         }
         if (Media is { Playing: true })
         {
-            items.Add(new MiniItem(MiniKind.Media, 20));
+            items.Add(new MiniItem(MiniKind.Media, 22 + TextKit.Measure(MiniTrackLabel(), 11.5f, TextKit.Semibold)));
         }
         if (Focus.IsActive)
         {
@@ -382,7 +382,10 @@ public sealed class IslandShell
                     DrawBattery(canvas, x + 8, (float)cy, BatteryText());
                     break;
                 case MiniKind.Media:
-                    ShellUi.DrawGlyph(canvas, "\uE768", x + 10, cy, 13, ShellUi.Accent);
+                    var trackBudget = Math.Max(40, rect.Right - x - 26);
+                    var track = ShellUi.Ellipsize(MiniTrackLabel(), trackBudget, 11.5f, TextKit.Semibold);
+                    ShellUi.DrawGlyph(canvas, "\uE768", x + 11, cy, 12, ShellUi.Accent);
+                    TextKit.Draw(canvas, track, x + 20, cy - 8.5f, 11.5f, ShellUi.Text, TextKit.Semibold);
                     break;
                 case MiniKind.Focus:
                     var chipW = (float)item.Width - 20;
@@ -972,6 +975,17 @@ public sealed class IslandShell
         var remaining = Focus.RemainingAt(DateTimeOffset.UtcNow);
         var total = Math.Max(0, remaining.TotalSeconds);
         return $"{(int)(total / 60)}:{total % 60:00}";
+    }
+
+    /// <summary>Track name shown in the collapsed pill while media plays
+    /// (title, else artist, else a placeholder) — the same inline now-playing
+    /// the original webview app showed in the pill.</summary>
+    private string MiniTrackLabel()
+    {
+        if (Media is not { } media) return "";
+        if (media.Title.Length > 0) return media.Title;
+        if (media.Artist.Length > 0) return media.Artist;
+        return "Now playing";
     }
 
     private string ClockText(WinotchSettings settings) =>
