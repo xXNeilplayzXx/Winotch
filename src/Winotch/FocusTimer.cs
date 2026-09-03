@@ -1,13 +1,13 @@
 namespace Winotch;
 
 public enum FocusTimerStatus { Stopped, Running, Paused }
-public enum FocusTimerPhase { Focus, Break }
-
-/// <summary>Pure focus-timer state machine: 25/5, 50/10 or custom 1..180 min
-/// sessions with pause/resume/skip/stop and optional auto-cycle. Every phase
-/// transition reports a completion through the callback, so the UI can toast
-/// "focus complete" and "break over" identically whether the timer ended the
-/// phase naturally, was skipped, or stopped.</summary>
+public enum FocusTimerPhase { Focus, Break }    /// <summary>Pure focus-timer state machine: 25/5, 50/10 or custom 1..180 min
+    /// sessions with pause/resume/skip/stop and optional auto-cycle. Every phase
+    /// transition reports a completion through the callback, so the UI can toast
+    /// "focus complete" and "break over" identically whether the timer ended the
+    /// phase naturally, was skipped, or stopped. Pausing freezes remaining at the
+    /// pause instant; resuming rebases the phase start so paused time is not
+    /// counted.</summary>
 public sealed record FocusTimerState(
     FocusTimerStatus Status,
     FocusTimerPhase Phase,
@@ -78,13 +78,16 @@ public sealed record FocusTimerState(
         };
     }
 
+    /// <summary>Resume by rebasing the phase start so the time spent paused is
+    /// not counted; the pre-pause elapsed stays baked into the new start.</summary>
     public FocusTimerState Resume(DateTimeOffset now)
     {
-        if (Status != FocusTimerStatus.Paused || PausedAtUtc is null) return this;
+        if (Status != FocusTimerStatus.Paused) return this;
         return this with
         {
             Status = FocusTimerStatus.Running,
-            PausedElapsed = PausedElapsed + Positive(now.ToUniversalTime() - PausedAtUtc.Value),
+            PhaseStartedAtUtc = now.ToUniversalTime() - PausedElapsed,
+            PausedElapsed = TimeSpan.Zero,
             PausedAtUtc = null,
         };
     }
@@ -138,10 +141,11 @@ public sealed record FocusTimerState(
 
     private TimeSpan ElapsedAt(DateTimeOffset now)
     {
-        var effectiveNow = Status == FocusTimerStatus.Paused && PausedAtUtc is not null
-            ? PausedAtUtc.Value
-            : now.ToUniversalTime();
-        return Positive(effectiveNow - PhaseStartedAtUtc.ToUniversalTime() - PausedElapsed);
+        // While paused, elapsed is frozen at the value captured when pause was
+        // pressed; while running, the paused duration has been folded into the
+        // phase start, so plain clock math is correct.
+        if (Status == FocusTimerStatus.Paused && PausedAtUtc is not null) return PausedElapsed;
+        return Positive(now.ToUniversalTime() - PhaseStartedAtUtc.ToUniversalTime());
     }
 
     private static TimeSpan Positive(TimeSpan value) => value <= TimeSpan.Zero ? TimeSpan.Zero : value;

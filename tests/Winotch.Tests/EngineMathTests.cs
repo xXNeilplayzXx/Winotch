@@ -16,10 +16,11 @@ public class EngineMathTests
     }
 
     [Fact]
-    public void Vec2_Lerp_ClampsByDefault()
+    public void Vec2_Lerp_InterpolatesAndExtrapolates()
     {
         Assert.Equal(new Vec2(3, 4), Vec2.Lerp(new Vec2(1, 2), new Vec2(5, 6), 0.5));
-        Assert.Equal(new Vec2(5, 6), Vec2.Lerp(new Vec2(1, 2), new Vec2(5, 6), 2.0));
+        // Unclamped by design (callers clamp t themselves); t > 1 extrapolates.
+        Assert.Equal(new Vec2(9, 10), Vec2.Lerp(new Vec2(1, 2), new Vec2(5, 6), 2.0));
     }
 
     [Fact]
@@ -29,7 +30,8 @@ public class EngineMathTests
         var to = new Col(255, 255, 255);
         var mid = Col.Lerp(from, to, 0.5);
         Assert.Equal(new Col(128, 128, 128), mid);
-        Assert.Equal(new Col(255, 255, 255, 128), Col.Lerp(from, to, 0.5).WithAlpha(128));
+        Assert.Equal(new Col(128, 128, 128, 128), mid.WithAlpha(128));
+        Assert.Equal(new Col(255, 255, 255, 128), new Col(255, 255, 255).WithAlpha(128));
     }
 
     [Fact]

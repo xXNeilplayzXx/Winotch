@@ -10,7 +10,13 @@ public class PriorityStatusTests
     public void FirstSnapshot_QuietExceptCameraMicLowBattery()
     {
         var tracker = new PriorityStatusTracker();
+        // A clean first snapshot is silent (no boot spam)...
         Assert.Null(tracker.Next(Snap()));
+        // ...but if the very first poll already sees camera/mic/low battery,
+        // those alerts fire immediately and drain one per Next call.
+        Assert.Equal("Camera active", tracker.Next(Snap(cam: true, mic: true, percent: 10))?.Title);
+        Assert.Equal("Microphone active", tracker.Next(Snap(cam: true, mic: true, percent: 10))?.Title);
+        Assert.Equal("Low battery", tracker.Next(Snap(cam: true, mic: true, percent: 10))?.Title);
         Assert.Null(tracker.Next(Snap(cam: true, mic: true, percent: 10)));
     }
 
