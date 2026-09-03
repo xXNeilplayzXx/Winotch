@@ -1,4 +1,7 @@
 > [!IMPORTANT]
+> **This `legacy` branch holds the archived WebView2 build of Winotch** (Tauri 2 + HTML/CSS/JS in WebView2). Active development has moved to the **C# / WPF** rewrite on the [`main`](https://github.com/xXNeilplayzXx/Winotch) branch. All releases here (v0.2.3 → v1.0.1) remain downloadable from the repo's [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
+
+> [!IMPORTANT]
 > **This repository is the archived legacy build.** Winotch is being rewritten in **C# / WPF** — active development and releases live at **[xXNeilplayzXx/Winotch](https://github.com/xXNeilplayzXx/Winotch)**. All releases here (v0.2.3 → v1.0.1) remain downloadable as-is.
 
 # Winotch
