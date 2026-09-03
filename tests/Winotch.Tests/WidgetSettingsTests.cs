@@ -68,7 +68,8 @@ public class WeatherCodeMappingTests
     [InlineData(80, "🌦️", "Showers")]
     [InlineData(86, "🌨️", "Snow showers")]
     [InlineData(95, "⛈️", "Thunderstorm")]
-    [InlineData(999, "🌡️", "Unknown")]
+    [InlineData(999, "⛈️", "Thunderstorm")]
+    [InlineData(90, "🌡️", "Unknown")]
     public void MapsWmoCodes(int code, string emoji, string label)
     {
         var condition = WeatherCodes.Map(code);
