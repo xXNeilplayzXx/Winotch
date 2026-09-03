@@ -29,6 +29,8 @@ public sealed class IslandShell
     public FocusTimerState Focus { get; private set; } = FocusTimerState.Stopped;
     public FocusTimerSettings FocusPreset { get; private set; } =
         new(TimeSpan.FromMinutes(25), TimeSpan.FromMinutes(5), false);
+    public WeatherSnapshot? Weather { get; private set; }
+    public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
 
     // Actions the host window wires up.
     public event Action? OpenSettingsRequested;
@@ -39,6 +41,11 @@ public sealed class IslandShell
     public event Action<long>? CopyClipboardEntryRequested;
     public event Action<long>? DeleteClipboardEntryRequested;
     public event Action? ClearClipboardRequested;
+    public event Action? NotesEditRequested;
+    public event Action? WeatherEditRequested;
+    public event Action? LauncherEditRequested;
+    public event Action? SystemMetricsEditRequested;
+    public event Action<LauncherApp>? LaunchAppRequested;
 
     // Live geometry.
     public double CanvasWidth { get; private set; }
@@ -48,6 +55,7 @@ public sealed class IslandShell
     private bool _wantExpanded;
     private double _blend;
     private bool _paused;
+    private bool _addMenuOpen;
 
     public IslandShell(SettingsService settings) => _settings = settings;
 
@@ -81,6 +89,8 @@ public sealed class IslandShell
     public void SetMedia(MediaSnapshot? media) => Media = media;
     public void SetBattery(BatteryInfo battery) => Battery = battery;
     public void SetFocus(FocusTimerState focus) => Focus = focus;
+    public void SetWeather(WeatherSnapshot? weather) => Weather = weather;
+    public void SetSystemStats(SystemStatsSnapshot stats) => SystemStats = stats;
 
     public void SetClipboard(IReadOnlyList<ClipboardEntry> items)
     {
@@ -179,6 +189,7 @@ public sealed class IslandShell
         else if (_wantExpanded && !hoverRect.Contains(cursor))
         {
             _wantExpanded = false;
+            _addMenuOpen = false;
         }
     }
 
@@ -192,14 +203,30 @@ public sealed class IslandShell
 
     private double ExpandedHeight(WinotchSettings settings)
     {
-        var rows = Math.Clamp(ClipboardItems.Count, 1, 5);
-        var clipH = settings.Features.ClipboardHistoryEnabled ? 38 + rows * 36 : 0;
-        var mediaH = Media is null ? 0 : 80;
-        var focusH = settings.Features.FocusTimerEnabled ? 132 : 0;
-        return 16 + 46 + (mediaH > 0 ? mediaH + 12 : 0) +
-               (focusH > 0 ? focusH + 12 : 0) +
-               (clipH > 0 ? clipH + 12 : 0) + 12;
+        var h = 16 + 46.0; // top pad + header row
+        foreach (var id in settings.Widgets.Enabled)
+        {
+            h += 12 + WidgetCardHeight(id, settings);
+        }
+        h += 12; // bottom pad
+        return Math.Min(h, Math.Max(120, CanvasHeight - 24));
     }
+
+    private double WidgetCardHeight(string id, WinotchSettings settings) => id switch
+    {
+        "clock" => 88,
+        "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
+        "media" => Media is null ? 0 : 80,
+        "notes" => 104,
+        "weather" => 100,
+        "launcher" => 40 + LauncherRows(settings) * 58,
+        "focus" => settings.Features.FocusTimerEnabled ? 132 : 0,
+        "clipboard" => settings.Features.ClipboardHistoryEnabled ? 38 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36 : 0,
+        _ => 0,
+    };
+
+    private static int LauncherRows(WinotchSettings settings) =>
+        Math.Max(1, (int)Math.Ceiling(Math.Min(settings.Widgets.LauncherApps.Count, 12) / 4.0));
 
     public bool IsInteractiveAt(double xDip, double yDip)
     {
@@ -232,6 +259,8 @@ public sealed class IslandShell
                 return;
             }
         }
+        // Clicked a blank spot with the add menu open — dismiss it.
+        _addMenuOpen = false;
     }
 
     // -------------------------------------------------------------- drawing
@@ -396,6 +425,7 @@ public sealed class IslandShell
     private void DrawPanel(SKCanvas canvas, SKRect rect)
     {
         _buttons.Clear();
+        if (!_wantExpanded) _addMenuOpen = false;
 
         var pad = 14f;
         var left = rect.Left + pad;
@@ -409,90 +439,364 @@ public sealed class IslandShell
         TextKit.DrawCentered(canvas, clock, rect.Left + rect.Width / 2, y + 21, 21, ShellUi.Text, TextKit.Semibold);
 
         var headerCy = y + 21;
-        DrawIconButton(canvas, right - 52, headerCy, "\uE713", OpenSettingsRequested);
         DrawIconButton(canvas, right - 24, headerCy, "\uE711", QuitRequested);
+        DrawIconButton(canvas, right - 52, headerCy, "\uE713", OpenSettingsRequested);
+        DrawIconButton(canvas, right - 80, headerCy, "\uE710", () => _addMenuOpen = !_addMenuOpen);
 
         var yCursor = y + 48f;
 
-        // Media card.
-        if (Media is { } media)
+        // Widget cards in persisted order. The add menu floats above them.
+        foreach (var id in settings.Widgets.Enabled)
         {
-            var cardH = 80f;
+            var cardH = (float)WidgetCardHeight(id, settings);
+            if (cardH <= 0) continue;
             var top = yCursor + 4;
             DrawCard(canvas, left, top, rect.Width - pad * 2, cardH);
-
-            TextKit.Draw(canvas, "NOW PLAYING", left + 12, top + 9, 8.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
-            var title = ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", 210, 12.5f, TextKit.Semibold);
-            TextKit.Draw(canvas, title, left + 12, top + 25, 12.5f, ShellUi.Text, TextKit.Semibold);
-            var artist = ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", 210, 10f, TextKit.Regular);
-            TextKit.Draw(canvas, artist, left + 12, top + 42, 10f, ShellUi.Fade(ShellUi.Muted, 1));
-            DrawTimeline(canvas, left + 12, top + cardH - 9, rect.Width - pad * 2 - 24, media);
-
-            var bt = top + cardH / 2;
-            var br = right - 16;
-            DrawIconButton(canvas, br - 66, bt, "\uE892", MediaPrevRequested);
-            DrawIconButton(canvas, br - 34, bt, media.Playing ? "\uE769" : "\uE768", MediaPlayPauseRequested);
-            DrawIconButton(canvas, br - 2, bt, "\uE893", MediaNextRequested);
-
+            DrawCardHeader(canvas, left, top, rect.Width - pad * 2, id);
+            DrawWidgetBody(canvas, left, top, rect.Width - pad * 2, id, settings);
             yCursor = top + cardH + 12;
         }
 
-        // Focus card.
-        if (settings.Features.FocusTimerEnabled)
+        if (_addMenuOpen)
         {
-            var cardH = 132f;
-            var top = yCursor + 4;
-            DrawCard(canvas, left, top, rect.Width - pad * 2, cardH);
+            DrawAddMenu(canvas, right, y + 48);
+        }
+    }
 
-            TextKit.Draw(canvas, "FOCUS", left + 12, top + 10, 8.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
-            var isBreak = Focus.Phase == FocusTimerPhase.Break;
-            var accent = isBreak ? ShellUi.Ok : ShellUi.Accent;
-            var remaining = FocusLabel();
-            var remainingW = TextKit.Measure(remaining, 16, TextKit.Monospace);
-            TextKit.Draw(canvas, remaining, right - 22 - remainingW, top + 9, 16,
+    // ------------------------------------------------------ widget dispatch
+
+    private void DrawWidgetBody(SKCanvas canvas, float left, float top, float width, string id, WinotchSettings settings)
+    {
+        switch (id)
+        {
+            case "clock": DrawClockWidget(canvas, left, top, width); break;
+            case "system": DrawSystemWidget(canvas, left, top, width, settings); break;
+            case "media": DrawMediaWidget(canvas, left, top, width); break;
+            case "notes": DrawNotesWidget(canvas, left, top, width, settings); break;
+            case "weather": DrawWeatherWidget(canvas, left, top, width, settings); break;
+            case "launcher": DrawLauncherWidget(canvas, left, top, width, settings); break;
+            case "focus": DrawFocusWidget(canvas, left, top, width); break;
+            case "clipboard": DrawClipboardWidget(canvas, left, top, width); break;
+        }
+    }
+
+    private void DrawCardHeader(SKCanvas canvas, float left, float top, float width, string id)
+    {
+        var right = left + width;
+        var enabled = _settings.Current.Widgets.Enabled;
+        var index = enabled.IndexOf(id);
+        var cy = top + 16;
+
+        TextKit.Draw(canvas, WidgetSettings.Labels[id].ToUpperInvariant(), left + 12, top + 10, 8.5f,
+            ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+
+        // ✕ remove
+        DrawIconButton(canvas, right - 10, cy, "\uE711", () => RemoveWidget(id));
+        var cx = right - 10;
+
+        // ⚙ edit (configurable cards only)
+        Action? edit = id switch
+        {
+            "notes" => () => NotesEditRequested?.Invoke(),
+            "weather" => () => WeatherEditRequested?.Invoke(),
+            "launcher" => () => LauncherEditRequested?.Invoke(),
+            "system" => () => SystemMetricsEditRequested?.Invoke(),
+            _ => null,
+        };
+        if (edit is not null)
+        {
+            DrawIconButton(canvas, cx - 28, cy, "\uE713", edit);
+        }
+
+        // ↓ move down
+        var downX = cx - (edit is not null ? 56 : 28);
+        if (index >= 0 && index < enabled.Count - 1)
+        {
+            DrawIconButton(canvas, downX, cy, "\uE70D", () => MoveWidget(id, 1));
+        }
+        else
+        {
+            ShellUi.DrawGlyph(canvas, "\uE70D", downX, cy, 12.5f, ShellUi.Fade(ShellUi.Text, 0.22));
+        }
+
+        // ↑ move up
+        var upX = downX - 28;
+        if (index > 0)
+        {
+            DrawIconButton(canvas, upX, cy, "\uE70E", () => MoveWidget(id, -1));
+        }
+        else
+        {
+            ShellUi.DrawGlyph(canvas, "\uE70E", upX, cy, 12.5f, ShellUi.Fade(ShellUi.Text, 0.22));
+        }
+    }
+
+    private void DrawAddMenu(SKCanvas canvas, float right, float top)
+    {
+        var available = AvailableWidgets();
+        var rowH = 30f;
+        var width = 172f;
+        var height = Math.Max(rowH * available.Count + 8, 34);
+        var x = right - width;
+
+        FillRound(canvas, x, top, width, height, 10, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.98));
+        ShellUi.StrokeRound(canvas, x, top, width, height, 10, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+
+        if (available.Count == 0)
+        {
+            TextKit.Draw(canvas, "All widgets added", x + 14, top + 12, 11, ShellUi.Fade(ShellUi.Muted, 1));
+            return;
+        }
+
+        var rowY = top + 4f;
+        foreach (var id in available)
+        {
+            var hovering = _cursorX >= x && _cursorX <= x + width && _cursorY >= rowY && _cursorY <= rowY + rowH;
+            if (hovering)
+            {
+                FillRound(canvas, x + 4, rowY + 2, width - 8, rowH - 4, 7, ShellUi.CardHover);
+            }
+            TextKit.Draw(canvas, WidgetSettings.Labels[id], x + 14, rowY + 9, 12,
+                hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.85f));
+            var type = id;
+            RegisterButton(new SKRect(x, rowY, x + width, rowY + rowH), () => { AddWidget(type); _addMenuOpen = false; });
+            rowY += rowH;
+        }
+    }
+
+    private List<string> AvailableWidgets()
+    {
+        var settings = _settings.Current;
+        return WidgetSettings.Known
+            .Where(id => !settings.Widgets.Enabled.Contains(id))
+            .Where(id => id != "focus" || settings.Features.FocusTimerEnabled)
+            .Where(id => id != "clipboard" || settings.Features.ClipboardHistoryEnabled)
+            .ToList();
+    }
+
+    // ------------------------------------------------------ widget bodies
+
+    private void DrawClockWidget(SKCanvas canvas, float left, float top, float width)
+    {
+        var centerX = left + width / 2;
+        TextKit.DrawCentered(canvas, ClockText(_settings.Current), centerX, top + 52, 30, ShellUi.Text, TextKit.Semibold);
+        TextKit.DrawCentered(canvas, DateTime.Now.ToString("dddd, MMMM d"), centerX, top + 76, 12.5f, ShellUi.Fade(ShellUi.Muted, 1));
+    }
+
+    private void DrawSystemWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var metrics = settings.Widgets.SystemMetrics;
+        var rows = new List<(string Label, string Value, SKTypeface? Face, string? Icon)>();
+        if (metrics.Cpu) rows.Add(("CPU", $"{SystemStats.CpuPercent:0}%", null, null));
+        if (metrics.Memory) rows.Add(("MEM", $"{SystemStats.MemoryPercent:0}%", null, null));
+        if (metrics.Battery) rows.Add(("BAT", $"{Battery.Percent}%", null, Battery.IsCharging ? "\uE945" : null));
+        if (metrics.Network) rows.Add(("NET", $"{SystemStats.NetDownKbps:0} \u2193  {SystemStats.NetUpKbps:0} \u2191 KB/s", TextKit.Emoji, null));
+        if (rows.Count == 0) rows.Add(("—", "No metrics enabled", null, null));
+
+        var rowY = top + 34f;
+        foreach (var (label, value, face, icon) in rows)
+        {
+            TextKit.Draw(canvas, label, left + 14, rowY + 5, 10.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+            var valueFace = face ?? TextKit.Monospace;
+            var valueWidth = TextKit.Measure(value, 10.5f, valueFace);
+            TextKit.Draw(canvas, value, left + width - 14 - valueWidth - (icon is null ? 0 : 16),
+                rowY + 5, 10.5f, ShellUi.Text, valueFace);
+            if (icon is not null)
+            {
+                ShellUi.DrawGlyph(canvas, icon, left + width - 14 - 9, rowY + 12, 11.5f, ShellUi.Ok);
+            }
+            rowY += 24;
+        }
+    }
+
+    private void DrawMediaWidget(SKCanvas canvas, float left, float top, float width)
+    {
+        if (Media is not { } media) return;
+        var cardH = 80f;
+        var right = left + width;
+        TextKit.Draw(canvas,
+            ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", width - 130, 12.5f, TextKit.Semibold),
+            left + 12, top + 33, 12.5f, ShellUi.Text, TextKit.Semibold);
+        TextKit.Draw(canvas,
+            ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", width - 130, 10f, TextKit.Regular),
+            left + 12, top + 50, 10f, ShellUi.Fade(ShellUi.Muted, 1));
+        DrawTimeline(canvas, left + 12, top + cardH - 9, width - 24, media);
+
+        var buttonCy = top + cardH / 2;
+        var buttonRight = right - 16;
+        DrawIconButton(canvas, buttonRight - 66, buttonCy, "\uE892", MediaPrevRequested);
+        DrawIconButton(canvas, buttonRight - 34, buttonCy, media.Playing ? "\uE769" : "\uE768", MediaPlayPauseRequested);
+        DrawIconButton(canvas, buttonRight - 2, buttonCy, "\uE893", MediaNextRequested);
+    }
+
+    private void DrawNotesWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var text = settings.Widgets.Notes;
+        var x = left + 14;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            TextKit.Draw(canvas, "Jot something down — tap this card to open the editor.",
+                x, top + 46, 11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
+        }
+        else
+        {
+            var lines = text.Replace("\r", "").Split('\n');
+            var shown = Math.Min(3, lines.Length);
+            for (var i = 0; i < shown; i++)
+            {
+                TextKit.Draw(canvas, ShellUi.Ellipsize(lines[i], width - 28, 11.5f, TextKit.Regular),
+                    x, top + 40 + i * 17, 11.5f, ShellUi.Text);
+            }
+            if (lines.Length > shown)
+            {
+                TextKit.Draw(canvas, $"\u2026 +{lines.Length - shown} more lines", x, top + 40 + shown * 17,
+                    10.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
+            }
+        }
+        var count = $"{text.Length} chars";
+        TextKit.Draw(canvas, count, left + width - 14 - TextKit.Measure(count, 10, TextKit.Monospace), top + 90,
+            10f, ShellUi.Fade(ShellUi.Muted, 0.85f), TextKit.Monospace);
+        RegisterButton(new SKRect(left + 10, top + 32, left + width - 10, top + 100), NotesEditRequested);
+    }
+
+    private void DrawWeatherWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var config = settings.Widgets.Weather;
+        var x = left + 14;
+        var snapshot = Weather;
+        if (snapshot is null && !config.HasLocation)
+        {
+            TextKit.Draw(canvas, "No location set yet.", x, top + 42, 11.5f, ShellUi.Fade(ShellUi.Muted, 1));
+            var chip = ChipRight(canvas, "set location", left + width - 22, top + 50, false);
+            RegisterButton(chip, WeatherEditRequested);
+            return;
+        }
+        if (snapshot is null)
+        {
+            TextKit.Draw(canvas, $"Loading weather for {config.City}\u2026", x, top + 46, 11.5f, ShellUi.Fade(ShellUi.Muted, 1));
+            return;
+        }
+        TextKit.DrawCentered(canvas, snapshot.Emoji, x + 18, top + 50, 24, ShellUi.Text, TextKit.Emoji);
+        TextKit.Draw(canvas, $"{Math.Round(snapshot.Temp)}", x + 44, top + 40, 26, ShellUi.Text, TextKit.Semibold);
+        TextKit.Draw(canvas, "\u00B0", x + 44 + TextKit.Measure($"{Math.Round(snapshot.Temp)}", 26, TextKit.Semibold), top + 40, 26, ShellUi.Fade(ShellUi.Text, 0.8f), TextKit.Semibold);
+        var meta = $"{snapshot.Label} \u00B7 feels {Math.Round(snapshot.Feels)}\u00B0 \u00B7 H {Math.Round(snapshot.Max)}\u00B0 L {Math.Round(snapshot.Min)}\u00B0";
+        TextKit.Draw(canvas, ShellUi.Ellipsize(meta, width - 30, 10.5f, TextKit.Regular), x, top + 74, 10.5f, ShellUi.Fade(ShellUi.Muted, 1));
+        TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, width - 30, 10f, TextKit.Regular), x, top + 90, 10f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+    }
+
+    private void DrawLauncherWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var apps = settings.Widgets.LauncherApps.Take(12).ToList();
+        if (apps.Count == 0)
+        {
+            TextKit.Draw(canvas, "No apps yet — add some from the \u2699 on this card.", left + 14, top + 42,
+                11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
+            var chip = ChipRight(canvas, "add apps", left + width - 22, top + 50, false);
+            RegisterButton(chip, LauncherEditRequested);
+            return;
+        }
+
+        const int columns = 4;
+        var tileWidth = (width - 28) / columns;
+        const float tileHeight = 48f;
+        var gridY = top + 38f;
+        for (var i = 0; i < apps.Count; i++)
+        {
+            var col = i % columns;
+            var row = i / columns;
+            var centerX = left + 14 + col * tileWidth + tileWidth / 2;
+            var centerY = gridY + row * 58 + tileHeight / 2;
+            var hovering = Math.Abs(_cursorX - centerX) <= tileWidth / 2 - 4 && Math.Abs(_cursorY - centerY) <= tileHeight / 2;
+            if (hovering)
+            {
+                FillRound(canvas, centerX - tileWidth / 2 + 2, centerY - tileHeight / 2, tileWidth - 4, tileHeight, 10, ShellUi.CardHover);
+            }
+            ShellUi.FillCircle(canvas, centerX, centerY - 12, 14, ShellUi.Fade(ShellUi.Accent, hovering ? 0.5 : 0.22));
+            var name = apps[i].Label.Trim();
+            var initial = name.Length > 0 ? char.ToUpperInvariant(name[0]).ToString() : "\u2022";
+            TextKit.DrawCentered(canvas, initial, centerX, centerY - 12, 12.5f,
+                hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.9f), TextKit.Semibold);
+            TextKit.DrawCentered(canvas, ShellUi.Ellipsize(apps[i].Label, tileWidth - 6, 9.5f, TextKit.Regular),
+                centerX, centerY + 15, 9.5f, ShellUi.Fade(ShellUi.Muted, 1));
+            var app = apps[i];
+            RegisterButton(new SKRect(centerX - tileWidth / 2, centerY - tileHeight / 2,
+                centerX + tileWidth / 2, centerY + tileHeight / 2), () => LaunchAppRequested?.Invoke(app));
+        }
+    }
+
+    private void DrawFocusWidget(SKCanvas canvas, float left, float top, float width)
+    {
+        var right = left + width;
+        var isBreak = Focus.Phase == FocusTimerPhase.Break;
+        var accent = isBreak ? ShellUi.Ok : ShellUi.Accent;
+        var remaining = FocusLabel();
+        if (remaining.Length > 0)
+        {
+            var remainingWidth = TextKit.Measure(remaining, 16, TextKit.Monospace);
+            TextKit.Draw(canvas, remaining, right - 22 - remainingWidth, top + 9, 16,
                 isBreak ? ShellUi.Ok : ShellUi.Text, TextKit.Monospace);
-
-            var barY = top + 34;
-            var barLeft = left + 12;
-            var barW = rect.Width - pad * 2 - 24;
-            FillRound(canvas, barLeft, barY, barW, 4, 2, ShellUi.Hairline);
-            var progress = Focus.ProgressAt(DateTimeOffset.UtcNow);
-            if (progress > 0.01)
-            {
-                FillRound(canvas, barLeft, barY, (float)(barW * progress), 4, 2, ShellUi.Fade(accent, 0.9));
-            }
-
-            DrawFocusActions(canvas, left, top, rect.Width - pad * 2, accent);
-            yCursor = top + cardH + 12;
         }
 
-        // Clipboard card.
-        if (settings.Features.ClipboardHistoryEnabled)
+        var barY = top + 34;
+        var barLeft = left + 12;
+        var barWidth = width - 24;
+        FillRound(canvas, barLeft, barY, barWidth, 4, 2, ShellUi.Hairline);
+        var progress = Focus.ProgressAt(DateTimeOffset.UtcNow);
+        if (progress > 0.01)
         {
-            var rows = Math.Clamp(ClipboardItems.Count, 1, 5);
-            var cardH = 38f + rows * 36;
-            var top = yCursor + 4;
-            DrawCard(canvas, left, top, rect.Width - pad * 2, cardH);
+            FillRound(canvas, barLeft, barY, (float)(barWidth * progress), 4, 2, ShellUi.Fade(accent, 0.9));
+        }
+        DrawFocusActions(canvas, left, top, width, accent);
+    }
 
-            TextKit.Draw(canvas, "CLIPBOARD", left + 12, top + 10, 8.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
-            var clearRect = ChipRight(canvas, "clear", right - 10, top + 16, false);
-            RegisterButton(clearRect, ClearClipboardRequested);
+    private void DrawClipboardWidget(SKCanvas canvas, float left, float top, float width)
+    {
+        var rows = Math.Clamp(ClipboardItems.Count, 1, 5);
+        var right = left + width;
+        var clearRect = ChipRight(canvas, "clear", right - 10, top + 16, false);
+        RegisterButton(clearRect, ClearClipboardRequested);
 
-            if (ClipboardItems.Count == 0)
+        if (ClipboardItems.Count == 0)
+        {
+            TextKit.Draw(canvas, "Nothing copied yet — text, files and images you copy will appear here.",
+                left + 12, top + 44, 10.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+        }
+        else
+        {
+            var rowY = top + 34f;
+            for (var i = 0; i < Math.Min(rows, ClipboardItems.Count); i++)
             {
-                TextKit.Draw(canvas, "Nothing copied yet — text, files and images you copy will appear here.",
-                    left + 12, top + 42, 10.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
-            }
-            else
-            {
-                var rowY = top + 34f;
-                for (var i = 0; i < Math.Min(rows, ClipboardItems.Count); i++)
-                {
-                    DrawClipboardRow(canvas, left, right, rowY, ClipboardItems[i]);
-                    rowY += 36;
-                }
+                DrawClipboardRow(canvas, left, right, rowY, ClipboardItems[i]);
+                rowY += 36;
             }
         }
+    }
+
+    // -------------------------------------------------- widget management
+
+    private void MoveWidget(string id, int direction)
+    {
+        var enabled = _settings.Current.Widgets.Enabled.ToList();
+        var from = enabled.IndexOf(id);
+        var to = from + direction;
+        if (from < 0 || to < 0 || to >= enabled.Count) return;
+        (enabled[from], enabled[to]) = (enabled[to], enabled[from]);
+        _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+    }
+
+    private void RemoveWidget(string id)
+    {
+        _settings.Update(s => s with
+        {
+            Widgets = s.Widgets with { Enabled = s.Widgets.Enabled.Where(w => w != id).ToList() },
+        });
+    }
+
+    private void AddWidget(string id)
+    {
+        _settings.Update(s => s.Widgets.Enabled.Contains(id)
+            ? s
+            : s with { Widgets = s.Widgets with { Enabled = s.Widgets.Enabled.Append(id).ToList() } });
     }
 
     private void DrawFocusActions(SKCanvas canvas, float left, float top, float width, Col accent)

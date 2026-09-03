@@ -18,10 +18,15 @@ The engine (`src/Winotch/Engine`) is deliberately small — a scene of widgets l
 ## Features (current)
 
 - **Springy notch**: collapses to a pill (clock + battery + playing/active-focus chips), springs open on hover, hangs flush against the top edge in Notch style or floats in Island style (toggle in Settings).
-- **Media**: now playing title/artist with transport controls and a timeline via Windows SMTC; media-change toasts.
-- **Focus timer**: 25/5 and 50/10 presets, pause/resume/skip/stop, live countdown chip in the pill, completion toasts.
+- **Widget deck**: the expanded panel is a stack of widget cards — clock, system stats, now playing, notes, weather, app launcher, focus timer, clipboard. Use **+** in the panel header to add widgets and the **↑ ↓** / **⚙** / **✕** buttons on each card to reorder, configure, or remove them. Order and settings persist.
+- **Media widget**: now playing title/artist with transport controls and a timeline via Windows SMTC; media-change toasts.
+- **System stats widget**: live CPU, memory, battery and network rates (per-metric toggles via the ⚙ on the card).
+- **Notes widget**: free-form scratchpad persisted in settings; tap the card to edit.
+- **Weather widget**: current conditions, feels-like, today's high/low and city from Open-Meteo (no API key); set the city via the ⚙ on the card.
+- **App launcher widget**: a grid of app shortcuts (chrome, edge, terminal, VS Code, notepad, calculator, paint, spotify, steam presets or any path); click to launch, ⚙ to manage.
+- **Focus timer widget**: 25/5 and 50/10 presets, pause/resume/skip/stop, live countdown chip in the pill, completion toasts.
+- **Clipboard widget**: in-memory last-10 text/files/images with thumbnails; copy-again, delete, clear. Never written to disk.
 - **Status alerts**: charger connected (with an animated battery-fill flourish), charger disconnected, low battery (≤20%), Wi-Fi loss/reconnect.
-- **Clipboard history**: in-memory last-10 text/files/images with thumbnails; copy-again, delete, clear. Never written to disk.
 - **Settings window** (gear icon or tray): 24-hour clock, show date, notch/island style, toast + feature toggles, start with Windows.
 - **Tray menu**: settings, pause/resume the notch, start with Windows, exit.
 

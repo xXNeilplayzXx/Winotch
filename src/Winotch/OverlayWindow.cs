@@ -35,6 +35,8 @@ public sealed class OverlayWindow : Window, IDisposable
     private readonly MediaService _media = new();
     private readonly PriorityStatusTracker _status = new();
     private readonly ClipboardHistoryStore _clipboardStore = new();
+    private readonly WeatherService _weather = new();
+    private readonly SystemStatsSampler _statsSampler = new();
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
 
     private readonly DispatcherTimer _clipboardTimer;
@@ -122,6 +124,7 @@ public sealed class OverlayWindow : Window, IDisposable
         StartFrameLoop();
         StartStatusPolling();
         StartWifiPolling();
+        StartWeatherPolling();
         _media.Start();
 
         _tray = new TrayIconService(this, _settings, _startup);
@@ -144,6 +147,7 @@ public sealed class OverlayWindow : Window, IDisposable
         _tray = null;
         _wifiCts?.Cancel();
         _media.Dispose();
+        _weather.Dispose();
         _clipboardTimer.Stop();
         _surface.PaintSurface -= OnPaintSurface;
     }
@@ -164,6 +168,113 @@ public sealed class OverlayWindow : Window, IDisposable
             _clipboardStore.Clear();
             RefreshClipboardView();
         };
+        _shell.NotesEditRequested += OpenNotesEditor;
+        _shell.WeatherEditRequested += OpenWeatherEditor;
+        _shell.LauncherEditRequested += OpenLauncherEditor;
+        _shell.SystemMetricsEditRequested += OpenMetricsEditor;
+        _shell.LaunchAppRequested += LaunchApp;
+    }
+
+    // ----------------------------------------------------- widget editing
+
+    private void OpenNotesEditor()
+    {
+        var window = new NotesEditWindow(_settings.Current.Widgets.Notes);
+        if (window.ShowDialog() == true && window.Result is { } text)
+        {
+            _settings.Update(s => s with { Widgets = s.Widgets with { Notes = text } });
+        }
+    }
+
+    private void OpenWeatherEditor()
+    {
+        var window = new WeatherEditWindow(_settings.Current.Widgets.Weather.City);
+        if (window.ShowDialog() == true && window.City is { } city)
+        {
+            _ = ResolveAndFetchWeatherAsync(city);
+        }
+    }
+
+    private async Task ResolveAndFetchWeatherAsync(string city)
+    {
+        try
+        {
+            var found = await _weather.SearchAsync(city);
+            if (found is not { } hit)
+            {
+                _shell.ShowToast(new ToastSpec("", "Weather", $"Couldn't find “{city}” — check the name and try again.", 5));
+                return;
+            }
+            _settings.Update(s => s with
+            {
+                Widgets = s.Widgets with
+                {
+                    Weather = new WeatherWidgetConfig { City = hit.Name, Lat = hit.Lat, Lon = hit.Lon },
+                },
+            });
+            await FetchWeatherAsync();
+        }
+        catch
+        {
+            _shell.ShowToast(new ToastSpec("", "Weather", "Lookup failed — are you offline?", 5));
+        }
+    }
+
+    private void StartWeatherPolling()
+    {
+        _ = FetchWeatherAsync();
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMinutes(15),
+        };
+        timer.Tick += async (_, _) => await FetchWeatherAsync();
+        timer.Start();
+    }
+
+    private async Task FetchWeatherAsync()
+    {
+        var config = _settings.Current.Widgets.Weather;
+        if (!config.HasLocation) return;
+        try
+        {
+            var snapshot = await _weather.GetForecastAsync(config.City, config.Lat!.Value, config.Lon!.Value);
+            if (snapshot is not null) _shell.SetWeather(snapshot);
+        }
+        catch
+        {
+            // Offline or endpoint hiccup — keep the last snapshot.
+        }
+    }
+
+    private void OpenLauncherEditor()
+    {
+        var window = new LauncherEditWindow(_settings.Current.Widgets.LauncherApps);
+        if (window.ShowDialog() == true && window.Result is { } apps)
+        {
+            _settings.Update(s => s with { Widgets = s.Widgets with { LauncherApps = apps } });
+        }
+    }
+
+    private void OpenMetricsEditor()
+    {
+        var window = new MetricsEditWindow(_settings.Current.Widgets.SystemMetrics);
+        if (window.ShowDialog() == true && window.Result is { } result)
+        {
+            _settings.Update(s => s with { Widgets = s.Widgets with { SystemMetrics = result } });
+        }
+    }
+
+    private void LaunchApp(LauncherApp app)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(app.Path) { UseShellExecute = true });
+            _shell.ShowToast(new ToastSpec("", "Launched", app.Label, 3.2));
+        }
+        catch
+        {
+            _shell.ShowToast(new ToastSpec("", "Launch failed", $"Couldn't start “{app.Label}” — check the path in the launcher settings.", 5));
+        }
     }
 
     private void OnMediaChanged(object? sender, MediaSnapshot? snapshot)
@@ -198,6 +309,7 @@ public sealed class OverlayWindow : Window, IDisposable
     {
         _battery = SystemStatus.GetBattery();
         _shell.SetBattery(_battery);
+        _shell.SetSystemStats(_statsSampler.Sample());
         FeedStatusTracker();
     }
 
