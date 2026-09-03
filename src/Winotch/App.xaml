@@ -75,5 +75,34 @@
             <Setter Property="FontFamily" Value="Consolas, Courier New" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+
+        <!-- Settings toggle: an iOS-style switch (track + sliding knob). -->
+        <Style x:Key="NotchSwitch" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border x:Name="Track" Width="40" Height="22" CornerRadius="11"
+                                    Background="{StaticResource NotchPanelHover}"
+                                    BorderBrush="{StaticResource NotchStroke}" BorderThickness="1" />
+                            <Ellipse x:Name="Knob" Width="16" Height="16"
+                                     Fill="{StaticResource NotchMutedText}"
+                                     HorizontalAlignment="Left" Margin="3,0,0,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{StaticResource NotchAccent}" />
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource NotchAccent}" />
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
+                                <Setter TargetName="Knob" Property="Fill" Value="#06131A" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>
