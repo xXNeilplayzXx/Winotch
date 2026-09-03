@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Winotch;
 
 public sealed record ClipboardEntry(long Id, string Kind, string? Text, string[]? Files, string? ThumbBase64, DateTimeOffset At)

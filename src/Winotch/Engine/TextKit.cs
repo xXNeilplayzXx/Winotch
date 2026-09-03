@@ -12,7 +12,7 @@ public static class TextKit
         weight: SKFontStyleWeight.SemiBold);
     private static readonly SKTypeface UiBold = Pick("Segoe UI Variable Text", "Segoe UI", "Arial",
         weight: SKFontStyleWeight.Bold);
-    private static readonly SKTypeface Symbols = Pick("Segoe Fluent Icons", "Segoe MDL2 Assets");
+    private static readonly SKTypeface Symbols = Pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol");
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface UiEmoji = Pick("Segoe UI Emoji", "Segoe UI Symbol", "Arial");
 

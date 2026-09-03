@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -273,8 +274,8 @@ public sealed class OverlayWindow : Window, IDisposable
                 }
             }
         }
-        catch (ExternalException) { }
         catch (System.Runtime.InteropServices.COMException) { }
+        catch (ExternalException) { }
     }
 
     private void RefreshClipboardView() => _shell.SetClipboard(_clipboardStore.Items);
@@ -291,7 +292,7 @@ public sealed class OverlayWindow : Window, IDisposable
                     Forms.Clipboard.SetText(entry.Text ?? "");
                     break;
                 case "files" when entry.Files is { Length: > 0 }:
-                    var drop = new Forms.Specialized.StringCollection();
+                    var drop = new System.Collections.Specialized.StringCollection();
                     foreach (var file in entry.Files) drop.Add(file);
                     Forms.Clipboard.SetFileDropList(drop);
                     break;
@@ -304,8 +305,8 @@ public sealed class OverlayWindow : Window, IDisposable
                     break;
             }
         }
-        catch (ExternalException) { }
         catch (System.Runtime.InteropServices.COMException) { }
+        catch (ExternalException) { }
     }
 
     private void DeleteClipboardEntry(long id)
@@ -378,7 +379,8 @@ public sealed class OverlayWindow : Window, IDisposable
     private void PositionOnPrimaryMonitor()
     {
         var monitors = MonitorTargeting.CaptureScreens();
-        var monitor = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
+        var monitor = monitors.FirstOrDefault(m => m.IsPrimary);
+        if (monitor.DeviceName is null && monitors.Count > 0) monitor = monitors[0];
         var scale = monitor.DpiScaleX;
         Left = monitor.LeftDip;
         Top = monitor.TopDip;
@@ -396,8 +398,8 @@ public sealed class OverlayWindow : Window, IDisposable
             var rect = WindowScreenRect();
             var xScreen = (short)((long)lParam & 0xFFFF);
             var yScreen = (short)(((long)lParam >> 16) & 0xFFFF);
-            var dipX = (xScreen - rect.Left) / scale;
-            var dipY = (yScreen - rect.Top) / scale;
+        var dipX = (xScreen - rect.Left) / scale;
+        var dipY = (yScreen - rect.Top) / scale;
             if (!_shell.IsInteractiveAt(dipX, dipY))
             {
                 handled = true;

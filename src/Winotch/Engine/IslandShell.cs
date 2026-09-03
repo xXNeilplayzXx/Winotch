@@ -270,18 +270,23 @@ public sealed class IslandShell
                 canvas.DrawRect(rect, body);
             }
 
-            var content = rect;
             if (_blend < 0.999)
             {
-                var layer = (byte)((1 - _blend) * 255);
-                canvas.SaveLayerAlpha(content, layer);
+                using var miniLayer = new SKPaint
+                {
+                    Color = new SKColor(255, 255, 255, (byte)((1 - _blend) * 255)),
+                };
+                canvas.SaveLayer(miniLayer);
                 DrawMini(canvas, rect);
                 canvas.Restore();
             }
             if (_blend > 0.001)
             {
-                var layer = (byte)(_blend * 255);
-                canvas.SaveLayerAlpha(content, layer);
+                using var panelLayer = new SKPaint
+                {
+                    Color = new SKColor(255, 255, 255, (byte)(_blend * 255)),
+                };
+                canvas.SaveLayer(panelLayer);
                 DrawPanel(canvas, rect);
                 canvas.Restore();
             }
@@ -641,7 +646,7 @@ public sealed class IslandShell
                 var fill = toast.FlourishFill;
                 if (fill > 0.01)
                 {
-                    FillRound(canvas, tx + 18, barY, (tw - 36) * fill, 3, 1.5f, ShellUi.Ok);
+                    FillRound(canvas, tx + 18, barY, (float)((tw - 36) * fill), 3, 1.5f, ShellUi.Ok);
                 }
             }
             y += cardH + 9;

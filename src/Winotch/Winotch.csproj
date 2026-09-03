@@ -24,4 +24,12 @@
     <PackageReference Include="SkiaSharp.Views.WPF" Version="2.88.8" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- WPF and WinForms are used side by side; drop the auto-global usings
+         WinForms injects so common names (Application, Brush, CheckBox, …)
+         resolve to the WPF types each file imports explicitly. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
 </Project>
