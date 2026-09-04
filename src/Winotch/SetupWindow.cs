@@ -20,6 +20,11 @@ public sealed class SetupWindow : Window
     private DisplayMode _display;
     private string _displayDevice = "";
     private List<string> _widgets;
+    private List<LauncherApp> _launcherApps;
+    private Border? _launcherCard;
+    private WrapPanel? _launcherChips;
+    private TextBlock? _launcherEmpty;
+    private bool _launcherScanStarted;
 
     private readonly StackPanel _pageHost = new();
     private Border _displayMapCard = null!;
@@ -37,6 +42,7 @@ public sealed class SetupWindow : Window
         _display = settings.Current.Appearance.Display;
         _displayDevice = settings.Current.Appearance.DisplayDeviceName;
         _widgets = new List<string>(settings.Current.Widgets.Enabled);
+        _launcherApps = new List<LauncherApp>(settings.Current.Widgets.LauncherApps);
 
         DialogUi.ApplyFrame(this, "Welcome to Winotch");
         Title = settings.WasCreated ? "Welcome to Winotch" : "Winotch — Setup";
@@ -243,7 +249,10 @@ public sealed class SetupWindow : Window
         _displayMapCard.Visibility = _display == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
         _pageHost.Children.Add(_displayMapCard);
 
+        _launcherCard = BuildLauncherCard();
         _pageHost.Children.Add(BuildWidgetsCard());
+        _pageHost.Children.Add(_launcherCard);
+        UpdateLauncherCardVisibility();
 
         var back = DialogUi.Button("Back");
         back.Click += (_, _) => ShowPage1();
@@ -339,6 +348,143 @@ public sealed class SetupWindow : Window
 
         var stack = new StackPanel { Children = { text, wrap } };
         return stack;
+    }
+
+    /// <summary>The launcher-app picker: when the App launcher widget is
+    /// enabled, Windows' Start Menu is scanned for installed applications
+    /// (once, on a background thread) and offered as toggle chips so the
+    /// launcher is useful the moment setup finishes.</summary>
+    private Border BuildLauncherCard()
+    {
+        var text = new TextBlock
+        {
+            Text = "LAUNCHER APPS",
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = DialogUi.Muted,
+            FontFamily = new FontFamily("Consolas, Courier New"),
+            Margin = new Thickness(4, 0, 0, 6),
+        };
+
+        _launcherEmpty = new TextBlock
+        {
+            Text = "Scanning installed apps\u2026",
+            FontSize = 11.5,
+            Foreground = DialogUi.Muted,
+            Margin = new Thickness(4, 0, 4, 8),
+        };
+
+        _launcherChips = new WrapPanel { Margin = new Thickness(4, 0, 4, 0) };
+
+        var stack = new StackPanel { Children = { text, _launcherEmpty, _launcherChips } };
+        return new Border
+        {
+            Child = stack,
+            Background = DialogUi.Panel,
+            BorderBrush = DialogUi.Stroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(10, 10, 10, 10),
+            Margin = new Thickness(4, 12, 4, 0),
+        };
+    }
+
+    /// <summary>The picker only makes sense when the App launcher widget is
+    /// part of this setup; show or hide the whole card accordingly.</summary>
+    private void UpdateLauncherCardVisibility()
+    {
+        if (_launcherCard is { } card)
+        {
+            card.Visibility = _widgets.Contains("launcher")
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        if (_widgets.Contains("launcher") && !_launcherScanStarted)
+        {
+            _launcherScanStarted = true;
+            StartLauncherScan();
+        }
+    }
+
+    /// <summary>Resolve Start Menu shortcuts on a background thread (COM
+    /// objects are created on that thread) and marshal the results back to
+    /// the UI thread to fill the chip row.</summary>
+    private void StartLauncherScan()
+    {
+        var worker = new System.Threading.Thread(() =>
+        {
+            List<LauncherApp> found;
+            try
+            {
+                found = LauncherScanner.ScanInstalledApps();
+            }
+            catch
+            {
+                found = [];
+            }
+            Dispatcher.Invoke(() =>
+            {
+                if (_launcherEmpty is { } empty)
+                {
+                    empty.Text = found.Count == 0
+                        ? "No installed apps found \u2014 add shortcuts from the widget's \u2699 settings later."
+                        : "Tap to include or exclude:";
+                }
+                PaintLauncherChips(found);
+            });
+        })
+        {
+            IsBackground = true,
+            Name = "LauncherScan",
+        };
+        worker.SetApartmentState(System.Threading.ApartmentState.STA); // COM (WScript.Shell)
+        worker.Start();
+    }
+
+    private void PaintLauncherChips(List<LauncherApp> found)
+    {
+        if (_launcherChips is null) return;
+        _launcherChips.Children.Clear();
+        foreach (var app in found)
+        {
+            var selected = _launcherApps.Any(a =>
+                string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
+            var chipLabel = new TextBlock
+            {
+                Text = (selected ? "\u2713 " : "+ ") + app.Label,
+                FontSize = 11.5,
+                FontWeight = FontWeights.SemiBold,
+            };
+            var chip = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                Background = selected ? DialogUi.Accent : DialogUi.CardHover,
+                BorderBrush = selected ? DialogUi.Accent : DialogUi.Stroke,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 6, 6),
+                Cursor = Cursors.Hand,
+                Child = chipLabel,
+            };
+            chip.MouseLeftButtonUp += (_, _) =>
+            {
+                var already = _launcherApps.Any(a =>
+                    string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
+                if (already)
+                {
+                    _launcherApps.RemoveAll(a =>
+                        string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
+                }
+                else
+                {
+                    _launcherApps.Add(app);
+                }
+                chipLabel.Text = (already ? "+ " : "\u2713 ") + app.Label;
+                chip.Background = already ? DialogUi.CardHover : DialogUi.Accent;
+                chip.BorderBrush = already ? DialogUi.Stroke : DialogUi.Accent;
+            };
+            _launcherChips.Children.Add(chip);
+        }
     }
 
     /// <summary>The visual display map: each monitor drawn as a button scaled
@@ -486,6 +632,7 @@ public sealed class SetupWindow : Window
                     Paint();
                 };
                 list.Children.Add(row);
+                UpdateLauncherCardVisibility();
             }
 
             addWrap.Children.Clear();
@@ -515,6 +662,7 @@ public sealed class SetupWindow : Window
                     Paint();
                 };
                 addWrap.Children.Add(chip);
+                UpdateLauncherCardVisibility();
             }
         }
         Paint();
@@ -550,7 +698,11 @@ public sealed class SetupWindow : Window
                 Display = _display,
                 DisplayDeviceName = _displayDevice,
             },
-            Widgets = s.Widgets with { Enabled = _widgets },
+            Widgets = s.Widgets with
+            {
+                Enabled = _widgets,
+                LauncherApps = _launcherApps.Count > 0 ? _launcherApps : s.Widgets.LauncherApps,
+            },
         });
         DialogResult = true;
     }
