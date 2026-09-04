@@ -65,6 +65,18 @@ public sealed class UpdateService
     /// pure so the tests exercise it without the network.</summary>
     public static UpdateInfo? Parse(string json)
     {
+        try
+        {
+            return TryParse(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static UpdateInfo? TryParse(string json)
+    {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (!root.TryGetProperty("tag_name", out var tagElement)) return null;
