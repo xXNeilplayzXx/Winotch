@@ -41,14 +41,22 @@ public static class SystemVolume
     public static void SetLevel(float level01)
     {
         if (Endpoint is null) return;
-        try { Endpoint.SetMasterVolumeLevelScalar(Math.Clamp(level01, 0f, 1f), ref Guid.Empty); }
+        try
+        {
+            var ctx = Guid.Empty;
+            Endpoint.SetMasterVolumeLevelScalar(Math.Clamp(level01, 0f, 1f), ref ctx);
+        }
         catch { }
     }
 
     public static void SetMuted(bool muted)
     {
         if (Endpoint is null) return;
-        try { Endpoint.SetMute(muted ? 1 : 0, ref Guid.Empty); }
+        try
+        {
+            var ctx = Guid.Empty;
+            Endpoint.SetMute(muted ? 1 : 0, ref ctx);
+        }
         catch { }
     }
 
