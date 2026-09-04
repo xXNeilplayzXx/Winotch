@@ -222,7 +222,7 @@ public sealed class SetupWindow : Window
         {
             _display = value;
             _displayMapCard.Visibility = value == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
-        }));
+        })));
 
         _displayMapCard = BuildDisplayMap();
         _displayMapCard.Visibility = _display == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
