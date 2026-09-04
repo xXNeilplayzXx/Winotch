@@ -43,7 +43,12 @@ public sealed class SetupWindow : Window
         SizeToContent = SizeToContent.Manual;
         ResizeMode = ResizeMode.NoResize;
 
-        Content = _pageHost;
+        Content = new ScrollViewer
+        {
+            Content = _pageHost,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
         ShowPage1();
     }
 
