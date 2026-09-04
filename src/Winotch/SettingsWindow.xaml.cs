@@ -258,6 +258,9 @@ public partial class SettingsWindow : Window
                         Appearance = appearance,
                     });
                 }),
+            MakeToggleRow("Vertical text", "Side mode: keep letters upright, stacked top-to-bottom",
+                s.Appearance.VerticalText,
+                v => UpdateAppearance(x => x with { VerticalText = v })),
         };
         if (_enterDragMode is not null)
         {

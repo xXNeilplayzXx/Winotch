@@ -47,7 +47,7 @@ Works on **Windows 10 (2004+)** and **Windows 11**.
 - **Pill chips** — show or hide calls, now playing, focus timer and battery chips right on the collapsed pill, plus an optional date chip.
 - **Drag it anywhere** — hit the **Drag mode** button in Settings and the pill switches to a draggable handle with **Done / Reset** buttons: drag it anywhere on screen, **Done** keeps the spot, **Reset** snaps back to top-center. The pill can never be pushed off screen.
 - **Display targeting** — show it on your main monitor, one specific display (pick by name or on a visual map of your layout), **all monitors**, or **follow the active window** to whichever screen you're using.
-- **Side mode** — attach the pill to the **left or right edge** (Settings → Pill → Edge attachment): it rotates 90° into a slim vertical capsule that hugs the side of your screen and slides along it when dragged. Hover it and the panel slides out beside the capsule — opening downward when there's room, upward when the capsule sits low.
+- **Side mode** — attach the pill to the **left or right edge** (Settings → Pill → Edge attachment): it rotates 90° into a slim vertical capsule that hugs the side of your screen and slides along it when dragged. Hover it and the panel slides out beside the capsule — opening downward when there's room, upward when the capsule sits low. **Vertical text** (Settings → Pill) renders the pill's letters upright, stacked top-to-bottom, instead of rotated 90°.
 - **Click-through everywhere else** — the rest of the screen stays fully interactive; the notch never steals focus and never shows in the taskbar or Alt-Tab.
 
 ### Widgets

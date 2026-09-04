@@ -82,6 +82,11 @@ public sealed record AppearanceSettings
     public string CustomIdleText { get; init; } = "";
     public bool DragToMove { get; init; } = true;
 
+    /// <summary>In side mode (pill attached to the left/right edge), render
+    /// the pill's text with upright letters stacked top-to-bottom instead of
+    /// rotated 90° along the edge.</summary>
+    public bool VerticalText { get; init; }
+
     public DisplayMode Display { get; init; } = DisplayMode.Main;
     public string DisplayDeviceName { get; init; } = "";
 

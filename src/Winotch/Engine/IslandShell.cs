@@ -486,6 +486,12 @@ public sealed class IslandShell
                 length = 14 + TextKit.Measure("Done", 11f, TextKit.Semibold) + 24
                     + 10 + TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24 + 14;
             }
+            else if (appearance.VerticalText)
+            {
+                // Upright letters: the capsule's length follows the stacked
+                // characters, not the rotated row width.
+                length = VerticalTextLength();
+            }
             else
             {
                 length = 10;
@@ -1019,8 +1025,21 @@ public sealed class IslandShell
 
     /// <summary>Rotated drawing for the vertical edge pill: translate to the
     /// capsule center, rotate 90°, and lay the row out along the (now screen-
-    /// vertical) local X axis. Text reads top-to-bottom down the edge.</summary>
+    /// vertical) local X axis. Text reads top-to-bottom down the edge. With
+    /// the Vertical text option on, the letters stay upright instead.</summary>
     private void DrawMiniVertical(SKCanvas canvas, SKRect rect)
+    {
+        if (!_dragMode && _settings.Current.Appearance.VerticalText)
+        {
+            DrawMiniVerticalText(canvas, rect);
+            return;
+        }
+        DrawMiniRotated(canvas, rect);
+    }
+
+    /// <summary>The 90°-rotated row layout used by the side pill by default
+    /// (and always for the drag-mode Done / Reset chips).</summary>
+    private void DrawMiniRotated(SKCanvas canvas, SKRect rect)
     {
         canvas.Save();
         canvas.Translate(rect.MidX, rect.MidY);
@@ -1036,6 +1055,98 @@ public sealed class IslandShell
             _buttonMap = null;
         }
         canvas.Restore();
+    }
+
+    /// <summary>Upright letters for the side pill (Settings → Pill → Vertical
+    /// text): instead of rotating the row 90°, each character of the pill's
+    /// text is drawn on its own line, reading top-to-bottom down the edge.</summary>
+    private void DrawMiniVerticalText(SKCanvas canvas, SKRect rect)
+    {
+        if (_dragMode)
+        {
+            DrawMiniRotated(canvas, rect);
+            return;
+        }
+        var length = VerticalTextLength();
+        var y = -length / 2 + 8;
+        canvas.Save();
+        canvas.Translate(rect.MidX, rect.MidY);
+        try
+        {
+            _buttonMap = canvas.TotalMatrix;
+            foreach (var item in BuildMiniRow())
+            {
+                if (item.Kind == MiniKind.Led)
+                {
+                    ShellUi.FillCircle(canvas, 0, (float)y, 3.4f, LedColor());
+                    y += 16;
+                    continue;
+                }
+                var (size, face, color) = MiniTextStyle(item);
+                var step = size + 3;
+                foreach (var ch in MiniItemText(item))
+                {
+                    if (Math.Abs(y) > _h / 2 - 8) break;
+                    TextKit.DrawCentered(canvas, ch.ToString(), 0, (float)y, size, color, face);
+                    y += step;
+                }
+                y += 8;
+            }
+        }
+        finally
+        {
+            _buttonMap = null;
+        }
+        canvas.Restore();
+    }
+
+    /// <summary>The text a mini-row item shows — shared by the upright side
+    /// rendering and the capsule's length calculation so they always agree.</summary>
+    private string MiniItemText(MiniItem item)
+    {
+        var settings = _settings.Current;
+        return item.Kind switch
+        {
+            MiniKind.Brand => "Winotch",
+            MiniKind.Text => _idleMarquee && _marqueeText is not null ? _marqueeText : IdleText(settings),
+            MiniKind.Clock => ClockText(settings),
+            MiniKind.Date => ShortDate(settings),
+            MiniKind.Battery => BatteryText(),
+            MiniKind.Media => MiniTrackLabel(),
+            MiniKind.Focus => FocusLabel(),
+            MiniKind.Call => CallLabel(),
+            _ => "",
+        };
+    }
+
+    /// <summary>Per-kind upright text style (size, face, color), mirroring the
+    /// horizontal pill's chips.</summary>
+    private (float Size, SKTypeface Face, Col Color) MiniTextStyle(MiniItem item) => item.Kind switch
+    {
+        MiniKind.Clock => (15, TextKit.Semibold, ShellUi.Text),
+        MiniKind.Date => (10, TextKit.Monospace, ShellUi.Fade(ShellUi.Muted, 0.95)),
+        MiniKind.Battery => (10.5f, TextKit.Monospace, ShellUi.Fade(ShellUi.Muted, 0.95)),
+        MiniKind.Call => (11.5f, TextKit.Semibold, ShellUi.Ok),
+        MiniKind.Focus => (11.5f, TextKit.Semibold,
+            Focus.Phase == FocusTimerPhase.Break ? ShellUi.Ok : ShellUi.Accent),
+        _ => (11.5f, TextKit.Semibold, ShellUi.Text),
+    };
+
+    /// <summary>How much vertical room one mini-row item needs in upright mode:
+    /// one line per character, plus the inter-chip gap.</summary>
+    private double VerticalItemStep(MiniItem item)
+    {
+        if (item.Kind == MiniKind.Led) return 16;
+        var size = MiniTextStyle(item).Size;
+        return Math.Max(1, MiniItemText(item).Length) * (size + 3) + 8;
+    }
+
+    /// <summary>The upright capsule's target length for the current row.</summary>
+    private double VerticalTextLength()
+    {
+        var length = 10.0;
+        foreach (var item in BuildMiniRow()) length += VerticalItemStep(item);
+        return length;
     }
 
     // ------------------------------------------------------ context menu
