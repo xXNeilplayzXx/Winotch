@@ -27,10 +27,17 @@ public static class WeatherCodes
     };
 }
 
-/// <summary>Thin open-meteo client: city search (geocoding) + current/daily
-/// forecast. No API key, no telemetry — same free endpoint the old app used.</summary>
+/// <summary>Thin weather client: city search (geocoding) + current/daily
+/// forecast. The primary provider is open-meteo (no key, no telemetry);
+/// city and reverse lookups fall back to Nominatim (OpenStreetMap) when
+/// open-meteo's geocoding host is unreachable, blocked, or draws a blank.</summary>
 public sealed class WeatherService : IDisposable
 {
+    private const string OpenMeteoSearch = "https://geocoding-api.open-meteo.com/v1/search";
+    private const string OpenMeteoForecast = "https://api.open-meteo.com/v1/forecast";
+    private const string NominatimSearch = "https://nominatim.openstreetmap.org/search";
+    private const string NominatimReverse = "https://nominatim.openstreetmap.org/reverse";
+
     private readonly HttpClient _http = CreateClient();
 
     private static HttpClient CreateClient()
@@ -51,26 +58,149 @@ public sealed class WeatherService : IDisposable
 
     public void Dispose() => _http.Dispose();
 
-    /// <summary>Resolve a city name to display name + coordinates.</summary>
+    /// <summary>Resolve a city name to display name + coordinates. Tries
+    /// open-meteo first, then falls back to Nominatim on any failure or a
+    /// blank result, so a blocked or unreachable geocoding host can't break
+    /// city lookup.</summary>
     public async Task<(string Name, double Lat, double Lon)?> SearchAsync(string query)
     {
         var city = query.Trim();
         if (city.Length == 0) return null;
-        using var request = new HttpRequestMessage(HttpMethod.Get,
-            "https://geocoding-api.open-meteo.com/v1/search?name=" +
-            Uri.EscapeDataString(city) + "&count=1&language=en&format=json");
-        return await ParseGeocodingAsync(request, city);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                OpenMeteoSearch + "?name=" + Uri.EscapeDataString(city) +
+                "&count=1&language=en&format=json");
+            var hit = await ParseGeocodingAsync(request, city);
+            if (hit is not null) return hit;
+        }
+        catch
+        {
+            // open-meteo unreachable or blocked — fall through to Nominatim.
+        }
+        return await SearchNominatimAsync(city);
     }
 
     /// <summary>Reverse-geocode coordinates to a nearby city (used by the
-    /// "Use Windows location" weather flow).</summary>
+    /// "Use Windows location" weather flow), with the same fallback.</summary>
     public async Task<(string Name, double Lat, double Lon)?> SearchByCoordinatesAsync(double lat, double lon)
     {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                OpenMeteoSearch + "?reverse=true&latitude=" + lat.ToStringInvariant() +
+                "&longitude=" + lon.ToStringInvariant() +
+                "&count=1&language=en&format=json");
+            var hit = await ParseGeocodingAsync(request, null);
+            if (hit is not null) return hit;
+        }
+        catch
+        {
+            // open-meteo unreachable or blocked — fall through to Nominatim.
+        }
+        using var reverse = new HttpRequestMessage(HttpMethod.Get,
+            NominatimReverse + "?lat=" + lat.ToStringInvariant() +
+            "&lon=" + lon.ToStringInvariant() + "&format=json&addressdetails=1");
+        return await ParseNominatimAsync(reverse);
+    }
+
+    /// <summary>City search against Nominatim/OSM (forward geocoding).</summary>
+    private async Task<(string Name, double Lat, double Lon)?> SearchNominatimAsync(string city)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            "https://geocoding-api.open-meteo.com/v1/search?reverse=true&latitude=" +
-            lat.ToStringInvariant() + "&longitude=" + lon.ToStringInvariant() +
-            "&count=1&language=en&format=json");
-        return await ParseGeocodingAsync(request, null);
+            NominatimSearch + "?q=" + Uri.EscapeDataString(city) +
+            "&format=json&addressdetails=1&limit=1");
+        return await ParseNominatimAsync(request);
+    }
+
+    /// <summary>Parse a Nominatim response: forward searches return a results
+    /// array, reverse lookups a single object. lat/lon arrive as strings and
+    /// the display name is shortened from the address block.</summary>
+    private async Task<(string Name, double Lat, double Lon)?> ParseNominatimAsync(HttpRequestMessage request)
+    {
+        using var response = await _http.SendAsync(request);
+        if (!response.IsSuccessStatusCode) return null;
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        JsonElement hit = default;
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            if (root.GetArrayLength() == 0) return null;
+            hit = root[0];
+        }
+        else if (root.ValueKind == JsonValueKind.Object)
+        {
+            hit = root;
+        }
+        else
+        {
+            return null;
+        }
+        if (!TryLatLon(hit, out var lat, out var lon)) return null;
+        var name = NominatimName(hit);
+        return name is null ? null : (name, lat, lon);
+    }
+
+    private static bool TryLatLon(JsonElement hit, out double lat, out double lon)
+    {
+        lat = 0;
+        lon = 0;
+        return TryDouble(hit, "lat", out lat) && TryDouble(hit, "lon", out lon);
+    }
+
+    private static bool TryDouble(JsonElement el, string prop, out double value)
+    {
+        value = 0;
+        if (!el.TryGetProperty(prop, out var v)) return false;
+        if (v.ValueKind == JsonValueKind.Number)
+        {
+            value = v.GetDouble();
+            return true;
+        }
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            return double.TryParse(v.GetString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
+        return false;
+    }
+
+    /// <summary>Short "city, region" from Nominatim's address block, falling
+    /// back to the first parts of display_name when no settlement matched.</summary>
+    private static string? NominatimName(JsonElement hit)
+    {
+        if (hit.TryGetProperty("address", out var address) && address.ValueKind == JsonValueKind.Object)
+        {
+            string? Part(string[] keys)
+            {
+                foreach (var key in keys)
+                {
+                    if (address.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
+                    {
+                        var s = v.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) return s;
+                    }
+                }
+                return null;
+            }
+            var city = Part(new[] { "city", "town", "village", "municipality", "hamlet", "suburb", "quarter", "county" })
+                ?? Part(new[] { "state" })
+                ?? Part(new[] { "country" });
+            if (city is not null)
+            {
+                var region = Part(new[] { "state", "country" });
+                return region is not null && !string.Equals(city, region, StringComparison.OrdinalIgnoreCase)
+                    ? city + ", " + region
+                    : city;
+            }
+        }
+        if (hit.TryGetProperty("display_name", out var dn) && dn.ValueKind == JsonValueKind.String &&
+            dn.GetString() is { Length: > 0 } display)
+        {
+            var parts = display.Split(',').Select(p => p.Trim()).Where(p => p.Length > 0).Take(2).ToArray();
+            if (parts.Length > 0) return string.Join(", ", parts);
+        }
+        return null;
     }
 
     private async Task<(string Name, double Lat, double Lon)?> ParseGeocodingAsync(
@@ -100,7 +230,7 @@ public sealed class WeatherService : IDisposable
     public async Task<WeatherSnapshot?> GetForecastAsync(string city, double lat, double lon)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            "https://api.open-meteo.com/v1/forecast?latitude=" + lat.ToStringInvariant() +
+            OpenMeteoForecast + "?latitude=" + lat.ToStringInvariant() +
             "&longitude=" + lon.ToStringInvariant() +
             "&current=temperature_2m,weather_code,apparent_temperature" +
             "&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1");
