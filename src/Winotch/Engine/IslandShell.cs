@@ -654,7 +654,7 @@ public sealed class IslandShell
 
     // -------------------------------------------------------------- pill
 
-    private enum MiniKind { Led, Text, Clock, Date, Battery, Media, Focus, Call }
+    private enum MiniKind { Led, Brand, Text, Clock, Date, Battery, Media, Focus, Call }
 
     private readonly record struct MiniItem(MiniKind Kind, double Width);
 
@@ -681,7 +681,7 @@ public sealed class IslandShell
                     TextKit.Measure(IdleText(settings), 11.5f, TextKit.Semibold)));
                 break;
             case IdleContentMode.BrandClock:
-                items.Add(new MiniItem(MiniKind.Text, TextKit.Measure("Winotch", 11.5f, TextKit.Semibold)));
+                items.Add(new MiniItem(MiniKind.Brand, TextKit.Measure("Winotch", 11.5f, TextKit.Semibold)));
                 items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
                 break;
             default: // Auto — the rewrite's default: LED + clock + battery
@@ -768,6 +768,9 @@ public sealed class IslandShell
             {
                 case MiniKind.Led:
                     ShellUi.FillCircle(canvas, x + 5, cy, 3.4f, LedColor());
+                    break;
+                case MiniKind.Brand:
+                    TextKit.Draw(canvas, "Winotch", x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
                     break;
                 case MiniKind.Text:
                     if (_idleMarquee && _marqueeText is not null)
