@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Winotch;
 
 /// <summary>User settings, persisted as JSON under %LOCALAPPDATA%\Winotch.</summary>
