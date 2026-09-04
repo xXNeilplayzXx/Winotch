@@ -42,6 +42,8 @@ public sealed class OverlayWindow : Window, IDisposable
     // Drag-to-move state.
     private bool _dragActive;
     private bool _dragging;
+    private bool _seekDrag;
+    private bool _volumeDrag;
     private System.Windows.Point _dragStart;
     private double _offsetDragStartX, _offsetDragStartY;
 
@@ -155,6 +157,9 @@ public sealed class OverlayWindow : Window, IDisposable
         _shell.MediaPrevRequested += () => _ = _manager.MediaPreviousAsync();
         _shell.MediaPlayPauseRequested += () => _ = _manager.MediaPlayPauseAsync();
         _shell.MediaNextRequested += () => _ = _manager.MediaNextAsync();
+        _shell.MediaSeekRequested += s => _ = _manager.MediaSeekAsync(s);
+        _shell.VolumeChangedRequested += _manager.MediaVolumeChanged;
+        _shell.VolumeMuteRequested += _manager.MediaVolumeMuteToggled;
         _shell.CopyClipboardEntryRequested += _manager.CopyClipboardEntry;
         _shell.DeleteClipboardEntryRequested += _manager.DeleteClipboardEntry;
         _shell.ClearClipboardRequested += _manager.ClearClipboard;
@@ -249,6 +254,23 @@ public sealed class OverlayWindow : Window, IDisposable
             return;
         }
 
+        // Drag-to-seek / volume on the Now playing card — checked before
+        // drag-to-reorder so those strips act as controls, not card handles.
+        if (_shell.MediaSeekHit(point.X, point.Y))
+        {
+            _seekDrag = true;
+            _shell.BeginSeek(point.X, point.Y);
+            _surface.CaptureMouse();
+            return;
+        }
+        if (_shell.MediaVolumeHit(point.X, point.Y))
+        {
+            _volumeDrag = true;
+            _shell.BeginVolumeDrag(point.X, point.Y);
+            _surface.CaptureMouse();
+            return;
+        }
+
         // Drag-to-reorder: grabbing a widget card (expanded panel).
         var widgetId = _shell.WidgetCardAt(point.X, point.Y);
         if (widgetId is not null)
@@ -265,8 +287,18 @@ public sealed class OverlayWindow : Window, IDisposable
     protected override void OnPreviewMouseMove(MouseEventArgs e)
     {
         base.OnPreviewMouseMove(e);
-        if (!_dragActive) return;
         var point = e.GetPosition(_surface);
+        if (_seekDrag)
+        {
+            _shell.UpdateSeek(point.X, point.Y);
+            return;
+        }
+        if (_volumeDrag)
+        {
+            _shell.UpdateVolumeDrag(point.X, point.Y);
+            return;
+        }
+        if (!_dragActive) return;
         if (!_dragging &&
             (Math.Abs(point.X - _dragStart.X) > 4 || Math.Abs(point.Y - _dragStart.Y) > 4))
         {
@@ -294,6 +326,15 @@ public sealed class OverlayWindow : Window, IDisposable
     {
         base.OnPreviewMouseLeftButtonUp(e);
         var point = e.GetPosition(_surface);
+        if (_seekDrag || _volumeDrag)
+        {
+            if (_seekDrag) _shell.EndSeek();
+            else _shell.EndVolumeDrag();
+            _seekDrag = false;
+            _volumeDrag = false;
+            _surface.ReleaseMouseCapture();
+            return;
+        }
         if (_dragActive)
         {
             var wasDragging = _dragging;

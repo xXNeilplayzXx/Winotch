@@ -456,15 +456,25 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     public async Task MediaPlayPauseAsync() => await _media.PlayPauseAsync();
     public async Task MediaNextAsync() => await _media.NextAsync();
     public async Task MediaPreviousAsync() => await _media.PreviousAsync();
+    public async Task MediaSeekAsync(double seconds) => await _media.SeekAsync(seconds);
+
+    public void MediaVolumeChanged(float level01) => SystemVolume.SetLevel(level01);
+    public void MediaVolumeMuteToggled() => SystemVolume.SetMuted(!SystemVolume.Muted);
 
     private void PollBattery()
     {
         _battery = SystemStatus.GetBattery();
         var stats = _statsSampler.Sample();
+        // System volume is pushed alongside battery so the Now playing card's
+        // slider reflects keyboard/mixer changes within ~2s.
+        var volumeLevel = SystemVolume.Level01;
+        var volumeMuted = SystemVolume.Muted;
+        var volumeAvailable = SystemVolume.Available;
         foreach (var window in _windows)
         {
             window.Shell.SetBattery(_battery);
             window.Shell.SetSystemStats(stats);
+            window.Shell.SetVolume(volumeLevel, volumeMuted, volumeAvailable);
         }
         FeedStatusTracker();
     }

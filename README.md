@@ -54,7 +54,7 @@ Works on **Windows 10 (2004+)** and **Windows 11**.
 
 Open the expanded panel and manage cards with **+** (add), the arrows or drag (reorder), **⚙** (configure) and **✕** (remove).
 
-- **Now playing** — title, artist, album art, transport controls and a timeline via Windows SMTC. Toasts announce track changes ("now-playing toasts"). While music plays, the pill itself shows the track.
+- **Now playing** — title, artist, album art, transport controls and a timeline via Windows SMTC. Toasts announce track changes ("now-playing toasts"). While music plays, the pill itself shows the track. Drag the timeline to seek (with a live time readout — shown when the media app allows seeking), and use the volume slider and mute button for system volume.
 - **Weather** — current conditions, feels-like, today's high/low and city from Open-Meteo (no API key needed). Set a city or let Windows decide.
 - **Focus timer** — work/break presets (15/5, 25/5, 50/10, 90/20) or your own custom minutes, with an optional auto-cycle that keeps alternating; a live countdown shows on the pill.
 - **Clipboard history** — your last 10 copies (text, files, images with thumbnails), kept only in memory — never written to disk. Copy again, or **Clear**.

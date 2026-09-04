@@ -7,7 +7,7 @@ namespace Winotch;
 public sealed record MediaSnapshot(
     string Title, string Artist, bool Playing,
     double PositionSeconds = 0, double DurationSeconds = 0,
-    string? ArtBase64 = null)
+    string? ArtBase64 = null, bool CanSeek = false)
 {
     public string Key => $"{Title}|{Artist}";
 }
@@ -143,6 +143,21 @@ public sealed class MediaService : IDisposable
         }
     }
 
+    /// <summary>Seek the current session to an absolute position, in seconds.
+    /// Only meaningful when the session reports IsPlaybackPositionEnabled.</summary>
+    public async Task SeekAsync(double seconds)
+    {
+        if (BestSession(_manager) is { } session)
+        {
+            try
+            {
+                await session.TryChangePlaybackPositionAsync(
+                    (long)(seconds * TimeSpan.TicksPerSecond));
+            }
+            catch { }
+        }
+    }
+
     /// <summary>Prefer an actively playing session over the OS "current" one,
     /// which browsers and multi-app setups frequently report wrong.</summary>
     private static GlobalSystemMediaTransportControlsSession? BestSession(
@@ -211,7 +226,8 @@ public sealed class MediaService : IDisposable
                 _lastArtKey = artKey;
                 _lastArt = art;
             }
-            return new MediaSnapshot(title, artist, playing, position, duration, art);
+            var canSeek = info?.PlaybackControls?.IsPlaybackPositionEnabled ?? false;
+            return new MediaSnapshot(title, artist, playing, position, duration, art, canSeek);
         }
         catch
         {

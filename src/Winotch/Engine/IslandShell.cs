@@ -48,6 +48,9 @@ public sealed class IslandShell
     public event Action? MediaPrevRequested;
     public event Action? MediaPlayPauseRequested;
     public event Action? MediaNextRequested;
+    public event Action<double>? MediaSeekRequested;
+    public event Action<float>? VolumeChangedRequested;
+    public event Action? VolumeMuteRequested;
     public event Action<long>? CopyClipboardEntryRequested;
     public event Action<long>? DeleteClipboardEntryRequested;
     public event Action? ClearClipboardRequested;
@@ -78,6 +81,20 @@ public sealed class IslandShell
     private double _contextMenuX, _contextMenuY;
     private bool _dataDirty = true;
     private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
+    // Seek-drag state: a preview ratio while dragging, plus a short-lived
+    // position override so the playhead stays put until SMTC's next poll.
+    private float? _seekPreview;
+    private double? _seekOverride;
+    private DateTimeOffset _seekOverrideAt;
+    private float? _volumePreview;
+    private SKRect _mediaTimelineRect;
+    private SKRect _mediaTimelineRectScreen;
+    private SKRect _mediaVolumeRect;
+    private SKRect _mediaVolumeRectScreen;
+    private bool _mediaSeekEnabled;
+    private float _mediaVolumeLevel = 1f;
+    private bool _mediaVolumeMuted;
+    private bool _mediaVolumeAvailable;
 
     // Drag-mode state (started from Settings): while active the pill shows
     // Done / Reset buttons and can be dragged even when Drag-to-move is off.
@@ -275,6 +292,14 @@ public sealed class IslandShell
     public void SetBattery(BatteryInfo battery)
     {
         Battery = battery;
+        MarkDataDirty();
+    }
+
+    public void SetVolume(float level01, bool muted, bool available)
+    {
+        _mediaVolumeLevel = level01;
+        _mediaVolumeMuted = muted;
+        _mediaVolumeAvailable = available;
         MarkDataDirty();
     }
 
@@ -558,7 +583,7 @@ public sealed class IslandShell
         {
             "clock" => 88,
             "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
-            "media" => Media is null ? 0 : 80,
+            "media" => Media is null ? 0 : 112,
             "notes" => 104,
             "weather" => 106,
             "launcher" => 40 + LauncherRows(settings) * 58,
@@ -639,6 +664,7 @@ public sealed class IslandShell
     {
         if (_paused) return;
         _buttons.Clear();
+        AnyHoverButton = false;
 
         var expanded = _blend > 0.5;
         var radius = expanded ? 22.0 : _h / 2;
@@ -1427,8 +1453,17 @@ public sealed class IslandShell
 
     private void DrawMediaWidget(SKCanvas canvas, float left, float top, float width)
     {
-        if (Media is not { } media) return;
-        var cardH = 80f;
+        if (Media is not { } media)
+        {
+            // The card is gone — drop the drag-strip hit rects so a click at
+            // the old location cannot grab a control that is not there.
+            _mediaSeekEnabled = false;
+            _mediaTimelineRect = SKRect.Empty;
+            _mediaTimelineRectScreen = SKRect.Empty;
+            _mediaVolumeRect = SKRect.Empty;
+            _mediaVolumeRectScreen = SKRect.Empty;
+            return;
+        }
         var right = left + width;
         var textX = left + 12;
         if (media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 52, out var art))
@@ -1438,17 +1473,19 @@ public sealed class IslandShell
         }
         TextKit.Draw(canvas,
             ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", right - textX - 16 - 100, 12.5f, TextKit.Semibold),
-            textX, top + 33, 12.5f, ShellUi.Text, TextKit.Semibold);
+            textX, top + 30, 12.5f, ShellUi.Text, TextKit.Semibold);
         TextKit.Draw(canvas,
             ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", right - textX - 16 - 100, 10f, TextKit.Regular),
-            textX, top + 50, 10f, ShellUi.Fade(ShellUi.Muted, 1));
-        DrawTimeline(canvas, left + 12, top + cardH - 9, width - 24, media);
+            textX, top + 47, 10f, ShellUi.Fade(ShellUi.Muted, 1));
 
-        var buttonCy = top + cardH / 2;
+        var buttonCy = top + 37;
         var buttonRight = right - 16;
         DrawIconButton(canvas, buttonRight - 66, buttonCy, "\uE892", MediaPrevRequested);
         DrawIconButton(canvas, buttonRight - 34, buttonCy, media.Playing ? "\uE769" : "\uE768", MediaPlayPauseRequested);
         DrawIconButton(canvas, buttonRight - 2, buttonCy, "\uE893", MediaNextRequested);
+
+        DrawSeekBar(canvas, left, top, right, media);
+        DrawVolumeRow(canvas, left, top, right);
     }
 
     private void DrawNotesWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
@@ -1868,22 +1905,191 @@ public sealed class IslandShell
         TextKit.DrawCentered(canvas, text, left + w / 2, cy, 11f, fg, TextKit.Semibold);
     }
 
-    private void DrawTimeline(SKCanvas canvas, float x, float y, float width, MediaSnapshot media)
+    /// <summary>The bottom seek bar: a display-only track unless the session
+    /// supports seeking, in which case it is draggable (press and drag, or
+    /// click to jump) and shows a hover handle plus a live time readout.</summary>
+    private void DrawSeekBar(SKCanvas canvas, float left, float top, float right, MediaSnapshot media)
     {
-        FillRound(canvas, x, y, width, 2, 1, ShellUi.Hairline);
-        if (media.DurationSeconds <= 0) return;
-        var ratio = (float)Math.Clamp(MediaPosition(media) / media.DurationSeconds, 0, 1);
+        var x = left + 12;
+        var y = top + 68;
+        var w = right - left - 24;
+        var canSeek = media.CanSeek && media.DurationSeconds > 0;
+        _mediaSeekEnabled = canSeek;
+        var strip = new SKRect(x, top + 61, right - 12, top + 77);
+        _mediaTimelineRect = strip;
+        // Capture the screen-space rect while the scale/rotation matrix is
+        // live — the mouse handlers run between frames, when it is gone.
+        _mediaTimelineRectScreen = ScreenRect(strip);
+
+        var ratio = _seekPreview is { } preview
+            ? preview
+            : (float)Math.Clamp(MediaPosition(media) / Math.Max(1, media.DurationSeconds), 0, 1);
+
+        FillRound(canvas, x, y, w, 2, 1, ShellUi.Hairline);
         if (ratio > 0.01)
         {
-            FillRound(canvas, x, y, width * ratio, 2, 1, ShellUi.Fade(ShellUi.Accent, 0.85));
+            FillRound(canvas, x, y, w * ratio, 2, 1, ShellUi.Fade(ShellUi.Accent, 0.85));
+        }
+        if (!canSeek) return;
+
+        var hovering = strip.Contains((float)_cursorX, (float)_cursorY);
+        if (hovering) AnyHoverButton = true;
+        if (!hovering && _seekPreview is null) return;
+
+        var handleX = x + w * ratio;
+        ShellUi.FillCircle(canvas, handleX, y + 1, 4, ShellUi.Text);
+        var label = $"{FormatClock(ratio * media.DurationSeconds)} / {FormatClock(media.DurationSeconds)}";
+        var labelW = TextKit.Measure(label, 9.5f, TextKit.Monospace) + 18;
+        var labelX = Math.Clamp(handleX, x + labelW / 2 + 2, right - 12 - labelW / 2);
+        FillRound(canvas, labelX - labelW / 2, top + 46, labelW, 22, 11,
+            ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.96));
+        ShellUi.StrokeRound(canvas, labelX - labelW / 2, top + 46, labelW, 22, 11, 1f,
+            ShellUi.Fade(ShellUi.Stroke, 0.5));
+        TextKit.DrawCentered(canvas, label, labelX, top + 57, 9.5f, ShellUi.Text, TextKit.Monospace);
+    }
+
+    /// <summary>System-volume row: a mute toggle button plus a draggable
+    /// slider (SMTC exposes no volume, so this is the system master volume —
+    /// the same device the keyboard volume keys drive). Ghosted and inert
+    /// when the CoreAudio endpoint is unavailable.</summary>
+    private void DrawVolumeRow(SKCanvas canvas, float left, float top, float right)
+    {
+        var cy = top + 92;
+        var muted = _mediaVolumeMuted;
+        var available = _mediaVolumeAvailable;
+        var level = _volumePreview ?? _mediaVolumeLevel;
+
+        DrawIconButton(canvas, left + 16, cy, muted ? "\uE767" : "\uE74F",
+            available ? VolumeMuteRequested : null);
+
+        var trackLeft = left + 38;
+        var trackRight = right - 16;
+        var trackW = trackRight - trackLeft;
+        var strip = new SKRect(trackLeft, top + 82, trackRight, top + 102);
+        _mediaVolumeRect = strip;
+        _mediaVolumeRectScreen = ScreenRect(strip);
+
+        FillRound(canvas, trackLeft, cy - 2, trackW, 4, 2,
+            available ? ShellUi.Hairline : ShellUi.Fade(ShellUi.Hairline, 0.45));
+        var fill = muted ? 0 : Math.Clamp(level, 0f, 1f);
+        if (fill > 0.01 && available)
+        {
+            FillRound(canvas, trackLeft, cy - 2, trackW * fill, 4, 2, ShellUi.Fade(ShellUi.Accent, 0.9));
+        }
+        if (!available) return;
+
+        var hovering = strip.Contains((float)_cursorX, (float)_cursorY);
+        if (hovering) AnyHoverButton = true;
+        if (hovering || _volumePreview is not null)
+        {
+            var handleX = trackLeft + trackW * Math.Clamp(level, 0f, 1f);
+            ShellUi.FillCircle(canvas, handleX, cy, 5, ShellUi.Text);
+            var label = muted ? "Muted" : $"{Math.Round(level * 100)}%";
+            TextKit.DrawCentered(canvas, label, handleX, cy - 9, 9.5f,
+                muted ? ShellUi.Ok : ShellUi.Text, TextKit.Semibold);
         }
     }
+
+    private static string FormatClock(double seconds)
+    {
+        var total = (int)Math.Max(0, Math.Round(seconds));
+        var h = total / 3600;
+        var m = total % 3600 / 60;
+        var s = total % 60;
+        return h > 0 ? $"{h}:{m:00}:{s:00}" : $"{m}:{s:00}";
+    }
+
+    // ------------------------------------------------- media drag controls
+
+    /// <summary>Whether the point is over the Now playing card's seek strip
+    /// (only while the panel is expanded and the session actually supports
+    /// seeking — otherwise the bar is display-only).</summary>
+    public bool MediaSeekHit(double xDip, double yDip) =>
+        _blend > 0.5 && _mediaSeekEnabled &&
+        _mediaTimelineRectScreen.Contains((float)xDip, (float)yDip);
+
+    public void BeginSeek(double xDip, double yDip)
+    {
+        _seekPreview = RatioIn(_mediaTimelineRectScreen, xDip);
+        MarkDataDirty();
+    }
+
+    public void UpdateSeek(double xDip, double yDip)
+    {
+        if (_seekPreview is null) return;
+        _seekPreview = RatioIn(_mediaTimelineRectScreen, xDip);
+        MarkDataDirty();
+    }
+
+    public void EndSeek()
+    {
+        var ratio = _seekPreview;
+        _seekPreview = null;
+        if (ratio is not { } r || Media is not { } media || media.DurationSeconds <= 0) return;
+        var seconds = Math.Clamp(r, 0f, 1f) * media.DurationSeconds;
+        // Hold the playhead at the target until SMTC's next poll confirms it.
+        _seekOverride = seconds;
+        _seekOverrideAt = DateTimeOffset.UtcNow;
+        MediaSeekRequested?.Invoke(seconds);
+        MarkDataDirty();
+    }
+
+    /// <summary>Whether the point is over the Now playing card's volume
+    /// slider (only when the system-volume endpoint is available).</summary>
+    public bool MediaVolumeHit(double xDip, double yDip) =>
+        _blend > 0.5 && _mediaVolumeAvailable &&
+        _mediaVolumeRectScreen.Contains((float)xDip, (float)yDip);
+
+    public void BeginVolumeDrag(double xDip, double yDip)
+    {
+        _volumePreview = RatioIn(_mediaVolumeRectScreen, xDip);
+        if (_volumePreview is { } level) VolumeChangedRequested?.Invoke(level);
+        MarkDataDirty();
+    }
+
+    public void UpdateVolumeDrag(double xDip, double yDip)
+    {
+        if (_volumePreview is null) return;
+        _volumePreview = RatioIn(_mediaVolumeRectScreen, xDip);
+        if (_volumePreview is { } level) VolumeChangedRequested?.Invoke(level);
+        MarkDataDirty();
+    }
+
+    public void EndVolumeDrag()
+    {
+        _volumePreview = null;
+        MarkDataDirty();
+    }
+
+    private static float RatioIn(SKRect strip, double xDip)
+    {
+        if (strip.Width <= 0) return 0;
+        return (float)Math.Clamp((xDip - strip.Left) / strip.Width, 0, 1);
+    }
+
+    /// <summary>Control rects are stored in the card's local space (the scale
+    /// wrapper remaps the cursor to match, so hover works); this maps a local
+    /// rect to window space for the mouse handlers. Must be called while the
+    /// transform matrix is live, i.e. during drawing.</summary>
+    private SKRect ScreenRect(SKRect local) =>
+        _buttonMap is { } map ? map.MapRect(local) : local;
 
     /// <summary>SMTC raises track-level events only on identity/play-state
     /// change, so extrapolate the position from when the snapshot arrived
     /// while the track keeps playing.</summary>
     private double MediaPosition(MediaSnapshot media)
     {
+        // Right after a seek the extrapolation would snap back to the old
+        // snapshot position; keep advancing from the seek target until
+        // SMTC's next poll lands the real position.
+        if (_seekOverride is { } seekPos && (DateTimeOffset.UtcNow - _seekOverrideAt).TotalSeconds < 2.5)
+        {
+            if (!media.Playing) return seekPos;
+            var sinceSeek = (DateTimeOffset.UtcNow - _seekOverrideAt).TotalSeconds;
+            return media.DurationSeconds > 0
+                ? Math.Min(seekPos + sinceSeek, media.DurationSeconds)
+                : seekPos + sinceSeek;
+        }
         if (!media.Playing) return media.PositionSeconds;
         var elapsed = (DateTimeOffset.UtcNow - _mediaAt).TotalSeconds;
         if (media.DurationSeconds > 0)
