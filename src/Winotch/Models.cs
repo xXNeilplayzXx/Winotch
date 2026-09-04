@@ -50,6 +50,12 @@ public sealed record AppearanceSettings
     public bool Glass { get; init; }
     public int Opacity { get; init; } = 65;
     public int Blur { get; init; } = 14;
+    public bool BlurEnabled { get; init; } = true;
+
+    /// <summary>UI typeface id (see <see cref="FontChoice"/>). The default
+    /// follows the user-requested change away from the OS Segoe stack; pick
+    /// another (or the original look) in Appearance settings.</summary>
+    public string Font { get; init; } = FontChoice.Aptos;
 
     /// <summary>When true the pill uses Width/Height; otherwise the pill
     /// auto-sizes to its content (the rewrite's default behavior).</summary>
@@ -76,6 +82,7 @@ public sealed record AppearanceSettings
         Gradient = GradientSkin.IsKnown(Gradient) ? Gradient : GradientSkin.None,
         Opacity = Math.Clamp(Opacity, 10, 100),
         Blur = Math.Clamp(Blur, 0, 40),
+        Font = FontChoice.IsKnown(Font) ? Font : FontChoice.Aptos,
         Width = Math.Clamp(Width, 150, 800),
         Height = Math.Clamp(Height, 30, 200),
         CustomIdleText = CustomIdleText ?? "",
@@ -168,6 +175,40 @@ public static class GradientSkin
         Graphite => new[] { (148, 163, 184, 0.12), (100, 116, 139, 0.05), (71, 85, 105, 0.10) },
         _ => Array.Empty<(byte, byte, byte, double)>(),
     };
+}
+
+/// <summary>Curated UI typefaces for the island and app text (icons, emoji
+/// and the mono faces stay fixed). Ids are persisted in settings; the family
+/// is the installed name handed to Skia and WPF.</summary>
+public static class FontChoice
+{
+    public const string Aptos = "aptos";
+    public const string SegoeUiVariable = "segoe-ui-variable";
+    public const string SegoeUi = "segoe-ui";
+    public const string Bahnschrift = "bahnschrift";
+
+    public static readonly (string Id, string Label)[] Known =
+    {
+        (Aptos, "Aptos"),
+        (SegoeUiVariable, "Segoe UI Variable"),
+        (SegoeUi, "Segoe UI"),
+        (Bahnschrift, "Bahnschrift"),
+    };
+
+    /// <summary>Map a setting id to the installed family name. The Segoe UI
+    /// Variable id resolves to the "Text" optical family the OS registers.</summary>
+    public static string FamilyOf(string id) => id switch
+    {
+        Aptos => "Aptos",
+        SegoeUiVariable => "Segoe UI Variable Text",
+        SegoeUi => "Segoe UI",
+        Bahnschrift => "Bahnschrift",
+        _ => "Aptos",
+    };
+
+    public static bool IsKnown(string? id) =>
+        !string.IsNullOrWhiteSpace(id) &&
+        Known.Any(f => string.Equals(f.Id, id, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed record GeneralSettings

@@ -22,7 +22,8 @@ Full feature parity with the original app (the archived `legacy` WebView2 build)
 - **Springy notch**: collapses to a pill (LED + clock + battery + live chips), springs open on hover, hangs flush against the top edge in Notch style or floats in Island style (toggle in Settings).
 - **Setup wizard**: a two-page first-run wizard (theme / type / surface, then display + widgets) that opens on a fresh install; **Rerun setup…** from Settings or the tray.
 - **Theme system**: Dark / Light / System (follows your Windows app theme **live**) / Color, plus accent control — preset swatches, a custom hex picker, or **Follow Windows accent** (DWM color, live). Every surface re-skins instantly: island, settings, dialogs.
-- **Appearance**: Glass (real backdrop blur with **opacity** 10–100% and **blur** 0–40px sliders) or Solid, and the Sunset / Ocean / Aurora / Candy / Graphite background gradients. Glass falls back to a translucent panel when the backdrop can't be captured.
+- **Appearance**: Glass (real backdrop blur with an on/off switch, **opacity** 10–100% and **blur** 0–40px sliders) or Solid, and the Sunset / Ocean / Aurora / Candy / Graphite background gradients. Glass falls back to a translucent panel when the backdrop can't be captured.
+- **Font**: pick the typeface for the island and app text (Aptos by default, plus Segoe UI Variable, Segoe UI and Bahnschrift) — applied live to the island, settings and dialogs.
 - **Size**: Compact / Standard / Wide presets and width (150–800) / height (30–200) sliders; sliders stage a draft applied with **Apply** (or discarded with **Reset**).
 - **Display targeting**: Main monitor, a specific display (picked by name or on a **visual map** of your screen layout), **All monitors** (one island per screen), or **Follow active** (the island hops to the monitor under your active window).
 - **Idle content**: Default (LED + clock + battery), Brand + clock, Clock only, custom text, or just the dot.
@@ -60,7 +61,7 @@ Tag a commit `vX.Y.Z` and push it; the [build-test-release](.github/workflows/bu
 
 ## Notes
 
-- Fonts come from the OS (Segoe UI Variable / Fluent icons / Segoe UI Emoji) — nothing is bundled.
+- Fonts come from the OS (the Appearance font choice, Fluent icons, Segoe UI Emoji, Cascadia Mono for timers) — nothing is bundled. Choosing a family that isn't installed falls back to the OS default.
 - Clipboard images are stored only as small PNG thumbnails in memory.
 - Wi-Fi alerts read the SSID via `netsh`; mic/camera alerts read the Windows privacy consent store.
 - Glass backdrop blur captures the composited screen behind the island and blurs it with Skia; because the overlay window is a full-screen transparent surface, the capture includes the island's own previous frame, which converges to a soft glow (the classic glass artifact) — content on top stays crisp. When the capture fails (locked session etc.) glass falls back to a plain translucent panel.

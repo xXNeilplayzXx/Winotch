@@ -15,6 +15,8 @@
         <SolidColorBrush x:Key="NotchText" Color="#F4F6FA" />
         <SolidColorBrush x:Key="NotchMutedText" Color="#9AA3B2" />
         <SolidColorBrush x:Key="NotchHairline" Color="#23272F" />
+        <!-- UI typeface, overridden at runtime by the Appearance font setting -->
+        <FontFamily x:Key="NotchUiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
 
         <Style x:Key="GlyphText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
@@ -24,12 +26,12 @@
         </Style>
 
         <Style TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontFamily" Value="{DynamicResource NotchUiFont}" />
             <Setter Property="Foreground" Value="{StaticResource NotchText}" />
         </Style>
 
         <Style TargetType="Button">
-            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontFamily" Value="{DynamicResource NotchUiFont}" />
             <Setter Property="Foreground" Value="{StaticResource NotchText}" />
             <Setter Property="Background" Value="{StaticResource NotchPanelRaised}" />
             <Setter Property="BorderThickness" Value="0" />

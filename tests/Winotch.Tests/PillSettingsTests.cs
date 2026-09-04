@@ -66,4 +66,48 @@ public class PillSettingsTests
         Assert.Equal(IdleContentMode.DotOnly, normalized.IdleContent);
         Assert.Equal("", normalized.CustomIdleText);
     }
+
+    [Fact]
+    public void Settings_RoundTrip_PreservesBlurToggleAndFont()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"winotch-blurfont-{Guid.NewGuid():N}.json");
+        try
+        {
+            var settings = new SettingsService(path);
+            settings.Update(s => s with
+            {
+                Appearance = new AppearanceSettings
+                {
+                    Glass = true,
+                    BlurEnabled = false,
+                    Font = FontChoice.Bahnschrift,
+                },
+            });
+
+            var reloaded = new SettingsService(path);
+            Assert.True(reloaded.Current.Appearance.Glass);
+            Assert.False(reloaded.Current.Appearance.BlurEnabled);
+            Assert.Equal(FontChoice.Bahnschrift, reloaded.Current.Appearance.Font);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FontChoice_Normalize_DefaultsUnknownToAptos()
+    {
+        var defaults = new AppearanceSettings().Normalize();
+        Assert.Equal(FontChoice.Aptos, defaults.Font);
+        Assert.True(defaults.BlurEnabled);
+
+        var normalized = new AppearanceSettings { Font = "comic-sans" }.Normalize();
+        Assert.Equal(FontChoice.Aptos, normalized.Font);
+
+        Assert.Equal("Segoe UI Variable Text", FontChoice.FamilyOf(FontChoice.SegoeUiVariable));
+        Assert.False(FontChoice.IsKnown(null));
+        Assert.False(FontChoice.IsKnown("comic-sans"));
+        Assert.True(FontChoice.IsKnown("aptos"));
+    }
 }

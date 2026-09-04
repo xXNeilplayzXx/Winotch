@@ -97,7 +97,10 @@ internal static class DialogUi
         window.SizeToContent = SizeToContent.WidthAndHeight;
         window.ResizeMode = ResizeMode.NoResize;
         window.ShowInTaskbar = false;
-        window.FontFamily = new FontFamily("Segoe UI");
+        // Follow the Appearance font choice; fall back to Segoe UI when the
+        // shared resource has not been populated yet.
+        window.FontFamily = (Application.Current.Resources["NotchUiFont"] as FontFamily)
+            ?? new FontFamily("Segoe UI");
     }
 }
 

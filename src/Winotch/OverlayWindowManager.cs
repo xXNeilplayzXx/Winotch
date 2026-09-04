@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Winotch.Engine;
 using Forms = System.Windows.Forms;
@@ -74,8 +75,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     // ------------------------------------------------------------- startup
 
+    /// <summary>Push the Appearance font choice into the Skia text engine and
+    /// the WPF dynamic resource every window's text inherits. Families absent
+    /// from the machine fall back to the OS defaults inside TextKit.</summary>
+    private void ApplyUiFont()
+    {
+        var family = FontChoice.FamilyOf(_settings.Current.Appearance.Font);
+        TextKit.SetUiFamily(family);
+        Application.Current.Resources["NotchUiFont"] = new FontFamily(family);
+    }
+
     public void Start()
     {
+        ApplyUiFont();
         BuildWindows();
         StartTimers();
         PollBattery();
@@ -209,6 +221,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     private void OnSettingsChanged(object? sender, WinotchSettings settings)
     {
+        ApplyUiFont();
         _theme.Refresh(settings);
         foreach (var window in _windows) window.Shell.ApplyTheme();
         DialogUi.Current = _theme.Current;

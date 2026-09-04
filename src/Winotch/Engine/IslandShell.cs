@@ -492,7 +492,7 @@ public sealed class IslandShell
             var glass = appearance.Glass;
             var bodyAlpha = glass ? Math.Clamp(appearance.Opacity / 100.0, 0.1, 1.0) : 1.0;
 
-            if (glass && appearance.Blur > 0 && rect.Width > 0 && rect.Height > 0)
+            if (glass && appearance.BlurEnabled && appearance.Blur > 0 && rect.Width > 0 && rect.Height > 0)
             {
                 BackdropBlur.Draw(canvas, rect, _originXPx, _originYPx, _dpiScale,
                     appearance.Blur, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255));

@@ -37,6 +37,10 @@ public partial class SettingsWindow : Window
     public void ApplyTheme(ShellTheme theme, bool rebuild = false)
     {
         DialogUi.Current = theme;
+        if (Application.Current.Resources["NotchUiFont"] is FontFamily uiFont)
+        {
+            FontFamily = uiFont;
+        }
         SetBrush("NotchPanel", theme.WpfPanelTop);
         SetBrush("NotchPanelRaised", theme.WpfCard);
         SetBrush("NotchPanelHover", theme.WpfCardHover);
@@ -57,6 +61,7 @@ public partial class SettingsWindow : Window
 
     private Border _opacityRow = null!;
     private Border _blurRow = null!;
+    private Border _blurEnabledRow = null!;
     private Border _customIdleRow = null!;
 
     private void BuildSections()
@@ -69,8 +74,20 @@ public partial class SettingsWindow : Window
         _blurRow = MakeSliderRow("Blur", "Backdrop blur strength (0–40px)",
             0, 40, s.Appearance.Blur,
             v => UpdateAppearance(x => x with { Blur = (int)v }));
+        _blurEnabledRow = MakeToggleRow("Backdrop blur",
+            "Blur what's behind the island (off = plain translucent tint)",
+            s.Appearance.BlurEnabled,
+            v =>
+            {
+                UpdateAppearance(x => x with { BlurEnabled = v });
+                // The strength slider matters only while blur is on.
+                _blurRow.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
+            });
+        _blurEnabledRow.Visibility = s.Appearance.Glass ? Visibility.Visible : Visibility.Collapsed;
         _opacityRow.Visibility = s.Appearance.Glass ? Visibility.Visible : Visibility.Collapsed;
-        _blurRow.Visibility = s.Appearance.Glass ? Visibility.Visible : Visibility.Collapsed;
+        _blurRow.Visibility = s.Appearance.Glass && s.Appearance.BlurEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         var generalRows = new List<FrameworkElement>
         {
@@ -107,6 +124,10 @@ public partial class SettingsWindow : Window
                 v => UpdateAppearance(x => x with { Theme = ParseTheme(v) })),
             MakeAccentRow("Accent", "The highlight color — preset, custom, or Windows",
                 s.Appearance),
+            MakeChoiceRow("Font", "Typeface for the island and app text",
+                FontChoice.Known.Select(f => (f.Id, f.Label)).ToArray(),
+                s.Appearance.Font,
+                v => UpdateAppearance(x => x with { Font = v })),
             MakeChoiceRow("Gradient", "A background skin over the island body",
                 GradientSkin.Known.Select(g => (g, GradientSkin.Labels[g])).ToArray(),
                 s.Appearance.Gradient,
@@ -116,10 +137,14 @@ public partial class SettingsWindow : Window
                 s.Appearance.Glass ? "glass" : "solid",
                 v =>
                 {
-                    UpdateAppearance(x => x with { Glass = v == "glass" });
-                    _opacityRow.Visibility = v == "glass" ? Visibility.Visible : Visibility.Collapsed;
-                    _blurRow.Visibility = v == "glass" ? Visibility.Visible : Visibility.Collapsed;
+                    var glass = v == "glass";
+                    UpdateAppearance(x => x with { Glass = glass });
+                    var blurEnabled = _settings.Current.Appearance.BlurEnabled;
+                    _blurEnabledRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
+                    _opacityRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
+                    _blurRow.Visibility = glass && blurEnabled ? Visibility.Visible : Visibility.Collapsed;
                 }),
+            _blurEnabledRow,
             _opacityRow,
             _blurRow);
 

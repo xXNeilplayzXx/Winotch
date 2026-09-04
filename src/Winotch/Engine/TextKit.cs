@@ -7,11 +7,15 @@ namespace Winotch.Engine;
 /// icon fonts for glyphs, Segoe UI Emoji for status icons. Nothing bundled.</summary>
 public static class TextKit
 {
-    private static readonly SKTypeface UiRegular = Pick("Segoe UI Variable Text", "Segoe UI", "Arial");
-    private static readonly SKTypeface UiSemibold = Pick("Segoe UI Variable Text", "Segoe UI", "Arial",
-        weight: SKFontStyleWeight.SemiBold);
-    private static readonly SKTypeface UiBold = Pick("Segoe UI Variable Text", "Segoe UI", "Arial",
-        weight: SKFontStyleWeight.Bold);
+    private static SKTypeface UiRegular = null!;
+    private static SKTypeface UiSemibold = null!;
+    private static SKTypeface UiBold = null!;
+
+    static TextKit()
+    {
+        SetUiFamily("Segoe UI Variable Text");
+    }
+
     private static readonly SKTypeface Symbols = Pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol");
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface UiEmoji = Pick("Segoe UI Emoji", "Segoe UI Symbol", "Arial");
@@ -22,6 +26,19 @@ public static class TextKit
     public static SKTypeface Icons => Symbols;
     public static SKTypeface Monospace => Mono;
     public static SKTypeface Emoji => UiEmoji;
+
+    /// <summary>Switch the UI faces — every non-mono, non-icon text draw — to
+    /// an installed family, falling back through the OS defaults when it is
+    /// missing. Called at startup and when the Appearance font setting
+    /// changes. Icons, emoji and the mono faces are intentionally fixed.</summary>
+    public static void SetUiFamily(string family)
+    {
+        UiRegular = Pick(family, "Segoe UI Variable Text", "Segoe UI");
+        UiSemibold = Pick(family, "Segoe UI Variable Text", "Segoe UI",
+            weight: SKFontStyleWeight.SemiBold);
+        UiBold = Pick(family, "Segoe UI Variable Text", "Segoe UI",
+            weight: SKFontStyleWeight.Bold);
+    }
 
     private static SKTypeface Pick(string primary, string fallback, string last,
         SKFontStyleWeight weight = SKFontStyleWeight.Normal)
