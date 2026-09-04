@@ -592,17 +592,26 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     public void OpenNotesEditor()
     {
-        var window = new NotesEditWindow(_settings.Current.Widgets.Notes);
+        var widgets = _settings.Current.Widgets;
+        var window = new NotesEditWindow(widgets.Notes, widgets.SizeFor("notes"));
         if (window.ShowDialog() == true && window.Result is { } text)
         {
-            _settings.Update(s => s with { Widgets = s.Widgets with { Notes = text } });
+            var scale = window.Scale;
+            _settings.Update(s => s with
+            {
+                Widgets = s.Widgets.WithSize("notes", scale) with { Notes = text },
+            });
         }
     }
 
     public void OpenWeatherEditor()
     {
-        var window = new WeatherEditWindow(_settings.Current.Widgets.Weather);
+        var widgets = _settings.Current.Widgets;
+        var window = new WeatherEditWindow(widgets.Weather, widgets.SizeFor("weather"));
         if (window.ShowDialog() != true) return;
+        // Both outcome paths below update settings themselves, so the card
+        // size choice is saved here first.
+        _settings.Update(s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
         if (window.City is { } city)
         {
             _ = ResolveAndFetchWeatherAsync(city);
@@ -615,21 +624,28 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     public void OpenLauncherEditor()
     {
-        var window = new LauncherEditWindow(_settings.Current.Widgets.LauncherApps);
+        var widgets = _settings.Current.Widgets;
+        var window = new LauncherEditWindow(widgets.LauncherApps, widgets.SizeFor("launcher"));
         if (window.ShowDialog() == true && window.Result is { } apps)
         {
-            _settings.Update(s => s with { Widgets = s.Widgets with { LauncherApps = apps } });
+            var scale = window.Scale;
+            _settings.Update(s => s with
+            {
+                Widgets = s.Widgets.WithSize("launcher", scale) with { LauncherApps = apps },
+            });
         }
     }
 
     public void OpenFocusEditor()
     {
         var widgets = _settings.Current.Widgets;
-        var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes, widgets.FocusAutoCycle);
+        var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes,
+            widgets.FocusAutoCycle, widgets.SizeFor("focus"));
         if (window.ShowDialog() != true || window.Result is not { } result) return;
+        var scale = window.Scale;
         _settings.Update(s => s with
         {
-            Widgets = s.Widgets with
+            Widgets = s.Widgets.WithSize("focus", scale) with
             {
                 FocusMinutes = result.FocusMinutes,
                 BreakMinutes = result.BreakMinutes,
@@ -640,11 +656,26 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     public void OpenMetricsEditor()
     {
-        var window = new MetricsEditWindow(_settings.Current.Widgets.SystemMetrics);
+        var widgets = _settings.Current.Widgets;
+        var window = new MetricsEditWindow(widgets.SystemMetrics, widgets.SizeFor("system"));
         if (window.ShowDialog() == true && window.Result is { } result)
         {
-            _settings.Update(s => s with { Widgets = s.Widgets with { SystemMetrics = result } });
+            var scale = window.Scale;
+            _settings.Update(s => s with
+            {
+                Widgets = s.Widgets.WithSize("system", scale) with { SystemMetrics = result },
+            });
         }
+    }
+
+    /// <summary>Size-only editor for cards without their own settings (clock,
+    /// now playing, clipboard).</summary>
+    public void OpenCardSizeEditor(string id)
+    {
+        var widgets = _settings.Current.Widgets;
+        var window = new CardSizeWindow(WidgetSettings.Labels[id], widgets.SizeFor(id));
+        if (window.ShowDialog() != true) return;
+        _settings.Update(s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
     }
 
     public void LaunchApp(LauncherApp app)

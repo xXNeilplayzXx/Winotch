@@ -105,6 +105,50 @@ internal static class DialogUi
         return tb;
     }
 
+    /// <summary>Compact / Standard / Large segmented picker for one widget's
+    /// card size. The selected segment stays accent-highlighted and the new
+    /// choice is reported through <paramref name="changed"/> as it's made.</summary>
+    public static StackPanel SizeRow(WidgetScale current, Action<WidgetScale> changed)
+    {
+        var options = new[] { WidgetScale.Compact, WidgetScale.Standard, WidgetScale.Large };
+        var buttons = new List<Button>();
+        void Paint(WidgetScale selected)
+        {
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                var on = options[i] == selected;
+                buttons[i].Background = on ? Accent : CardHover;
+                buttons[i].Foreground = on ? B(0x06, 0x13, 0x1A) : Text;
+            }
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        for (var i = 0; i < options.Length; i++)
+        {
+            var scale = options[i];
+            var button = Button(scale.Label());
+            button.Padding = new Thickness(0, 5, 0, 5);
+            button.MinWidth = 76;
+            button.Margin = new Thickness(i == 0 ? 0 : 6, 0, 0, 0);
+            button.Click += (_, _) =>
+            {
+                Paint(scale);
+                changed(scale);
+            };
+            buttons.Add(button);
+            row.Children.Add(button);
+        }
+        Paint(current);
+        return row;
+    }
+
+    /// <summary>Labeled card-size picker to drop into a widget-edit dialog.</summary>
+    public static StackPanel SizeSection(WidgetScale current, Action<WidgetScale> changed)
+    {
+        var label = Label("Card size", 11.5, muted: true);
+        label.Margin = new Thickness(0, 12, 0, 0);
+        return new StackPanel { Children = { label, SizeRow(current, changed) } };
+    }
+
     public static void ApplyFrame(Window window, string title)
     {
         window.Title = title;
@@ -197,9 +241,13 @@ public sealed class NotesEditWindow : Window
 {
     public string? Result { get; private set; }
 
-    public NotesEditWindow(string current)
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
+    public NotesEditWindow(string current, WidgetScale scale)
     {
         DialogUi.ApplyFrame(this, "Notes");
+        Scale = scale;
         var box = DialogUi.TextBox(current, multiline: true);
         var count = DialogUi.Label($"{current.Length} chars", 11, muted: true);
 
@@ -214,6 +262,7 @@ public sealed class NotesEditWindow : Window
         panel.Children.Add(DialogUi.Label("Jot something down…", 12, muted: true));
         panel.Children.Add(box);
         panel.Children.Add(count);
+        panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -234,9 +283,13 @@ public sealed class WeatherEditWindow : Window
     public string? City { get; private set; }
     public bool UseWindowsLocation { get; private set; }
 
-    public WeatherEditWindow(WeatherWidgetConfig config)
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
+    public WeatherEditWindow(WeatherWidgetConfig config, WidgetScale scale)
     {
         DialogUi.ApplyFrame(this, "Weather");
+        Scale = scale;
         var box = DialogUi.TextBox(config.City, placeholder: "e.g. Berlin");
 
         var ok = DialogUi.Button("Save", primary: true);
@@ -274,6 +327,7 @@ public sealed class WeatherEditWindow : Window
             Margin = new Thickness(0, 8, 0, 0),
             Children = { useLocation },
         });
+        panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -293,6 +347,9 @@ public sealed class LauncherEditWindow : Window
 {
     public List<LauncherApp>? Result { get; private set; }
 
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
     private static readonly (string Label, string Path)[] QuickApps =
     {
         ("Chrome", "chrome.exe"),
@@ -306,10 +363,11 @@ public sealed class LauncherEditWindow : Window
         ("Steam", "C:\\Program Files (x86)\\Steam\\steam.exe"),
     };
 
-    public LauncherEditWindow(IReadOnlyList<LauncherApp> current)
+    public LauncherEditWindow(IReadOnlyList<LauncherApp> current, WidgetScale scale)
     {
         var apps = new List<LauncherApp>(current);
         DialogUi.ApplyFrame(this, "App launcher");
+        Scale = scale;
         var width = 380;
 
         var ok = DialogUi.Button("Done", primary: true);
@@ -408,6 +466,7 @@ public sealed class LauncherEditWindow : Window
         panel.Children.Add(scroller);
         panel.Children.Add(addRow);
         panel.Children.Add(quick);
+        panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -426,9 +485,13 @@ public sealed class MetricsEditWindow : Window
 {
     public SystemMetricsConfig? Result { get; private set; }
 
-    public MetricsEditWindow(SystemMetricsConfig current)
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
+    public MetricsEditWindow(SystemMetricsConfig current, WidgetScale scale)
     {
         DialogUi.ApplyFrame(this, "System metrics");
+        Scale = scale;
 
         var cpu = new CheckBox { Content = "CPU load", IsChecked = current.Cpu, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
         var mem = new CheckBox { Content = "Memory", IsChecked = current.Memory, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
@@ -456,6 +519,7 @@ public sealed class MetricsEditWindow : Window
         panel.Children.Add(mem);
         panel.Children.Add(bat);
         panel.Children.Add(net);
+        panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -474,9 +538,13 @@ public sealed class FocusEditWindow : Window
 {
     public (int FocusMinutes, int BreakMinutes, bool AutoCycle)? Result { get; private set; }
 
-    public FocusEditWindow(int focusMinutes, int breakMinutes, bool autoCycle)
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
+    public FocusEditWindow(int focusMinutes, int breakMinutes, bool autoCycle, WidgetScale scale)
     {
         DialogUi.ApplyFrame(this, "Focus timer");
+        Scale = scale;
 
         var focusBox = DialogUi.TextBox(focusMinutes.ToString());
         focusBox.Width = 72;
@@ -531,6 +599,39 @@ public sealed class FocusEditWindow : Window
             Children = { focusCol, breakCol },
         });
         panel.Children.Add(loop);
+        panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children = { cancel, ok },
+        });
+        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+
+        Content = panel;
+    }
+}
+
+/// <summary>Settings dialog for cards with nothing else to configure (clock,
+/// now playing, clipboard): just the card size picker.</summary>
+public sealed class CardSizeWindow : Window
+{
+    /// <summary>The card size chosen in this dialog.</summary>
+    public WidgetScale Scale { get; private set; }
+
+    public CardSizeWindow(string title, WidgetScale current)
+    {
+        DialogUi.ApplyFrame(this, title);
+        Scale = current;
+
+        var ok = DialogUi.Button("Done", primary: true);
+        var cancel = DialogUi.Button("Cancel");
+        ok.Click += (_, _) => DialogResult = true;
+        cancel.Click += (_, _) => DialogResult = false;
+
+        var panel = new StackPanel { Margin = new Thickness(16), Width = 290 };
+        panel.Children.Add(DialogUi.SizeSection(current, s => Scale = s));
         panel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,

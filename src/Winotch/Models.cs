@@ -392,13 +392,36 @@ public sealed record WidgetSettings
     public List<LauncherApp> LauncherApps { get; init; } = new();
     public SystemMetricsConfig SystemMetrics { get; init; } = new();
 
-    /// <summary>Card size for every widget card in the expanded panel.</summary>
+    /// <summary>Per-card size of each widget, keyed by widget id. Widgets with
+    /// no entry render at Standard — each card is sized from its own ⚙.</summary>
+    public Dictionary<string, WidgetScale> Sizes { get; init; } = new();
+
+    /// <summary>Legacy single card size for every widget (≤ 2.1.x builds).
+    /// Kept so old settings files deserialize; Normalize migrates it into
+    /// Sizes once, then it stays Standard.</summary>
     public WidgetScale Scale { get; init; } = WidgetScale.Standard;
 
     // Persisted focus-timer preset (minutes), editable from the focus card.
     public int FocusMinutes { get; init; } = 25;
     public int BreakMinutes { get; init; } = 5;
     public bool FocusAutoCycle { get; init; }
+
+    /// <summary>The card size for a widget id; Standard when that widget has
+    /// no explicit choice.</summary>
+    public WidgetScale SizeFor(string id) =>
+        Sizes is not null && Sizes.TryGetValue(id, out var scale) ? scale : WidgetScale.Standard;
+
+    /// <summary>Copy with the given widget's card size set; passing Standard
+    /// removes the entry so the card falls back to Standard. Returns this
+    /// unchanged when the size already matches.</summary>
+    public WidgetSettings WithSize(string id, WidgetScale scale)
+    {
+        if (SizeFor(id) == scale) return this;
+        var sizes = new Dictionary<string, WidgetScale>(Sizes ?? new());
+        if (scale == WidgetScale.Standard) sizes.Remove(id);
+        else sizes[id] = scale;
+        return this with { Sizes = sizes };
+    }
 
     public WidgetSettings Normalize()
     {
@@ -407,6 +430,19 @@ public sealed record WidgetSettings
             .Distinct()
             .ToList();
         if (enabled.Count == 0) enabled = new List<string>(DefaultEnabled);
+
+        // Keep only known widget ids with defined scales.
+        var sizes = new Dictionary<string, WidgetScale>();
+        foreach (var (id, scale) in Sizes ?? new())
+        {
+            if (Known.Contains(id) && Enum.IsDefined(scale)) sizes[id] = scale;
+        }
+        // One-time migration: the pre-2.2 build sized every card from a single
+        // Scale. Seed each enabled card from it and clear the legacy value.
+        if (sizes.Count == 0 && Scale != WidgetScale.Standard)
+        {
+            foreach (var id in enabled) sizes[id] = Scale;
+        }
         return this with
         {
             Enabled = enabled,
@@ -414,7 +450,8 @@ public sealed record WidgetSettings
             Weather = Weather is null ? new WeatherWidgetConfig() : Weather,
             LauncherApps = LauncherApps ?? [],
             SystemMetrics = SystemMetrics is null ? new SystemMetricsConfig() : SystemMetrics,
-            Scale = Enum.IsDefined(Scale) ? Scale : WidgetScale.Standard,
+            Sizes = sizes,
+            Scale = WidgetScale.Standard,
             FocusMinutes = Math.Clamp(FocusMinutes, 1, 180),
             BreakMinutes = Math.Clamp(BreakMinutes, 1, 60),
         };

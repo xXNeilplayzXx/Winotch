@@ -290,23 +290,11 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
+            // Widget card sizes moved into each card's own ⚙ settings dialog,
+            // so the card layout is per-widget instead of one size for all.
             MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
-            MakeChoiceRow("Widget size", "How large the expanded panel's cards render",
-                new[]
-                {
-                    ("compact", "Compact"), ("standard", "Standard"), ("large", "Large"),
-                }, s.Widgets.Scale.ToString().ToLowerInvariant(),
-                v => _settings.Update(x => x with
-                {
-                    Widgets = x.Widgets with
-                    {
-                        Scale = v == "compact" ? WidgetScale.Compact
-                            : v == "large" ? WidgetScale.Large
-                            : WidgetScale.Standard,
-                    },
-                })));
+                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })));
     }
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>

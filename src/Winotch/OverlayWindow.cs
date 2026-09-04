@@ -163,6 +163,7 @@ public sealed class OverlayWindow : Window, IDisposable
         _shell.LauncherEditRequested += _manager.OpenLauncherEditor;
         _shell.FocusCustomRequested += _manager.OpenFocusEditor;
         _shell.SystemMetricsEditRequested += _manager.OpenMetricsEditor;
+        _shell.CardSizeEditRequested += _manager.OpenCardSizeEditor;
         _shell.LaunchAppRequested += _manager.LaunchApp;
     }
 

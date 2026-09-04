@@ -56,6 +56,9 @@ public sealed class IslandShell
     public event Action? FocusCustomRequested;
     public event Action? LauncherEditRequested;
     public event Action? SystemMetricsEditRequested;
+    // Clock, now playing and clipboard have no other settings, so their ⚙
+    // opens the per-card size dialog for that widget.
+    public event Action<string>? CardSizeEditRequested;
     public event Action<LauncherApp>? LaunchAppRequested;
 
     // Live geometry.
@@ -538,7 +541,7 @@ public sealed class IslandShell
                 : 0,
             _ => 0,
         };
-        return height * settings.Widgets.Scale.Factor();
+        return height * settings.Widgets.SizeFor(id).Factor();
     }
 
     private static int LauncherRows(WinotchSettings settings) =>
@@ -1107,6 +1110,8 @@ public sealed class IslandShell
             "weather" => () => WeatherEditRequested?.Invoke(),
             "launcher" => () => LauncherEditRequested?.Invoke(),
             "system" => () => SystemMetricsEditRequested?.Invoke(),
+            // Cards with nothing else to configure just pick their size.
+            "clock" or "media" or "clipboard" => () => CardSizeEditRequested?.Invoke(id),
             _ => null,
         };
         if (edit is not null)
