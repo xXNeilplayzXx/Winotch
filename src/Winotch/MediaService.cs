@@ -226,7 +226,7 @@ public sealed class MediaService : IDisposable
                 _lastArtKey = artKey;
                 _lastArt = art;
             }
-            var canSeek = info?.PlaybackControls?.IsPlaybackPositionEnabled ?? false;
+            var canSeek = info?.Controls?.IsPlaybackPositionEnabled ?? false;
             return new MediaSnapshot(title, artist, playing, position, duration, art, canSeek);
         }
         catch
