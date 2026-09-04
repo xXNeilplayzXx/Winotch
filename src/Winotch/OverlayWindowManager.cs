@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -717,9 +719,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             });
             await FetchWeatherAsync();
         }
-        catch
+        catch (Exception ex)
         {
-            ShowToast(new ToastSpec("", "Weather", "Lookup failed — are you offline?", 5));
+            ShowToast(new ToastSpec("", "Weather", WeatherFailureText(ex), 6));
         }
     }
 
@@ -750,6 +752,24 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         catch
         {
             ShowToast(new ToastSpec("", "Weather", "Location lookup failed.", 5));
+        }
+    }
+
+    /// <summary>Turn a weather lookup failure into an actionable toast. The
+    /// old catch-all blamed the connection for every error, hiding blockers,
+    /// proxies and bad responses behind an "are you offline?" message.</summary>
+    private static string WeatherFailureText(Exception ex)
+    {
+        switch (ex)
+        {
+            case HttpRequestException:
+            case TaskCanceledException:
+                return "Can't reach the weather service — check your connection, then try again.";
+            case JsonException:
+            case FormatException:
+                return "The weather service sent something unexpected — a VPN, firewall or proxy may be blocking it.";
+            default:
+                return $"Weather lookup failed ({ex.GetType().Name}).";
         }
     }
 

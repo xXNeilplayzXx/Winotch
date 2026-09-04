@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 
@@ -30,7 +31,23 @@ public static class WeatherCodes
 /// forecast. No API key, no telemetry — same free endpoint the old app used.</summary>
 public sealed class WeatherService : IDisposable
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(12) };
+    private readonly HttpClient _http = CreateClient();
+
+    private static HttpClient CreateClient()
+    {
+        // open-meteo asks callers to identify themselves with a User-Agent,
+        // and some networks proxy/compress API responses — send one and
+        // decode gzip/deflate so middleboxes can't corrupt the JSON.
+        var client = new HttpClient(new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(15),
+        };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Winotch/" + UpdateService.CurrentVersionText);
+        return client;
+    }
 
     public void Dispose() => _http.Dispose();
 
