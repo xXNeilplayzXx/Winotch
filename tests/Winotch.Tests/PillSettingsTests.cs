@@ -13,6 +13,7 @@ public class PillSettingsTests
             var settings = new SettingsService(path);
             settings.Update(s => s with
             {
+                General = s.General with { OpenDirection = ExpandDirection.Horizontal },
                 Appearance = new AppearanceSettings
                 {
                     CustomSize = true,
@@ -29,6 +30,7 @@ public class PillSettingsTests
             });
 
             var reloaded = new SettingsService(path);
+            Assert.Equal(ExpandDirection.Horizontal, reloaded.Current.General.OpenDirection);
             var appearance = reloaded.Current.Appearance;
             Assert.True(appearance.CustomSize);
             Assert.Equal(500, appearance.Width);
