@@ -326,6 +326,11 @@ public sealed record GeneralSettings
     public NotchStyle Style { get; init; } = NotchStyle.Notch;
     public PillEdge Edge { get; init; } = PillEdge.Top;
 
+    /// <summary>How the expanded panel unfolds: Vertical grows downward from
+    /// the pill; Horizontal blooms outward from the pill's center with the
+    /// height following the width.</summary>
+    public ExpandDirection OpenDirection { get; init; } = ExpandDirection.Vertical;
+
     /// <summary>Look for a newer build on GitHub when the app starts.</summary>
     public bool AutoCheckUpdates { get; init; } = true;
 
@@ -346,6 +351,9 @@ public enum NotchStyle { Notch, Island }
 /// Left / Right rotate it 90 degrees into a slim vertical capsule that hugs
 /// that side of the screen.</summary>
 public enum PillEdge { Top, Left, Right }
+
+/// <summary>The character of the notch's expand / collapse animation.</summary>
+public enum ExpandDirection { Vertical, Horizontal }
 
 public sealed record ToastSettings
 {

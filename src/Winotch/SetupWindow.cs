@@ -16,6 +16,7 @@ public sealed class SetupWindow : Window
     private ThemeMode _theme;
     private NotchStyle _style;
     private bool _glass;
+    private ExpandDirection _openDirection;
     private DisplayMode _display;
     private string _displayDevice = "";
     private List<string> _widgets;
@@ -32,6 +33,7 @@ public sealed class SetupWindow : Window
         _theme = settings.Current.Appearance.Theme;
         _style = settings.Current.General.Style;
         _glass = settings.Current.Appearance.Glass;
+        _openDirection = settings.Current.General.OpenDirection;
         _display = settings.Current.Appearance.Display;
         _displayDevice = settings.Current.Appearance.DisplayDeviceName;
         _widgets = new List<string>(settings.Current.Widgets.Enabled);
@@ -95,6 +97,10 @@ public sealed class SetupWindow : Window
         {
             (true, "Glass"), (false, "Solid"),
         }, _glass, value => { _glass = value; RefreshPreview(); })));
+        _pageHost.Children.Add(Card(LabeledChips("Open direction", new[]
+        {
+            (ExpandDirection.Vertical, "Vertical"), (ExpandDirection.Horizontal, "Horizontal"),
+        }, _openDirection, value => { _openDirection = value; RefreshPreview(); })));
 
         var next = DialogUi.Button("Next", primary: true);
         next.Click += (_, _) => ShowPage2();
@@ -171,6 +177,9 @@ public sealed class SetupWindow : Window
         _previewCaption.Text = _style == NotchStyle.Notch
             ? "Attaches to the top edge — the cap tucks under the screen"
             : "Floats below the top edge";
+        _previewCaption.Text += _openDirection == ExpandDirection.Horizontal
+            ? " · opens outward"
+            : " · opens downward";
     }
 
     /// <summary>Two small step dots so the wizard reads as 1 of 2.</summary>
@@ -533,7 +542,7 @@ public sealed class SetupWindow : Window
         if (_widgets.Count == 0) _widgets = new List<string>(WidgetSettings.DefaultEnabled);
         _settings.Update(s => s with
         {
-            General = s.General with { Style = _style },
+            General = s.General with { Style = _style, OpenDirection = _openDirection },
             Appearance = s.Appearance with
             {
                 Theme = _theme,

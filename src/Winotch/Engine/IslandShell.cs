@@ -388,7 +388,19 @@ public sealed class IslandShell
 
         var vertical = Vertical;
 
-        var target = expanded ? new Vec2(expandedW, expandedH) : new Vec2(miniTarget.Width, miniTarget.Height);
+        // Open direction shapes the unfold: Vertical keeps the classic
+        // downward grow; Horizontal blooms wide from the pill's center first,
+        // with the height trailing so the panel "unfolds" outward.
+        var openDirection = settings.General.OpenDirection;
+        var wTarget = expanded ? expandedW : miniTarget.Width;
+        var hTarget = expanded ? expandedH : miniTarget.Height;
+        if (expanded && !vertical && openDirection == ExpandDirection.Horizontal && _blend < 1)
+        {
+            // Width leads: give the spring the full width now and interpolate
+            // the height from the mini pill up as the crossfade completes.
+            hTarget = miniTarget.Height + (expandedH - miniTarget.Height) * _blend;
+        }
+        var target = new Vec2(wTarget, hTarget);
         var size = _size.Step(deltaTime, target);
         _w = size.X;
         _h = size.Y;

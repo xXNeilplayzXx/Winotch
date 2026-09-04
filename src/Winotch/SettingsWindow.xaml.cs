@@ -261,6 +261,16 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Vertical text", "Side mode: keep letters upright, stacked top-to-bottom",
                 s.Appearance.VerticalText,
                 v => UpdateAppearance(x => x with { VerticalText = v })),
+            MakeChoiceRow("Open direction", "How the panel unfolds: downward, or blooming outward from the pill",
+                new[] { ("vertical", "Vertical"), ("horizontal", "Horizontal") },
+                s.General.OpenDirection == ExpandDirection.Horizontal ? "horizontal" : "vertical",
+                v => _settings.Update(x => x with
+                {
+                    General = x.General with
+                    {
+                        OpenDirection = v == "horizontal" ? ExpandDirection.Horizontal : ExpandDirection.Vertical,
+                    },
+                })),
         };
         if (_enterDragMode is not null)
         {
