@@ -319,6 +319,7 @@ public sealed record GeneralSettings
     public ClockLayout Layout { get; init; } = ClockLayout.Standard;
     public bool StartWithWindows { get; init; }
     public NotchStyle Style { get; init; } = NotchStyle.Notch;
+    public PillEdge Edge { get; init; } = PillEdge.Top;
 
     /// <summary>Look for a newer build on GitHub when the app starts.</summary>
     public bool AutoCheckUpdates { get; init; } = true;
@@ -335,6 +336,11 @@ public enum ClockLayout { Standard, Stacked }
 /// <summary>How the shell attaches to the screen: Notch hugs the top edge
 /// (the screen clips the pill's top cap), Island floats below it.</summary>
 public enum NotchStyle { Notch, Island }
+
+/// <summary>Which edge the pill hangs from. Top keeps the horizontal pill;
+/// Left / Right rotate it 90 degrees into a slim vertical capsule that hugs
+/// that side of the screen.</summary>
+public enum PillEdge { Top, Left, Right }
 
 public sealed record ToastSettings
 {

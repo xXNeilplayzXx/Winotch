@@ -21,6 +21,9 @@ public sealed class IslandShell
     private readonly SecondOrderVec2 _size = new(new Vec2(MiniWidthMin, MiniHeight), 3.2, 0.8, 0);
     private readonly List<Toast> _toasts = new();
     private readonly List<HitButton> _buttons = new();
+    // While drawing the rotated vertical pill, registered button rects are in
+    // the rotated local space and are mapped back to screen coordinates.
+    private SKMatrix? _buttonMap;
     private readonly Dictionary<string, SKBitmap> _thumbs = new();
     private readonly Dictionary<string, SKBitmap> _artCache = new();
 
@@ -58,6 +61,10 @@ public sealed class IslandShell
     // Live geometry.
     public double CanvasWidth { get; private set; }
     public double CanvasHeight { get; private set; }
+
+    /// <summary>True when the pill should hug the left or right edge as a
+    /// rotated vertical capsule instead of hanging horizontally at the top.</summary>
+    private bool Vertical => _settings.Current.General.Edge != PillEdge.Top;
     private double _x, _y, _w, _h;
     private double _cursorX, _cursorY;
     private bool _wantExpanded;
@@ -167,6 +174,9 @@ public sealed class IslandShell
     /// persisted resting position).</summary>
     public void SetOffset(double x, double y)
     {
+        // A vertical pill is pinned to its edge; only the along-edge offset
+        // is free (dragging sideways is ignored so it can't leave the side).
+        if (Vertical) x = 0;
         OffsetX = x;
         OffsetY = y;
         MarkDataDirty();
@@ -373,25 +383,67 @@ public sealed class IslandShell
         var expandedW = Math.Min(ExpandedWidth, Math.Max(120, CanvasWidth - 16));
         var expandedH = ExpandedHeight(settings);
 
+        var vertical = Vertical;
+
         var target = expanded ? new Vec2(expandedW, expandedH) : new Vec2(miniTarget.Width, miniTarget.Height);
         var size = _size.Step(deltaTime, target);
         _w = size.X;
         _h = size.Y;
 
-        var notch = settings.General.Style == NotchStyle.Notch;
-        var targetTop = notch
-            ? (expanded ? NotchTopPanel : NotchTopMini)
-            : (expanded ? IslandTopPanel : IslandTopMini);
-        _y += (targetTop - _y) * Math.Min(1, deltaTime * 16);
-        _x = (CanvasWidth - _w) / 2;
+        if (vertical)
+        {
+            // The capsule hugs the chosen side, vertically centered by default,
+            // sliding along the edge (OffsetY) but never leaving the screen.
+            const double inset = 8;
+            var edge = settings.General.Edge;
+            var capX = edge == PillEdge.Left ? inset : CanvasWidth - miniTarget.Width - inset;
+            var capY = Math.Clamp((CanvasHeight - miniTarget.Height) / 2 + OffsetY,
+                6, Math.Max(6, CanvasHeight - miniTarget.Height - 6));
+            double tx, ty;
+            if (expanded)
+            {
+                // Slide the horizontal panel out beside the capsule — a small
+                // way inward of the edge — growing downward when there's room,
+                // or upward when the capsule sits too low for the panel height.
+                const double gap = 10;
+                if (edge == PillEdge.Left)
+                {
+                    tx = Math.Clamp(capX + miniTarget.Width + gap, 6, Math.Max(6, CanvasWidth - expandedW - 6));
+                }
+                else
+                {
+                    tx = Math.Clamp(capX - gap - expandedW, 6, Math.Max(6, CanvasWidth - expandedW - 6));
+                }
+                ty = capY + expandedH <= CanvasHeight - 6
+                    ? capY
+                    : Math.Max(6, capY + miniTarget.Height - expandedH);
+            }
+            else
+            {
+                tx = capX;
+                ty = capY;
+            }
+            var k = Dragging ? 1 : Math.Min(1, deltaTime * 16);
+            _x += (tx - _x) * k;
+            _y += (ty - _y) * k;
+        }
+        else
+        {
+            var notch = settings.General.Style == NotchStyle.Notch;
+            var targetTop = notch
+                ? (expanded ? NotchTopPanel : NotchTopMini)
+                : (expanded ? IslandTopPanel : IslandTopMini);
+            _y += (targetTop - _y) * Math.Min(1, deltaTime * 16);
+            _x = (CanvasWidth - _w) / 2;
 
-        // Apply the drag offset, clamped so the island can never be pushed
-        // off the screen: the notch may keep its designed top-cap clip, the
-        // island must stay fully visible, and neither may fall off the bottom.
-        var yMin = notch ? NotchTopMini : 0;
-        var yMax = Math.Max(yMin, CanvasHeight - _h);
-        _x = Math.Clamp(_x + OffsetX, 6, Math.Max(6, CanvasWidth - _w - 6));
-        _y = Math.Clamp(_y + OffsetY, yMin, yMax);
+            // Apply the drag offset, clamped so the island can never be pushed
+            // off the screen: the notch may keep its designed top-cap clip,
+            // the island must stay fully visible, and neither falls off-screen.
+            var yMin = notch ? NotchTopMini : 0;
+            var yMax = Math.Max(yMin, CanvasHeight - _h);
+            _x = Math.Clamp(_x + OffsetX, 6, Math.Max(6, CanvasWidth - _w - 6));
+            _y = Math.Clamp(_y + OffsetY, yMin, yMax);
+        }
 
         // Hover toggles expansion with hysteresis (suppressed while dragging
         // or while drag mode is positioning the pill).
@@ -421,6 +473,24 @@ public sealed class IslandShell
     private (double Width, double Height) MiniTarget()
     {
         var appearance = _settings.Current.Appearance;
+        if (Vertical)
+        {
+            // Slim capsule along the edge: thickness is the pill height, the
+            // length follows the row (or the drag-mode Done / Reset chips).
+            double length;
+            if (_dragMode)
+            {
+                length = 14 + TextKit.Measure("Done", 11f, TextKit.Semibold) + 24
+                    + 10 + TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24 + 14;
+            }
+            else
+            {
+                length = 10;
+                foreach (var item in BuildMiniRow()) length += item.Width + 8;
+            }
+            length = Math.Clamp(length, MiniHeight, Math.Max(MiniHeight, CanvasHeight - 16));
+            return (MiniHeight, length);
+        }
         if (_dragMode)
         {
             var w = 14 + (TextKit.Measure("Done", 11f, TextKit.Semibold) + 24)
@@ -719,7 +789,9 @@ public sealed class IslandShell
         // A custom idle text wider than the screen would stretch the pill off
         // the display; clamp the chip and let the text marquee instead.
         _idleMarquee = false;
-        var maxWidth = Math.Max(MiniWidthMin, CanvasWidth - 16);
+        var maxWidth = Vertical
+            ? Math.Max(MiniHeight, CanvasHeight - 16)
+            : Math.Max(MiniWidthMin, CanvasWidth - 16);
         var total = 0.0;
         foreach (var item in items) total += item.Width + 8;
         if (total > maxWidth)
@@ -749,6 +821,20 @@ public sealed class IslandShell
     }
 
     private void DrawMini(SKCanvas canvas, SKRect rect)
+    {
+        if (Vertical)
+        {
+            DrawMiniVertical(canvas, rect);
+            return;
+        }
+        DrawMiniContent(canvas, rect);
+    }
+
+    /// <summary>The collapsed pill's contents. Horizontal pills draw straight
+    /// into screen space; the vertical edge pill rotates the canvas 90° and
+    /// reuses this same row layout in local space (its long axis is the
+    /// screen's vertical), mapping registered buttons back to screen rects.</summary>
+    private void DrawMiniContent(SKCanvas canvas, SKRect rect)
     {
         if (_dragMode)
         {
@@ -926,6 +1012,27 @@ public sealed class IslandShell
         {
             DrawAddMenu(canvas, right, y + 48);
         }
+    }
+
+    /// <summary>Rotated drawing for the vertical edge pill: translate to the
+    /// capsule center, rotate 90°, and lay the row out along the (now screen-
+    /// vertical) local X axis. Text reads top-to-bottom down the edge.</summary>
+    private void DrawMiniVertical(SKCanvas canvas, SKRect rect)
+    {
+        canvas.Save();
+        canvas.Translate(rect.MidX, rect.MidY);
+        canvas.RotateDegrees(_settings.Current.General.Edge == PillEdge.Left ? 90 : -90);
+        var local = new SKRect(-(float)_h / 2, -(float)_w / 2, (float)_h / 2, (float)_w / 2);
+        try
+        {
+            _buttonMap = canvas.TotalMatrix;
+            DrawMiniContent(canvas, local);
+        }
+        finally
+        {
+            _buttonMap = null;
+        }
+        canvas.Restore();
     }
 
     // ------------------------------------------------------ context menu
@@ -1743,7 +1850,9 @@ public sealed class IslandShell
 
     private void RegisterButton(SKRect bounds, Action? action)
     {
-        if (action is not null) _buttons.Add(new HitButton(bounds, action));
+        if (action is null) return;
+        if (_buttonMap is { } map) bounds = map.MapRect(bounds);
+        _buttons.Add(new HitButton(bounds, action));
     }
 
     private static void FillRound(SKCanvas canvas, float x, float y, float w, float h, float r, Col color) =>

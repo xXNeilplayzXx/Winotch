@@ -241,6 +241,23 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Drag to move", "Grab the pill to move it; the spot is remembered",
                 s.Appearance.DragToMove,
                 v => UpdateAppearance(x => x with { DragToMove = v })),
+            MakeChoiceRow("Edge attachment", "Top = the usual pill; Left / Right rotate it vertically onto that edge",
+                new[] { ("top", "Top"), ("left", "Left"), ("right", "Right") },
+                EdgeKey(s.General.Edge),
+                v =>
+                {
+                    var edge = ParseEdge(v);
+                    // Switching edges re-anchors the pill; drop the old drag
+                    // offset so it doesn't land in a stale spot on the new edge.
+                    var appearance = edge == _settings.Current.General.Edge
+                        ? _settings.Current.Appearance
+                        : _settings.Current.Appearance with { OffsetX = 0, OffsetY = 0 };
+                    _settings.Update(x => x with
+                    {
+                        General = x.General with { Edge = edge },
+                        Appearance = appearance,
+                    });
+                }),
         };
         if (_enterDragMode is not null)
         {
@@ -294,6 +311,20 @@ public partial class SettingsWindow : Window
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>
         _settings.Update(x => x with { Appearance = change(x.Appearance) });
+
+    private static string EdgeKey(PillEdge edge) => edge switch
+    {
+        PillEdge.Left => "left",
+        PillEdge.Right => "right",
+        _ => "top",
+    };
+
+    private static PillEdge ParseEdge(string value) => value switch
+    {
+        "left" => PillEdge.Left,
+        "right" => PillEdge.Right,
+        _ => PillEdge.Top,
+    };
 
     private static string IdleKey(IdleContentMode mode) => mode switch
     {
