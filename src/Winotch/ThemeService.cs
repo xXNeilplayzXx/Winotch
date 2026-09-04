@@ -133,7 +133,7 @@ public sealed class WindowsTheme : IWindowsThemeSource
             if (frame.PixelWidth == 0 || frame.PixelHeight == 0) return null;
 
             const int sample = 32;
-            var scaled = new TransformedBitmap(frame, new ScaleTransform(
+            var scaled = new System.Windows.Media.Imaging.TransformedBitmap(frame, new ScaleTransform(
                 sample / (double)frame.PixelWidth, sample / (double)frame.PixelHeight));
             var pixels = new byte[sample * sample * 4];
             scaled.CopyPixels(pixels, sample * 4, 0);
