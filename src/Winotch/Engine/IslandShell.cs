@@ -460,11 +460,15 @@ public sealed class IslandShell
             var pad = expanded ? 8 : 12;
             var hoverRect = new SKRect(rect.Left - pad, rect.Top - pad, rect.Right + pad, rect.Bottom + pad);
             var cursor = new SKPoint((float)_cursorX, (float)_cursorY);
+            // The add menu floats below the island and can extend past its
+            // bounds — keep the panel up while the cursor is over it so its
+            // rows stay visible and clickable.
+            var overAddMenu = _addMenuOpen && AddMenuRect().Contains(cursor);
             if (!_wantExpanded && hoverRect.Contains(cursor) && _blend < 0.5)
             {
                 _wantExpanded = true;
             }
-            else if (_wantExpanded && !hoverRect.Contains(cursor))
+            else if (_wantExpanded && !hoverRect.Contains(cursor) && !overAddMenu)
             {
                 _wantExpanded = false;
                 _addMenuOpen = false;
@@ -716,6 +720,14 @@ public sealed class IslandShell
         if (_contextMenuOpen)
         {
             DrawContextMenu(canvas);
+        }
+
+        // The add menu can extend below the island (few or no widget cards),
+        // so it draws after the body clip — floating over the desktop like
+        // the context menu instead of being cut off at the panel's edge.
+        if (_addMenuOpen)
+        {
+            DrawAddMenu(canvas, (float)(rect.Right - 14), (float)(rect.Top + 62));
         }
 
         // LED hover tooltip (collapsed pill only — the state readout).
@@ -1017,10 +1029,6 @@ public sealed class IslandShell
             yCursor = top + cardH + 12;
         }
 
-        if (_addMenuOpen)
-        {
-            DrawAddMenu(canvas, right, y + 48);
-        }
     }
 
     /// <summary>Rotated drawing for the vertical edge pill: translate to the
@@ -1260,6 +1268,19 @@ public sealed class IslandShell
             ShellUi.DrawGlyph(canvas, _arrowFlashDir > 0 ? "\uE70D" : "\uE70E",
                 flashX, cy, 12.5f, Col.Rgba(0x06, 0x13, 0x1A));
         }
+    }
+
+    /// <summary>The floating add-widget menu's bounds, used to keep the
+    /// island expanded while the cursor is over it. Mirrors the anchoring in
+    /// DrawAddMenu (right-aligned to the expanded panel).</summary>
+    private SKRect AddMenuRect()
+    {
+        var rows = AvailableWidgets().Count;
+        var height = Math.Max(rows * 30f + 8, 34);
+        const float width = 172f;
+        var right = (float)(_x + _w - 14);
+        var top = (float)(_y + 62);
+        return new SKRect(right - width, top, right, top + height);
     }
 
     private void DrawAddMenu(SKCanvas canvas, float right, float top)
