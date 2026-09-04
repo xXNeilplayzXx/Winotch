@@ -21,7 +21,7 @@ public interface INotchHost
     void ShowNotch();
     void OpenSettingsWindow();
     void OpenSetupWizard();
-    void CheckForUpdates();
+    void CheckForUpdates(bool manual = false);
     void RestartApplication();
     void FactoryReset();
     void QuitApplication();
