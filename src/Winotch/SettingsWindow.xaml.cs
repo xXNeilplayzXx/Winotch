@@ -124,10 +124,7 @@ public partial class SettingsWindow : Window
                 v => UpdateAppearance(x => x with { Theme = ParseTheme(v) })),
             MakeAccentRow("Accent", "The highlight color — preset, custom, or Windows",
                 s.Appearance),
-            MakeChoiceRow("Font", "Typeface for the island and app text",
-                FontChoice.Known.Select(f => (f.Id, f.Label)).ToArray(),
-                s.Appearance.Font,
-                v => UpdateAppearance(x => x with { Font = v })),
+            MakeFontRow(s.Appearance),
             MakeChoiceRow("Gradient", "A background skin over the island body",
                 GradientSkin.Known.Select(g => (g, GradientSkin.Labels[g])).ToArray(),
                 s.Appearance.Gradient,
@@ -751,6 +748,85 @@ public partial class SettingsWindow : Window
         Paint();
 
         return MakeSettingRow(label, sub, wrap);
+    }
+
+    /// <summary>Font picker as a live preview: every tile renders the island
+    /// clock (same time format as the pill) in its own typeface, so you can
+    /// compare all candidates before clicking one to apply it.</summary>
+    private Border MakeFontRow(AppearanceSettings appearance)
+    {
+        var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 8) };
+        var tiles = new List<Border>();
+        var clockTexts = new List<TextBlock>();
+        var nameTexts = new List<TextBlock>();
+        var current = appearance.Font;
+
+        void Paint()
+        {
+            for (var i = 0; i < tiles.Count; i++)
+            {
+                var selected = string.Equals(FontChoice.Known[i].Id, current, StringComparison.OrdinalIgnoreCase);
+                tiles[i].Background = selected
+                    ? (Brush)FindResource("NotchAccent")
+                    : (Brush)FindResource("NotchPanelHover");
+                clockTexts[i].Foreground = selected
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    : (Brush)FindResource("NotchText");
+                nameTexts[i].Foreground = selected
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    : (Brush)FindResource("NotchMutedText");
+            }
+        }
+
+        var clock = DateTime.Now.ToString(_settings.Current.General.Use24HourClock ? "H:mm" : "h:mm");
+        foreach (var (id, label) in FontChoice.Known)
+        {
+            var family = new FontFamily(FontChoice.FamilyOf(id));
+            var clockText = new TextBlock
+            {
+                Text = clock,
+                FontSize = 19,
+                FontWeight = FontWeights.SemiBold,
+                FontFamily = family,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var nameText = new TextBlock
+            {
+                Text = label,
+                FontSize = 9.5,
+                FontFamily = family,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 0),
+            };
+            var tile = new Border
+            {
+                Width = 88,
+                Height = 60,
+                CornerRadius = new CornerRadius(10),
+                Background = (Brush)FindResource("NotchPanelHover"),
+                Margin = new Thickness(0, 0, 6, 6),
+                Cursor = Cursors.Hand,
+                Child = new StackPanel
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children = { clockText, nameText },
+                },
+            };
+            var fontId = id;
+            tile.MouseLeftButtonUp += (_, _) =>
+            {
+                current = fontId;
+                UpdateAppearance(x => x with { Font = fontId });
+                Paint();
+            };
+            tiles.Add(tile);
+            clockTexts.Add(clockText);
+            nameTexts.Add(nameText);
+            wrap.Children.Add(tile);
+        }
+        Paint();
+
+        return MakeSettingRow("Font", "Each tile shows the island clock in that typeface", wrap);
     }
 
     /// <summary>Accent swatches + custom hex + follow-Windows toggle.</summary>
