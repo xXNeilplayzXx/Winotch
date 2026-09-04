@@ -23,11 +23,16 @@ public sealed record WinotchSettings
 
 /// <summary>How the shell is themed: a fixed palette, or one that follows the
 /// Windows app theme live (System) or a custom accent (Color).</summary>
-public enum ThemeMode { Dark, Light, System, Color }
+public enum ThemeMode { Dark, Light, System, Color, Background }
 
 /// <summary>What drives the accent color: the built-in per-theme accent, a
 /// custom hex, or the live Windows accent (DWM ColorizationColor).</summary>
 public enum AccentMode { Default, Custom, FollowOs }
+
+/// <summary>How the island surface is painted: Solid is opaque, Glass is
+/// translucent with the backdrop blur (when enabled), Acrylic forces a heavy
+/// blur with a soft accent-tinted frost.</summary>
+public enum SurfaceMode { Solid, Glass, Acrylic }
 
 /// <summary>Which monitor(s) own the notch. All spawns one island per screen.</summary>
 public enum DisplayMode { Main, Named, All, FollowActive }
@@ -47,15 +52,22 @@ public sealed record AppearanceSettings
     public AccentMode Accent { get; init; } = AccentMode.Default;
     public string AccentHex { get; init; } = "#50D6FF";
     public string Gradient { get; init; } = GradientSkin.None;
-    public bool Glass { get; init; }
+    public SurfaceMode Surface { get; init; } = SurfaceMode.Solid;
     public int Opacity { get; init; } = 65;
     public int Blur { get; init; } = 14;
     public bool BlurEnabled { get; init; } = true;
 
     /// <summary>UI typeface id (see <see cref="FontChoice"/>). The default
     /// follows the user-requested change away from the OS Segoe stack; pick
-    /// another (or the original look) in Appearance settings.</summary>
+    /// another (or the original look) in Appearance settings. Also accepts
+    /// "system:&lt;Family&gt;" for any installed font and "custom:&lt;path&gt;"
+    /// for imported .ttf/.otf files.</summary>
     public string Font { get; init; } = FontChoice.Aptos;
+
+    /// <summary>Paths of font files the user imported (Appearance → Font →
+    /// Import). Resolved via <see cref="FontChoice"/>; files live under
+    /// %LOCALAPPDATA%\Winotch\Fonts.</summary>
+    public List<string> CustomFonts { get; init; } = new();
 
     /// <summary>When true the pill uses Width/Height; otherwise the pill
     /// auto-sizes to its content (the rewrite's default behavior).</summary>
@@ -76,15 +88,32 @@ public sealed record AppearanceSettings
     public double OffsetX { get; init; }
     public double OffsetY { get; init; }
 
+    /// <summary>Legacy glass flag, kept so old settings files (and tests)
+    /// that only wrote "Glass" still migrate onto the Surface enum.</summary>
+    public bool Glass { get; init; }
+
+    public bool IsGlass => Surface != SurfaceMode.Solid;
+
     public AppearanceSettings Normalize() => this with
     {
         AccentHex = TryParseHex(AccentHex) ?? "#50D6FF",
         Gradient = GradientSkin.IsKnown(Gradient) ? Gradient : GradientSkin.None,
+        // Surface is authoritative; the legacy Glass flag migrates only when
+        // no Surface was persisted (old settings files predate the enum).
+        Surface = Enum.IsDefined(Surface)
+            ? (Glass && Surface == SurfaceMode.Solid ? SurfaceMode.Glass : Surface)
+            : (Glass ? SurfaceMode.Glass : SurfaceMode.Solid),
         Opacity = Math.Clamp(Opacity, 10, 100),
         Blur = Math.Clamp(Blur, 0, 40),
         Font = FontChoice.IsKnown(Font) ? Font : FontChoice.Aptos,
+        CustomFonts = (CustomFonts ?? new List<string>())
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList(),
         Width = Math.Clamp(Width, 150, 800),
         Height = Math.Clamp(Height, 30, 200),
+        OffsetX = Math.Clamp(OffsetX, -600, 600),
+        OffsetY = Math.Clamp(OffsetY, 0, 400),
         CustomIdleText = CustomIdleText ?? "",
         DisplayDeviceName = DisplayDeviceName ?? "",
     };
@@ -107,7 +136,7 @@ public static class SizePresets
     public static readonly (string Id, string Label, int Width, int Height)[] All =
     {
         ("compact", "Compact", 260, 40),
-        ("standard", "Standard", 330, 44),
+        ("standard", "Standard", 220, 45),
         ("wide", "Wide", 420, 48),
     };
 
@@ -148,8 +177,14 @@ public static class GradientSkin
     public const string Aurora = "aurora";
     public const string Candy = "candy";
     public const string Graphite = "graphite";
+    public const string Peach = "peach";
+    public const string Mint = "mint";
+    public const string Berry = "berry";
+    public const string Midnight = "midnight";
+    public const string Forest = "forest";
 
-    public static readonly string[] Known = { None, Sunset, Ocean, Aurora, Candy, Graphite };
+    public static readonly string[] Known =
+        { None, Sunset, Ocean, Aurora, Candy, Graphite, Peach, Mint, Berry, Midnight, Forest };
 
     public static readonly Dictionary<string, string> Labels = new()
     {
@@ -159,6 +194,11 @@ public static class GradientSkin
         [Aurora] = "Aurora",
         [Candy] = "Candy",
         [Graphite] = "Graphite",
+        [Peach] = "Peach",
+        [Mint] = "Mint",
+        [Berry] = "Berry",
+        [Midnight] = "Midnight",
+        [Forest] = "Forest",
     };
 
     public static bool IsKnown(string? id) =>
@@ -173,6 +213,11 @@ public static class GradientSkin
         Aurora => new[] { ((byte)16, (byte)185, (byte)129, 0.16), ((byte)37, (byte)99, (byte)235, 0.05), ((byte)139, (byte)92, (byte)246, 0.09) },
         Candy => new[] { ((byte)236, (byte)72, (byte)153, 0.18), ((byte)168, (byte)85, (byte)247, 0.06), ((byte)59, (byte)130, (byte)246, 0.09) },
         Graphite => new[] { ((byte)148, (byte)163, (byte)184, 0.12), ((byte)100, (byte)116, (byte)139, 0.05), ((byte)71, (byte)85, (byte)105, 0.10) },
+        Peach => new[] { ((byte)255, (byte)183, (byte)77, 0.20), ((byte)255, (byte)107, (byte)107, 0.07), ((byte)236, (byte)72, (byte)153, 0.08) },
+        Mint => new[] { ((byte)52, (byte)211, (byte)153, 0.16), ((byte)16, (byte)185, (byte)129, 0.06), ((byte)45, (byte)212, (byte)191, 0.10) },
+        Berry => new[] { ((byte)168, (byte)85, (byte)247, 0.20), ((byte)236, (byte)72, (byte)153, 0.08), ((byte)99, (byte)102, (byte)241, 0.10) },
+        Midnight => new[] { ((byte)51, (byte)65, (byte)92, 0.22), ((byte)30, (byte)41, (byte)59, 0.08), ((byte)71, (byte)85, (byte)105, 0.12) },
+        Forest => new[] { ((byte)22, (byte)101, (byte)52, 0.18), ((byte)45, (byte)212, (byte)191, 0.05), ((byte)16, (byte)185, (byte)129, 0.10) },
         _ => Array.Empty<(byte, byte, byte, double)>(),
     };
 }
@@ -195,29 +240,88 @@ public static class FontChoice
         (Bahnschrift, "Bahnschrift"),
     };
 
-    /// <summary>Map a setting id to the installed family name. The Segoe UI
-    /// Variable id resolves to the "Text" optical family the OS registers.</summary>
-    public static string FamilyOf(string id) => id switch
-    {
-        Aptos => "Aptos",
-        SegoeUiVariable => "Segoe UI Variable Text",
-        SegoeUi => "Segoe UI",
-        Bahnschrift => "Bahnschrift",
-        _ => "Aptos",
-    };
+    public const string SystemPrefix = "system:";
+    public const string CustomPrefix = "custom:";
 
-    public static bool IsKnown(string? id) =>
-        !string.IsNullOrWhiteSpace(id) &&
-        Known.Any(f => string.Equals(f.Id, id, StringComparison.OrdinalIgnoreCase));
+    public static string SystemId(string familyName) => SystemPrefix + familyName;
+    public static string CustomId(string filePath) => CustomPrefix + filePath;
+
+    /// <summary>Map a setting id to the installed family name. The Segoe UI
+    /// Variable id resolves to the "Text" optical family the OS registers;
+    /// "system:&lt;family&gt;" passes the family through; "custom:&lt;path&gt;"
+    /// resolves the family from the imported font file.</summary>
+    public static string FamilyOf(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return "Aptos";
+        if (id.StartsWith(SystemPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return id[SystemPrefix.Length..];
+        }
+        if (id.StartsWith(CustomPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return CustomFamily(id[CustomPrefix.Length..]) ?? "Aptos";
+        }
+        return id switch
+        {
+            Aptos => "Aptos",
+            SegoeUiVariable => "Segoe UI Variable Text",
+            SegoeUi => "Segoe UI",
+            Bahnschrift => "Bahnschrift",
+            _ => "Aptos",
+        };
+    }
+
+    /// <summary>The font file path for a custom font id, else null.</summary>
+    public static string? CustomFile(string? id) =>
+        id is not null && id.StartsWith(CustomPrefix, StringComparison.OrdinalIgnoreCase)
+            ? id[CustomPrefix.Length..]
+            : null;
+
+    public static bool IsKnown(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        if (Known.Any(f => string.Equals(f.Id, id, StringComparison.OrdinalIgnoreCase))) return true;
+        if (id.StartsWith(SystemPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return id.Length > SystemPrefix.Length;
+        }
+        if (id.StartsWith(CustomPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var file = id[CustomPrefix.Length..];
+            return !string.IsNullOrWhiteSpace(file) && File.Exists(file);
+        }
+        return false;
+    }
+
+    /// <summary>Family name embedded in an imported font file, or null when
+    /// the file cannot be read (the caller falls back to the default).</summary>
+    public static string? CustomFamily(string filePath)
+    {
+        try
+        {
+            using var face = SkiaSharp.SKTypeface.FromFile(filePath);
+            return face is null || string.IsNullOrEmpty(face.FamilyName) ? null : face.FamilyName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 public sealed record GeneralSettings
 {
     public bool Use24HourClock { get; init; }
     public bool ShowDate { get; init; } = true;
+    public bool ShowDateOnPill { get; init; }
+    public ClockLayout Layout { get; init; } = ClockLayout.Standard;
     public bool StartWithWindows { get; init; }
     public NotchStyle Style { get; init; } = NotchStyle.Notch;
 }
+
+/// <summary>How the expanded panel header and clock widget stack the date:
+/// Standard puts the date off to the side, Stacked centers it under the time.</summary>
+public enum ClockLayout { Standard, Stacked }
 
 /// <summary>How the shell attaches to the screen: Notch hugs the top edge
 /// (the screen clips the pill's top cap), Island floats below it.</summary>
@@ -239,6 +343,12 @@ public sealed record FeatureSettings
     public bool FocusTimerEnabled { get; init; } = true;
     public bool PriorityAlertsEnabled { get; init; } = true;
     public bool FollowActiveMonitor { get; init; } = true;
+
+    // Which live states may appear as chips on the collapsed pill.
+    public bool ShowCallsOnPill { get; init; } = true;
+    public bool ShowMediaOnPill { get; init; } = true;
+    public bool ShowFocusOnPill { get; init; } = true;
+    public bool ShowBatteryOnPill { get; init; } = true;
 }
 
 /// <summary>Which widget cards the expanded panel shows, in display order.
@@ -267,6 +377,14 @@ public sealed record WidgetSettings
     public List<LauncherApp> LauncherApps { get; init; } = new();
     public SystemMetricsConfig SystemMetrics { get; init; } = new();
 
+    /// <summary>Card size for every widget card in the expanded panel.</summary>
+    public WidgetScale Scale { get; init; } = WidgetScale.Standard;
+
+    // Persisted focus-timer preset (minutes), editable from the focus card.
+    public int FocusMinutes { get; init; } = 25;
+    public int BreakMinutes { get; init; } = 5;
+    public bool FocusAutoCycle { get; init; }
+
     public WidgetSettings Normalize()
     {
         var enabled = (Enabled ?? [])
@@ -281,8 +399,31 @@ public sealed record WidgetSettings
             Weather = Weather is null ? new WeatherWidgetConfig() : Weather,
             LauncherApps = LauncherApps ?? [],
             SystemMetrics = SystemMetrics is null ? new SystemMetricsConfig() : SystemMetrics,
+            Scale = Enum.IsDefined(Scale) ? Scale : WidgetScale.Standard,
+            FocusMinutes = Math.Clamp(FocusMinutes, 1, 180),
+            BreakMinutes = Math.Clamp(BreakMinutes, 1, 60),
         };
     }
+}
+
+/// <summary>How large widget cards render inside the expanded panel.</summary>
+public enum WidgetScale { Compact, Standard, Large }
+
+public static class WidgetScaleExtensions
+{
+    public static double Factor(this WidgetScale scale) => scale switch
+    {
+        WidgetScale.Compact => 0.85,
+        WidgetScale.Large => 1.15,
+        _ => 1.0,
+    };
+
+    public static string Label(this WidgetScale scale) => scale switch
+    {
+        WidgetScale.Compact => "Compact",
+        WidgetScale.Large => "Large",
+        _ => "Standard",
+    };
 }
 
 /// <summary>Persisted weather widget location (open-meteo coordinates).</summary>

@@ -50,6 +50,7 @@ public sealed class IslandShell
     public event Action? ClearClipboardRequested;
     public event Action? NotesEditRequested;
     public event Action? WeatherEditRequested;
+    public event Action? FocusCustomRequested;
     public event Action? LauncherEditRequested;
     public event Action? SystemMetricsEditRequested;
     public event Action<LauncherApp>? LaunchAppRequested;
@@ -68,6 +69,21 @@ public sealed class IslandShell
     private bool _dataDirty = true;
     private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
 
+    // Drag-mode (grip button) state: while active the pill shows Reset /
+    // Confirm chips and can be dragged even when Drag-to-move is off.
+    private bool _dragMode;
+
+    // Marquee state for a custom idle text wider than the pill.
+    private bool _idleMarquee;
+    private double _marqueeOffset;
+    private string? _marqueeText;
+
+    // Reorder animation: card id -> (from top, to top, started at).
+    private readonly Dictionary<string, (float From, float To, DateTime At)> _cardAnim = new();
+    private string? _arrowFlashId;
+    private int _arrowFlashDir;
+    private DateTime _arrowFlashAt;
+
     /// <summary>Drag-position offset (DIPs) from the monitor's top-center,
     /// applied to the collapsed pill and panel. Persisted by the host.</summary>
     public double OffsetX { get; private set; }
@@ -76,6 +92,44 @@ public sealed class IslandShell
     /// <summary>True while the user is dragging the pill; suppresses hover
     /// expansion so the island does not pop open mid-drag.</summary>
     public bool Dragging { get; set; }
+
+    /// <summary>True while drag mode is active (grip button pressed): the
+    /// pill can be moved even with Drag-to-move off, and Reset / Confirm
+    /// chips hang below it.</summary>
+    public bool DragMode => _dragMode;
+
+    public void EnterDragMode()
+    {
+        _dragMode = true;
+        MarkDataDirty();
+    }
+
+    public void ExitDragMode()
+    {
+        _dragMode = false;
+        MarkDataDirty();
+    }
+
+    private void ToggleDragMode()
+    {
+        _dragMode = !_dragMode;
+        MarkDataDirty();
+    }
+
+    /// <summary>Persist the current offset (Confirm, or after a plain drag).</summary>
+    private void PersistOffset() =>
+        _settings.Update(s => s with
+        {
+            Appearance = s.Appearance with { OffsetX = OffsetX, OffsetY = OffsetY },
+        });
+
+    private void ResetDragPosition()
+    {
+        OffsetX = 0;
+        OffsetY = 0;
+        PersistOffset();
+        ExitDragMode();
+    }
 
     public IslandShell(SettingsService settings, ThemeService themeService)
     {
@@ -104,10 +158,12 @@ public sealed class IslandShell
     public bool DragToMoveEnabled => _settings.Current.Appearance.DragToMove;
 
     /// <summary>True when the point is over the collapsed pill (plus a small
-    /// margin) — the drag grab zone. Expanded panels are never draggable.</summary>
+    /// margin) — the drag grab zone. Expanded panels are never draggable.
+    /// Drag mode lets you grab the pill even when Drag-to-move is off.</summary>
     public bool IsCollapsedPillAt(double xDip, double yDip)
     {
         if (_paused || _blend > 0.5) return false;
+        if (!_dragMode && !DragToMoveEnabled) return false;
         const double m = 6;
         var rect = new SKRect((float)(_x - m), (float)(_y - m),
             (float)(_x + _w + m), (float)(_y + _h + m));
@@ -156,7 +212,11 @@ public sealed class IslandShell
     // notch otherwise costs ~nothing instead of a full Skia redraw per frame.
 
     public bool IsExpanded => _blend > 0.5;
-    public bool Animating => _blend is > 0.001 and < 0.999;
+    public bool Animating =>
+        _blend is > 0.001 and < 0.999 ||
+        _idleMarquee ||
+        _cardAnim.Count > 0 ||
+        _arrowFlashId is not null;
     public bool ToastsActive => _toasts.Count > 0;
 
     /// <summary>True when something on screen changes every second with no
@@ -280,6 +340,11 @@ public sealed class IslandShell
             if (_toasts[i].Expired) _toasts.RemoveAt(i);
         }
 
+        if (_idleMarquee)
+        {
+            _marqueeOffset += deltaTime * 42;
+        }
+
         var targetBlend = _wantExpanded ? 1.0 : 0.0;
         _blend += (targetBlend - _blend) * Math.Min(1, deltaTime * 18);
         if (_blend < 0.002) _blend = 0;
@@ -327,12 +392,17 @@ public sealed class IslandShell
         _y += (targetTop - _y) * Math.Min(1, deltaTime * 16);
         _x = (CanvasWidth - _w) / 2;
 
-        // Apply the drag offset, clamped so the island stays on screen.
+        // Apply the drag offset, clamped so the island can never be pushed
+        // off the screen: the notch may keep its designed top-cap clip, the
+        // island must stay fully visible, and neither may fall off the bottom.
+        var yMin = notch ? NotchTopMini : 0;
+        var yMax = Math.Max(yMin, CanvasHeight - _h);
         _x = Math.Clamp(_x + OffsetX, 6, Math.Max(6, CanvasWidth - _w - 6));
-        _y = Math.Clamp(_y + OffsetY, -60, Math.Max(-60, CanvasHeight - _h));
+        _y = Math.Clamp(_y + OffsetY, yMin, yMax);
 
-        // Hover toggles expansion with hysteresis (suppressed while dragging).
-        if (Dragging)
+        // Hover toggles expansion with hysteresis (suppressed while dragging
+        // or while drag mode is positioning the pill).
+        if (Dragging || _dragMode)
         {
             _wantExpanded = false;
         }
@@ -381,18 +451,22 @@ public sealed class IslandShell
         return Math.Min(h, Math.Max(120, CanvasHeight - 24));
     }
 
-    private double WidgetCardHeight(string id, WinotchSettings settings) => id switch
+    private double WidgetCardHeight(string id, WinotchSettings settings)
     {
-        "clock" => 88,
-        "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
-        "media" => Media is null ? 0 : 80,
-        "notes" => 104,
-        "weather" => 100,
-        "launcher" => 40 + LauncherRows(settings) * 58,
-        "focus" => settings.Features.FocusTimerEnabled ? 132 : 0,
-        "clipboard" => settings.Features.ClipboardHistoryEnabled ? 38 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36 : 0,
-        _ => 0,
-    };
+        var height = id switch
+        {
+            "clock" => 88,
+            "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
+            "media" => Media is null ? 0 : 80,
+            "notes" => 104,
+            "weather" => 106,
+            "launcher" => 40 + LauncherRows(settings) * 58,
+            "focus" => settings.Features.FocusTimerEnabled ? 150 : 0,
+            "clipboard" => settings.Features.ClipboardHistoryEnabled ? 38 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36 : 0,
+            _ => 0,
+        };
+        return height * settings.Widgets.Scale.Factor();
+    }
 
     private static int LauncherRows(WinotchSettings settings) =>
         Math.Max(1, (int)Math.Ceiling(Math.Min(settings.Widgets.LauncherApps.Count, 12) / 4.0));
@@ -459,6 +533,7 @@ public sealed class IslandShell
     public void Draw(SKCanvas canvas)
     {
         if (_paused) return;
+        _buttons.Clear();
 
         var expanded = _blend > 0.5;
         var radius = expanded ? 22.0 : _h / 2;
@@ -489,13 +564,19 @@ public sealed class IslandShell
             canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
 
             var appearance = _settings.Current.Appearance;
-            var glass = appearance.Glass;
-            var bodyAlpha = glass ? Math.Clamp(appearance.Opacity / 100.0, 0.1, 1.0) : 1.0;
+            var surface = appearance.Surface;
+            var glass = surface != SurfaceMode.Solid;
+            // Glass is more see-through than its slider suggests (the 0.9
+            // factor) so switching Solid -> Glass is unmistakable; acrylic
+            // forces the blur on and adds an accent-tinted frost.
+            var bodyAlpha = glass ? Math.Clamp(appearance.Opacity / 100.0, 0.1, 1.0) * 0.9 : 1.0;
+            var blurEnabled = surface == SurfaceMode.Acrylic || appearance.BlurEnabled;
+            var blurRadius = surface == SurfaceMode.Acrylic ? Math.Max(appearance.Blur, 22) : appearance.Blur;
 
-            if (glass && appearance.BlurEnabled && appearance.Blur > 0 && rect.Width > 0 && rect.Height > 0)
+            if (glass && blurEnabled && blurRadius > 0 && rect.Width > 0 && rect.Height > 0)
             {
                 BackdropBlur.Draw(canvas, rect, _originXPx, _originYPx, _dpiScale,
-                    appearance.Blur, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255));
+                    blurRadius, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255));
             }
 
             using (var body = ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha))
@@ -504,6 +585,20 @@ public sealed class IslandShell
             }
 
             ShellUi.DrawGradientSkin(canvas, rect, appearance.Gradient);
+
+            if (surface == SurfaceMode.Acrylic)
+            {
+                // Soft accent wash so acrylic reads as tinted glass.
+                ShellUi.FillRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
+                    (float)radius, ShellUi.Fade(ShellUi.Accent, 0.10));
+            }
+            else if (glass)
+            {
+                // Frost lifts the translucent fill off the solid look even
+                // when the backdrop capture fails (locked session, etc.).
+                ShellUi.FillRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
+                    (float)radius, ShellUi.Fade(Col.White, 0.05));
+            }
 
             if (_blend < 0.999)
             {
@@ -536,6 +631,11 @@ public sealed class IslandShell
         ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
             (float)radius, 1f, ShellUi.Fade(Col.White, 0.08));
 
+        if (_dragMode && !expanded)
+        {
+            DrawDragChips(canvas, rect);
+        }
+
         if (_contextMenuOpen)
         {
             DrawContextMenu(canvas);
@@ -556,7 +656,7 @@ public sealed class IslandShell
 
     // -------------------------------------------------------------- pill
 
-    private enum MiniKind { Led, Text, Clock, Battery, Media, Focus, Call }
+    private enum MiniKind { Led, Text, Clock, Date, Battery, Media, Focus, Call, Grip }
 
     private readonly record struct MiniItem(MiniKind Kind, double Width);
 
@@ -588,7 +688,7 @@ public sealed class IslandShell
                 break;
             default: // Auto — the rewrite's default: LED + clock + battery
                 items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
-                if (BatteryText().Length > 0)
+                if (BatteryText().Length > 0 && settings.Features.ShowBatteryOnPill)
                 {
                     items.Add(new MiniItem(MiniKind.Battery,
                         16 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
@@ -596,19 +696,53 @@ public sealed class IslandShell
                 break;
         }
 
-        if (Call is { OnCall: true })
+        // Optional date chip right after the LED (the Show-date-on-pill option).
+        if (settings.General.ShowDateOnPill && settings.General.ShowDate)
+        {
+            items.Insert(1, new MiniItem(MiniKind.Date,
+                TextKit.Measure(ShortDate(settings), 10f, TextKit.Monospace)));
+        }
+
+        if (Call is { OnCall: true } && settings.Features.ShowCallsOnPill)
         {
             // A call takes over the strip (the legacy pill priority); media
             // yields so the green pill is never crowded out.
             items.Add(new MiniItem(MiniKind.Call, 26 + TextKit.Measure(CallLabel(), 11.5f, TextKit.Semibold)));
         }
-        else if (Media is { Playing: true })
+        else if (Media is { Playing: true } && settings.Features.ShowMediaOnPill)
         {
             items.Add(new MiniItem(MiniKind.Media, 22 + TextKit.Measure(MiniTrackLabel(), 11.5f, TextKit.Semibold)));
         }
-        if (Focus.IsActive)
+        if (Focus.IsActive && settings.Features.ShowFocusOnPill)
         {
             items.Add(new MiniItem(MiniKind.Focus, TextKit.Measure(FocusLabel(), 11.5f, TextKit.Semibold) + 20));
+        }
+
+        // The grip handle (drag-mode entry) always rides the right end.
+        items.Add(new MiniItem(MiniKind.Grip, 24));
+
+        // A custom idle text wider than the screen would stretch the pill off
+        // the display; clamp the chip and let the text marquee instead.
+        _idleMarquee = false;
+        var maxWidth = Math.Max(MiniWidthMin, CanvasWidth - 16);
+        var total = 0.0;
+        foreach (var item in items) total += item.Width + 8;
+        if (total > maxWidth)
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i].Kind != MiniKind.Text) continue;
+                var clamped = Math.Max(40, items[i].Width - (total - maxWidth));
+                items[i] = items[i] with { Width = clamped };
+                var text = IdleText(settings);
+                _idleMarquee = TextKit.Measure(text, 11.5f, TextKit.Semibold) > clamped;
+                if (_idleMarquee && !string.Equals(_marqueeText, text, StringComparison.Ordinal))
+                {
+                    _marqueeText = text;
+                    _marqueeOffset = clamped; // start showing the beginning
+                }
+                break;
+            }
         }
         return items;
     }
@@ -636,10 +770,30 @@ public sealed class IslandShell
                     ShellUi.FillCircle(canvas, x + 5, cy, 3.4f, LedColor());
                     break;
                 case MiniKind.Text:
-                    TextKit.Draw(canvas, IdleText(_settings.Current), x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    if (_idleMarquee && _marqueeText is not null)
+                    {
+                        var marquee = _marqueeText;
+                        var textWidth = TextKit.Measure(marquee, 11.5f, TextKit.Semibold);
+                        var drawX = (float)(x + item.Width - (_marqueeOffset % (textWidth + 24)));
+                        canvas.Save();
+                        canvas.ClipRect(new SKRect(x, rect.Top, x + (float)item.Width, rect.Bottom));
+                        TextKit.Draw(canvas, marquee, drawX, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
+                        canvas.Restore();
+                    }
+                    else
+                    {
+                        TextKit.Draw(canvas, IdleText(_settings.Current), x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    }
                     break;
                 case MiniKind.Clock:
                     TextKit.Draw(canvas, clock, x, cy - 11, 15, ShellUi.Text, TextKit.Semibold);
+                    break;
+                case MiniKind.Date:
+                    TextKit.Draw(canvas, ShortDate(_settings.Current), x, cy - 8, 10f,
+                        ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
+                    break;
+                case MiniKind.Grip:
+                    DrawGrip(canvas, x, cy);
                     break;
                 case MiniKind.Battery:
                     DrawBattery(canvas, x + 8, (float)cy, BatteryText());
@@ -676,6 +830,38 @@ public sealed class IslandShell
         }
     }
 
+    /// <summary>The three-dot drag grip at the pill's right end. Clicking it
+    /// toggles drag mode (Reset / Confirm chips appear below the pill).</summary>
+    private void DrawGrip(SKCanvas canvas, float x, float cy)
+    {
+        var cx = x + 12;
+        var hovering = Math.Abs(_cursorX - cx) <= 13 && Math.Abs(_cursorY - cy) <= 13;
+        var color = _dragMode
+            ? ShellUi.Accent
+            : hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.55);
+        if (_dragMode || hovering)
+        {
+            ShellUi.FillCircle(canvas, cx, cy, 11, ShellUi.CardHover);
+        }
+        for (var i = -1; i <= 1; i++)
+        {
+            ShellUi.FillCircle(canvas, cx, cy + i * 5.5f, 1.5f, color);
+        }
+        RegisterButton(new SKRect(cx - 14, cy - 14, cx + 14, cy + 14), ToggleDragMode);
+    }
+
+    /// <summary>Reset / Confirm chips below the pill while drag mode is on.
+    /// Confirm commits the new position; Reset snaps back to the default
+    /// top-center spot. Both leave drag mode.</summary>
+    private void DrawDragChips(SKCanvas canvas, SKRect rect)
+    {
+        var y = (float)(rect.Bottom + 10);
+        var confirm = ChipRight(canvas, "confirm", (float)rect.Right, y, true);
+        var reset = ChipRight(canvas, "reset", confirm.Left - 8, y, false);
+        RegisterButton(confirm, () => { PersistOffset(); ExitDragMode(); });
+        RegisterButton(reset, ResetDragPosition);
+    }
+
     private void DrawBattery(SKCanvas canvas, float cx, float cy, string text)
     {
         const float w = 12f;
@@ -704,7 +890,6 @@ public sealed class IslandShell
 
     private void DrawPanel(SKCanvas canvas, SKRect rect)
     {
-        _buttons.Clear();
         if (!_wantExpanded) _addMenuOpen = false;
 
         var pad = 14f;
@@ -713,10 +898,24 @@ public sealed class IslandShell
         var y = rect.Top + 14f;
         var settings = _settings.Current;
 
-        // Header: date left, clock center, actions right.
-        TextKit.Draw(canvas, DateText(settings), left, y + 8, 10.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+        // Header: date left, clock center, actions right. The Stacked layout
+        // centers the date under the clock instead (item: date/time layout).
         var clock = ClockText(settings);
-        TextKit.DrawCentered(canvas, clock, rect.Left + rect.Width / 2, y + 21, 21, ShellUi.Text, TextKit.Semibold);
+        if (settings.General.Layout == ClockLayout.Stacked)
+        {
+            TextKit.DrawCentered(canvas, clock, rect.Left + rect.Width / 2, y + 18, 20, ShellUi.Text, TextKit.Semibold);
+            var stackedDate = DateText(settings);
+            if (stackedDate.Length > 0)
+            {
+                TextKit.DrawCentered(canvas, stackedDate, rect.Left + rect.Width / 2, y + 33, 9f,
+                    ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+            }
+        }
+        else
+        {
+            TextKit.Draw(canvas, DateText(settings), left, y + 8, 10.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+            TextKit.DrawCentered(canvas, clock, rect.Left + rect.Width / 2, y + 21, 21, ShellUi.Text, TextKit.Semibold);
+        }
 
         var headerCy = y + 21;
         DrawIconButton(canvas, right - 24, headerCy, "\uE711", QuitRequested);
@@ -730,7 +929,7 @@ public sealed class IslandShell
         {
             var cardH = (float)WidgetCardHeight(id, settings);
             if (cardH <= 0) continue;
-            var top = yCursor + 4;
+            var top = CardTop(id, yCursor + 4);
             DrawCard(canvas, left, top, rect.Width - pad * 2, cardH);
             DrawCardHeader(canvas, left, top, rect.Width - pad * 2, id);
             DrawWidgetBody(canvas, left, top, rect.Width - pad * 2, id, settings);
@@ -801,7 +1000,13 @@ public sealed class IslandShell
         var index = enabled.IndexOf(id);
         var cy = top + 16;
 
-        TextKit.Draw(canvas, WidgetSettings.Labels[id].ToUpperInvariant(), left + 12, top + 10, 8.5f,
+        // Grip-dot hint: grab the card anywhere to drag-reorder it.
+        for (var i = -1; i <= 1; i++)
+        {
+            ShellUi.FillCircle(canvas, left + 10, cy + i * 4f, 1.1f, ShellUi.Fade(ShellUi.Muted, 0.8f));
+        }
+
+        TextKit.Draw(canvas, WidgetSettings.Labels[id].ToUpperInvariant(), left + 22, top + 10, 8.5f,
             ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
 
         // ✕ remove
@@ -842,6 +1047,15 @@ public sealed class IslandShell
         else
         {
             ShellUi.DrawGlyph(canvas, "\uE70E", upX, cy, 12.5f, ShellUi.Fade(ShellUi.Text, 0.22));
+        }
+
+        // Brief accent flash on the arrow that was just clicked.
+        if (_arrowFlashId == id && DateTime.UtcNow - _arrowFlashAt < TimeSpan.FromSeconds(0.4))
+        {
+            var flashX = _arrowFlashDir > 0 ? downX : upX;
+            ShellUi.FillCircle(canvas, flashX, cy, 15, ShellUi.Accent);
+            ShellUi.DrawGlyph(canvas, _arrowFlashDir > 0 ? "\uE70D" : "\uE70E",
+                flashX, cy, 12.5f, Col.Rgba(0x06, 0x13, 0x1A));
         }
     }
 
@@ -993,15 +1207,17 @@ public sealed class IslandShell
         }
         if (snapshot is null)
         {
-            TextKit.Draw(canvas, $"Loading weather for {config.City}\u2026", x, top + 46, 11.5f, ShellUi.Fade(ShellUi.Muted, 1));
+            TextKit.Draw(canvas, ShellUi.Ellipsize($"Loading weather for {config.City}\u2026", width - 40, 11.5f, TextKit.Regular),
+                x, top + 46, 11.5f, ShellUi.Fade(ShellUi.Muted, 1));
             return;
         }
-        TextKit.DrawCentered(canvas, snapshot.Emoji, x + 18, top + 50, 24, ShellUi.Text, TextKit.Emoji);
-        TextKit.Draw(canvas, $"{Math.Round(snapshot.Temp)}", x + 44, top + 40, 26, ShellUi.Text, TextKit.Semibold);
-        TextKit.Draw(canvas, "\u00B0", x + 44 + TextKit.Measure($"{Math.Round(snapshot.Temp)}", 26, TextKit.Semibold), top + 40, 26, ShellUi.Fade(ShellUi.Text, 0.8f), TextKit.Semibold);
+        TextKit.DrawCentered(canvas, snapshot.Emoji, x + 18, top + 52, 22, ShellUi.Text, TextKit.Emoji);
+        TextKit.Draw(canvas, $"{Math.Round(snapshot.Temp)}", x + 42, top + 42, 24, ShellUi.Text, TextKit.Semibold);
+        TextKit.Draw(canvas, "\u00B0", x + 42 + TextKit.Measure($"{Math.Round(snapshot.Temp)}", 24, TextKit.Semibold), top + 42, 24, ShellUi.Fade(ShellUi.Text, 0.8f), TextKit.Semibold);
         var meta = $"{snapshot.Label} \u00B7 feels {Math.Round(snapshot.Feels)}\u00B0 \u00B7 H {Math.Round(snapshot.Max)}\u00B0 L {Math.Round(snapshot.Min)}\u00B0";
-        TextKit.Draw(canvas, ShellUi.Ellipsize(meta, width - 30, 10.5f, TextKit.Regular), x, top + 74, 10.5f, ShellUi.Fade(ShellUi.Muted, 1));
-        TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, width - 30, 10f, TextKit.Regular), x, top + 90, 10f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+        var textWidth = Math.Max(70, width - 76); // keep clear of the emoji/temp block
+        TextKit.Draw(canvas, ShellUi.Ellipsize(meta, textWidth, 10.5f, TextKit.Regular), x + 42, top + 72, 10.5f, ShellUi.Fade(ShellUi.Muted, 1));
+        TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, textWidth, 10f, TextKit.Regular), x + 42, top + 88, 10f, ShellUi.Fade(ShellUi.Muted, 0.85f));
     }
 
     private void DrawLauncherWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
@@ -1057,6 +1273,19 @@ public sealed class IslandShell
                 isBreak ? ShellUi.Ok : ShellUi.Text, TextKit.Monospace);
         }
 
+        // Phase + session readout while the timer runs.
+        if (Focus.IsActive)
+        {
+            var phase = Focus.PhaseLabel.ToUpperInvariant();
+            TextKit.Draw(canvas, phase, left + 12, top + 10, 9.5f, accent, TextKit.Monospace);
+            if (Focus.CompletedFocusCycles > 0)
+            {
+                TextKit.Draw(canvas, $"session {Focus.CompletedFocusCycles + 1}",
+                    left + 12 + TextKit.Measure(phase, 9.5f, TextKit.Monospace) + 10, top + 10, 9.5f,
+                    ShellUi.Fade(ShellUi.Muted, 0.9f), TextKit.Monospace);
+            }
+        }
+
         var barY = top + 34;
         var barLeft = left + 12;
         var barWidth = width - 24;
@@ -1073,7 +1302,7 @@ public sealed class IslandShell
     {
         var rows = Math.Clamp(ClipboardItems.Count, 1, 5);
         var right = left + width;
-        var clearRect = ChipRight(canvas, "clear", right - 10, top + 16, false);
+        var clearRect = ChipRight(canvas, "Clear", right - 10, top + 16, false);
         RegisterButton(clearRect, ClearClipboardRequested);
 
         if (ClipboardItems.Count == 0)
@@ -1096,12 +1325,46 @@ public sealed class IslandShell
 
     private void MoveWidget(string id, int direction)
     {
+        var before = CardLayout().ToDictionary(c => c.Id, c => c.Top);
         var enabled = _settings.Current.Widgets.Enabled.ToList();
         var from = enabled.IndexOf(id);
         var to = from + direction;
         if (from < 0 || to < 0 || to >= enabled.Count) return;
         (enabled[from], enabled[to]) = (enabled[to], enabled[from]);
         _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+
+        // Animate every card whose top moved, and flash the clicked arrow.
+        var after = CardLayout().ToDictionary(c => c.Id, c => c.Top);
+        var now = DateTime.UtcNow;
+        foreach (var (cardId, beforeTop) in before)
+        {
+            if (after.TryGetValue(cardId, out var afterTop) && Math.Abs(afterTop - beforeTop) > 0.5)
+            {
+                _cardAnim[cardId] = (beforeTop, afterTop, now);
+            }
+        }
+        _arrowFlashId = id;
+        _arrowFlashDir = direction;
+        _arrowFlashAt = now;
+        MarkDataDirty();
+    }
+
+    /// <summary>Card top eased from its previous slot after a reorder, so the
+    /// move arrows visibly slide the cards instead of snapping them.</summary>
+    private float CardTop(string id, float top)
+    {
+        if (_cardAnim.TryGetValue(id, out var anim))
+        {
+            var t = Math.Clamp((DateTime.UtcNow - anim.At).TotalSeconds / 0.28, 0, 1);
+            if (t >= 1)
+            {
+                _cardAnim.Remove(id);
+                return top;
+            }
+            var eased = t * t * (3 - 2 * t);
+            return (float)(anim.From + (anim.To - anim.From) * eased);
+        }
+        return top;
     }
 
     /// <summary>Reorder a widget to an absolute index (drag-to-reorder).</summary>
@@ -1195,18 +1458,54 @@ public sealed class IslandShell
             x = skipRect.Right + 10;
             var stopRect = ChipCentered(canvas, "stop", x + 30, cy, false);
             RegisterButton(stopRect, StopFocus);
+
+            // Auto-break loop toggle rides the far right while running.
+            var loopChip = ChipRight(canvas, "auto-break", left + width - 12, cy, LoopEnabled);
+            RegisterButton(loopChip, ToggleLoop);
         }
         else
         {
-            var p25 = ChipCentered(canvas, "25 / 5", x + 38, cy, FocusPreset25);
-            RegisterButton(p25, () => StartFocus(25, 5));
-            var p50 = ChipCentered(canvas, "50 / 10", p25.Right + 38, cy, FocusPreset50);
-            RegisterButton(p50, () => StartFocus(50, 10));
+            // Four preset pairs, then custom + auto-break on a second row.
+            var centerX = left + width / 2;
+            var row1Y = top + 54;
+            RegisterButton(ChipCentered(canvas, "15 / 5", centerX - 3 * 40, row1Y, PresetMatches(15, 5)),
+                () => StartFocus(15, 5));
+            RegisterButton(ChipCentered(canvas, "25 / 5", centerX - 1 * 40, row1Y, PresetMatches(25, 5)),
+                () => StartFocus(25, 5));
+            RegisterButton(ChipCentered(canvas, "50 / 10", centerX + 1 * 40, row1Y, PresetMatches(50, 10)),
+                () => StartFocus(50, 10));
+            RegisterButton(ChipCentered(canvas, "90 / 20", centerX + 3 * 40, row1Y, PresetMatches(90, 20)),
+                () => StartFocus(90, 20));
+
+            var row2Y = top + 96;
+            RegisterButton(ChipCentered(canvas, "custom\u2026", centerX - 52, row2Y, false),
+                () => FocusCustomRequested?.Invoke());
+            RegisterButton(ChipCentered(canvas, "auto-break", centerX + 54, row2Y, LoopEnabled),
+                ToggleLoop);
         }
     }
 
-    private bool FocusPreset25 => FocusPreset.FocusDuration == TimeSpan.FromMinutes(25);
-    private bool FocusPreset50 => FocusPreset.FocusDuration == TimeSpan.FromMinutes(50);
+    /// <summary>Whether the persisted preset matches the given minutes — the
+    /// selected chip in the idle preset grid.</summary>
+    private bool PresetMatches(int focusMin, int breakMin)
+    {
+        var widgets = _settings.Current.Widgets;
+        return widgets.FocusMinutes == focusMin && widgets.BreakMinutes == breakMin;
+    }
+
+    private bool LoopEnabled => _settings.Current.Widgets.FocusAutoCycle;
+
+    private void ToggleLoop()
+    {
+        var enabled = !_settings.Current.Widgets.FocusAutoCycle;
+        _settings.Update(s => s with { Widgets = s.Widgets with { FocusAutoCycle = enabled } });
+        // Keep a running timer on the new loop behavior immediately.
+        if (Focus.IsActive)
+        {
+            Focus = Focus with { AutoCycle = enabled };
+        }
+        MarkDataDirty();
+    }
 
     private void DrawClipboardRow(SKCanvas canvas, float left, float right, float rowY, ClipboardEntry entry)
     {
@@ -1393,6 +1692,10 @@ public sealed class IslandShell
     private string DateText(WinotchSettings settings) =>
         settings.General.ShowDate ? DateTime.Now.ToString("ddd, MMM d") : "";
 
+    /// <summary>Short day-month form for the collapsed-pill date chip.</summary>
+    private string ShortDate(WinotchSettings settings) =>
+        settings.General.ShowDate ? DateTime.Now.ToString("MMM d") : "";
+
     private string BatteryText()
     {
         if (Battery.Percent >= 100 && !Battery.IsCharging) return "";
@@ -1404,9 +1707,12 @@ public sealed class IslandShell
     /// otherwise the battery/charging colors (grey when fully idle).</summary>
     private Col LedColor()
     {
+        if (Call is { OnCall: true } && MicrophoneActive && CameraActive) return Col.Rgba(0xA7, 0x8B, 0xFA);
         if (Call is { OnCall: true } && MicrophoneActive) return Col.Rgba(0x5B, 0xC8, 0xFF);
         if (Call is { OnCall: true }) return ShellUi.Ok;
+        if (MicrophoneActive && CameraActive) return Col.Rgba(0xA7, 0x8B, 0xFA);
         if (MicrophoneActive) return ShellUi.Danger;
+        if (CameraActive) return ShellUi.Warn;
         if (Battery.IsCharging) return ShellUi.Ok;
         if (Battery.Percent <= 20) return ShellUi.Danger;
         return ShellUi.Accent;
@@ -1420,6 +1726,7 @@ public sealed class IslandShell
             if (!string.IsNullOrEmpty(call.AppName)) return $"In a call \u00B7 {call.AppName}";
             return "In a call";
         }
+        if (MicrophoneActive && CameraActive) return "Mic + camera in use";
         if (MicrophoneActive) return "Microphone in use";
         if (CameraActive) return "Camera in use";
         if (Battery.IsCharging) return "Charging";
@@ -1465,10 +1772,16 @@ public sealed class IslandShell
 
     private void StartFocus(int focusMin, int breakMin)
     {
+        var widgets = _settings.Current.Widgets;
         var preset = new FocusTimerSettings(
-            TimeSpan.FromMinutes(focusMin), TimeSpan.FromMinutes(breakMin), FocusPreset.AutoCycle);
+            TimeSpan.FromMinutes(focusMin), TimeSpan.FromMinutes(breakMin), widgets.FocusAutoCycle);
         FocusPreset = preset;
         Focus = FocusTimerState.Start(preset, DateTimeOffset.UtcNow);
+        // Remember the picked preset so the idle grid highlights it next time.
+        _settings.Update(s => s with
+        {
+            Widgets = s.Widgets with { FocusMinutes = focusMin, BreakMinutes = breakMin },
+        });
     }
 
     private void PauseFocus()

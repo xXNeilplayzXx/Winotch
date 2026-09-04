@@ -51,7 +51,24 @@ internal static class DialogUi
         }
         if (placeholder.Length > 0)
         {
-            box.SetValue(Watermark.TextProperty, placeholder);
+            var watermarked = new WatermarkTextBox
+            {
+                Text = box.Text,
+                Background = box.Background,
+                Foreground = box.Foreground,
+                BorderBrush = box.BorderBrush,
+                BorderThickness = box.BorderThickness,
+                Padding = box.Padding,
+                FontSize = box.FontSize,
+                CaretBrush = box.CaretBrush,
+                SelectionBrush = box.SelectionBrush,
+                AcceptsReturn = box.AcceptsReturn,
+                TextWrapping = box.TextWrapping,
+                VerticalScrollBarVisibility = box.VerticalScrollBarVisibility,
+                MinHeight = box.MinHeight,
+                Placeholder = placeholder,
+            };
+            return watermarked;
         }
         return box;
     }
@@ -97,6 +114,7 @@ internal static class DialogUi
         window.SizeToContent = SizeToContent.WidthAndHeight;
         window.ResizeMode = ResizeMode.NoResize;
         window.ShowInTaskbar = false;
+        window.Icon = AppIcon.Load();
         // Follow the Appearance font choice; fall back to Segoe UI when the
         // shared resource has not been populated yet.
         window.FontFamily = (Application.Current.Resources["NotchUiFont"] as FontFamily)
@@ -104,22 +122,73 @@ internal static class DialogUi
     }
 }
 
-/// <summary>Lightweight watermark attached property for the TextBox
-/// placeholder. Replaces itself with the real text once the user types.</summary>
-internal static class Watermark
+/// <summary>Loads the Winotch tray icon as a window/taskbar icon. The icon
+/// file ships with multi-size PNG frames, so the title bar gets a crisp
+/// small frame while Alt-Tab gets the large one (item: the logo looked
+/// broken because the old .ico only had 16/24 px frames).</summary>
+public static class AppIcon
 {
-    public static readonly DependencyProperty TextProperty = DependencyProperty.RegisterAttached(
-        "Text", typeof(string), typeof(Watermark), new PropertyMetadata(null, OnChanged));
-
-    public static void SetText(DependencyObject d, string value) => d.SetValue(TextProperty, value);
-
-    private static void OnChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    public static System.Windows.Media.ImageSource? Load()
     {
-        if (d is not TextBox box) return;
-        void Apply() => box.SetCurrentValue(TextBox.ForegroundProperty,
-            box.Text.Length == 0 ? DialogUi.Muted : DialogUi.Text);
-        box.TextChanged += (_, _) => Apply();
-        box.Loaded += (_, _) => Apply();
+        try
+        {
+            var resource = Application.GetResourceStream(
+                new Uri("pack://application:,,,/Winotch;component/Resources/WinotchTray.ico"));
+            if (resource?.Stream is null) return null;
+            using var stream = resource.Stream;
+            var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(stream,
+                System.Windows.Media.Imaging.BitmapCreateOptions.None,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            return decoder.Frames.Count > 0 ? decoder.Frames[0] : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>A TextBox that actually draws its placeholder while empty, in the
+/// muted foreground so it reads as a hint (the old attached property only
+/// recolored the foreground and never showed the hint text).</summary>
+public sealed class WatermarkTextBox : TextBox
+{
+    public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
+        nameof(Placeholder), typeof(string), typeof(WatermarkTextBox),
+        new PropertyMetadata(string.Empty, OnPlaceholderChanged));
+
+    public string Placeholder
+    {
+        get => (string)GetValue(PlaceholderProperty);
+        set => SetValue(PlaceholderProperty, value);
+    }
+
+    private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is WatermarkTextBox box) box.InvalidateVisual();
+    }
+
+    protected override void OnTextChanged(TextChangedEventArgs e)
+    {
+        base.OnTextChanged(e);
+        InvalidateVisual();
+    }
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        base.OnRender(dc);
+        if (Text.Length != 0 || string.IsNullOrEmpty(Placeholder)) return;
+        var formatted = new FormattedText(
+            Placeholder,
+            System.Globalization.CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface(FontFamily, FontStyle, FontWeight, FontStretch),
+            FontSize,
+            DialogUi.Muted,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var x = Padding.Left + BorderThickness.Left + 1;
+        var y = Padding.Top + BorderThickness.Top + 1;
+        dc.DrawText(formatted, new Point(x, y));
     }
 }
 
@@ -278,7 +347,7 @@ public sealed class LauncherEditWindow : Window
 
         var nameBox = DialogUi.TextBox(placeholder: "Name (optional)");
         nameBox.Width = 100;
-        var pathBox = DialogUi.TextBox(placeholder: "App path or name, e.g. chrome.exe");
+        var pathBox = DialogUi.TextBox(placeholder: "File path or name, e.g. chrome.exe");
         var add = DialogUi.Button("Add", primary: true);
         void DoAdd()
         {
@@ -392,6 +461,81 @@ public sealed class MetricsEditWindow : Window
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0),
+            Children = { cancel, ok },
+        });
+        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+
+        Content = panel;
+    }
+}
+/// <summary>Custom focus-timer durations: focus and break minutes plus the
+/// auto-cycle toggle (item: let users add their own ratios / timers).</summary>
+public sealed class FocusEditWindow : Window
+{
+    public (int FocusMinutes, int BreakMinutes, bool AutoCycle)? Result { get; private set; }
+
+    public FocusEditWindow(int focusMinutes, int breakMinutes, bool autoCycle)
+    {
+        DialogUi.ApplyFrame(this, "Focus timer");
+
+        var focusBox = DialogUi.TextBox(focusMinutes.ToString());
+        focusBox.Width = 72;
+        var breakBox = DialogUi.TextBox(breakMinutes.ToString());
+        breakBox.Width = 72;
+
+        var loop = new CheckBox
+        {
+            Content = "Auto-cycle (focus → break → focus…)",
+            IsChecked = autoCycle,
+            Foreground = DialogUi.Text,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+
+        var ok = DialogUi.Button("Save", primary: true);
+        var cancel = DialogUi.Button("Cancel");
+        ok.Click += (_, _) =>
+        {
+            if (!int.TryParse(focusBox.Text.Trim(), out var focus) ||
+                !int.TryParse(breakBox.Text.Trim(), out var breakMin))
+            {
+                focusBox.Focus();
+                return;
+            }
+            Result = (Math.Clamp(focus, 1, 180), Math.Clamp(breakMin, 1, 60), loop.IsChecked == true);
+            DialogResult = true;
+        };
+        cancel.Click += (_, _) => DialogResult = false;
+        focusBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        };
+        breakBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        };
+        focusBox.Loaded += (_, _) => { focusBox.Focus(); focusBox.SelectAll(); };
+
+        var focusCol = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
+        focusCol.Children.Add(DialogUi.Label("Focus (min)", 11, muted: true));
+        focusCol.Children.Add(focusBox);
+        var breakCol = new StackPanel();
+        breakCol.Children.Add(DialogUi.Label("Break (min)", 11, muted: true));
+        breakCol.Children.Add(breakBox);
+
+        var panel = new StackPanel { Margin = new Thickness(16), Width = 300 };
+        panel.Children.Add(DialogUi.Label("Custom session", 12, muted: true));
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 4, 0, 0),
+            Children = { focusCol, breakCol },
+        });
+        panel.Children.Add(loop);
+        panel.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0),
             Children = { cancel, ok },
         });
         ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));

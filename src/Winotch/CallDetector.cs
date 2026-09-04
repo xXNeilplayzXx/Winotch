@@ -24,8 +24,12 @@ public static class CallDetector
     public static bool IsCallApp(string processName) =>
         CallApps.Contains(processName.ToLowerInvariant());
 
-    /// <summary>First running call app's process name, or null.</summary>
-    public static string? FindCallApp()
+    /// <summary>First running call app with evidence of an actual call, or
+    /// null. "Evidence" is a hot mic/camera (the user is in a meeting) or a
+    /// call-like main window title — just running Discord/Slack in the
+    /// background no longer lights the green pill, which is what the green
+    /// bubble was for.</summary>
+    public static string? FindCallApp(bool audioVisualActive = false)
     {
         try
         {
@@ -36,7 +40,9 @@ public static class CallDetector
                 {
                     try
                     {
-                        if (IsCallApp(process.ProcessName)) return process.ProcessName;
+                        if (!IsCallApp(process.ProcessName)) continue;
+                        if (audioVisualActive) return process.ProcessName;
+                        if (WindowLooksLikeCall(process)) return process.ProcessName;
                     }
                     catch
                     {
@@ -50,6 +56,26 @@ public static class CallDetector
             // Process enumeration can fail under heavy load or lockdown.
         }
         return null;
+    }
+
+    /// <summary>A main window title that suggests a live call: a call/meeting/
+    /// ringing keyword, or an elapsed-timer pattern like "9:51". The bare app
+    /// name (e.g. "Discord") is not evidence of a call.</summary>
+    public static bool WindowLooksLikeCall(Process process)
+    {
+        try
+        {
+            var title = process.MainWindowTitle?.Trim();
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            if (string.Equals(title, process.ProcessName, StringComparison.OrdinalIgnoreCase)) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(title,
+                @"\b(call|calling|in call|meeting|ringing|conference|voice)\b|\d{1,3}:\d{2}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>Friendly display name for the pill ("ms-teams" → "Teams").</summary>

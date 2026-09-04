@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Winotch.Engine;
@@ -33,6 +34,17 @@ public sealed record ShellTheme(
     /// <summary>The dark palette with a custom accent substituted.</summary>
     public ShellTheme WithAccent(Col accent) => this with { Accent = accent };
 
+    /// <summary>The palette with its panel/card surfaces tinted toward the
+    /// accent — the "Colour" theme — while text/stroke stay readable.</summary>
+    public ShellTheme WithAccentTint(Col accent) => this with
+    {
+        PanelTop = Col.Lerp(PanelTop, accent, 0.30),
+        PanelBottom = Col.Lerp(PanelBottom, accent, 0.14),
+        Card = Col.Lerp(Card, accent, 0.10),
+        CardHover = Col.Lerp(CardHover, accent, 0.08),
+        Hairline = Col.Lerp(Hairline, accent, 0.10),
+    };
+
     public Color WpfPanelTop => FromCol(PanelTop);
     public Color WpfPanelBottom => FromCol(PanelBottom);
     public Color WpfCard => FromCol(Card);
@@ -59,6 +71,11 @@ public interface IWindowsThemeSource
 
     /// <summary>The Windows accent color (DWM ColorizationColor), alpha-stripped.</summary>
     System.Windows.Media.Color? OsAccent();
+
+    /// <summary>True when the desktop wallpaper is predominantly light
+    /// (luminance >= 0.5); null when it cannot be read. Powers the
+    /// Background theme.</summary>
+    bool? WallpaperIsLight();
 }
 
 public sealed class WindowsTheme : IWindowsThemeSource
@@ -97,6 +114,45 @@ public sealed class WindowsTheme : IWindowsThemeSource
             return null;
         }
     }
+
+    /// <summary>Wallpaper luminance via a 32×32 downscale sample of the
+    /// current wallpaper image (registry path, per-user desktop).</summary>
+    public bool? WallpaperIsLight()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
+            var path = key?.GetValue("WallPaper") as string;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+            using var stream = File.OpenRead(path);
+            var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream,
+                System.Windows.Media.Imaging.BitmapCreateOptions.None,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            var frame = decoder.Frames[0];
+            if (frame.PixelWidth == 0 || frame.PixelHeight == 0) return null;
+
+            const int sample = 32;
+            var scaled = new TransformedBitmap(frame, new ScaleTransform(
+                sample / (double)frame.PixelWidth, sample / (double)frame.PixelHeight));
+            var pixels = new byte[sample * sample * 4];
+            scaled.CopyPixels(pixels, sample * 4, 0);
+
+            double luminance = 0;
+            double count = 0;
+            for (var i = 0; i + 3 < pixels.Length; i += 4)
+            {
+                if (pixels[i + 3] < 64) continue; // skip transparent pixels
+                luminance += 0.2126 * pixels[i + 2] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i];
+                count++;
+            }
+            return count == 0 ? null : luminance / count / 255.0 >= 0.5;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>A fake <see cref="IWindowsThemeSource"/> for tests.</summary>
@@ -104,9 +160,11 @@ public sealed class FakeWindowsThemeSource : IWindowsThemeSource
 {
     public bool? Light { get; set; }
     public System.Windows.Media.Color? Accent { get; set; }
+    public bool? Wallpaper { get; set; }
 
     public bool? AppsUseLightTheme() => Light;
     public System.Windows.Media.Color? OsAccent() => Accent;
+    public bool? WallpaperIsLight() => Wallpaper;
 }
 
 /// <summary>Resolves <see cref="ShellTheme"/> from settings plus live Windows
@@ -142,6 +200,10 @@ public sealed class ThemeService
         var baseTheme = light ? ShellTheme.Light : ShellTheme.Dark;
         var accent = ResolveAccent(appearance, light);
         var resolved = baseTheme.WithAccent(accent);
+        if (appearance.Theme == ThemeMode.Color)
+        {
+            resolved = resolved.WithAccentTint(accent);
+        }
         if (resolved != Current)
         {
             Current = resolved;
@@ -154,7 +216,8 @@ public sealed class ThemeService
     {
         ThemeMode.Light => true,
         ThemeMode.System => _os.AppsUseLightTheme() ?? false,
-        ThemeMode.Color => false, // color keeps the dark base, like the legacy app
+        ThemeMode.Background => _os.WallpaperIsLight() ?? false,
+        ThemeMode.Color => false, // colour keeps the dark base, like the legacy app
         _ => false,
     };
 

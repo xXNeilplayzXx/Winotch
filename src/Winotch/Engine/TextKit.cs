@@ -28,11 +28,23 @@ public static class TextKit
     public static SKTypeface Emoji => UiEmoji;
 
     /// <summary>Switch the UI faces — every non-mono, non-icon text draw — to
-    /// an installed family, falling back through the OS defaults when it is
-    /// missing. Called at startup and when the Appearance font setting
-    /// changes. Icons, emoji and the mono faces are intentionally fixed.</summary>
-    public static void SetUiFamily(string family)
+    /// an installed family (or an imported font file), falling back through
+    /// the OS defaults when it is missing. Called at startup and when the
+    /// Appearance font setting changes. Icons, emoji and the mono faces are
+    /// intentionally fixed.</summary>
+    public static void SetUiFamily(string family, string? fontFile = null)
     {
+        if (!string.IsNullOrWhiteSpace(fontFile))
+        {
+            var fileFace = SKTypeface.FromFile(fontFile);
+            if (fileFace is not null)
+            {
+                UiRegular = fileFace;
+                UiSemibold = fileFace;
+                UiBold = fileFace;
+                return;
+            }
+        }
         UiRegular = Pick(family, "Segoe UI Variable Text", "Segoe UI");
         UiSemibold = Pick(family, "Segoe UI Variable Text", "Segoe UI",
             weight: SKFontStyleWeight.SemiBold);

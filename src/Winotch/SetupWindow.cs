@@ -21,6 +21,9 @@ public sealed class SetupWindow : Window
 
     private readonly StackPanel _pageHost = new();
     private Border _displayMapCard = null!;
+    private Border _previewHost = null!;
+    private Border _previewPill = null!;
+    private TextBlock _previewCaption = null!;
 
     public SetupWindow(SettingsService settings)
     {
@@ -70,28 +73,136 @@ public sealed class SetupWindow : Window
         _pageHost.Children.Add(Header(
             _settings.WasCreated ? "Welcome to Winotch" : "Rerun setup",
             "Pick how the island should look — you can change all of this later from Settings."));
+        _pageHost.Children.Add(StepDots(0));
+        _pageHost.Children.Add(BuildPreview());
 
-        var themeRow = LabeledChips("Theme", new[]
+        _pageHost.Children.Add(Card(LabeledChips("Theme", new[]
         {
-            (ThemeMode.Dark, "Dark"), (ThemeMode.Light, "Light"),
-            (ThemeMode.System, "System"), (ThemeMode.Color, "Color"),
-        }, _theme, value => _theme = value);
-        var styleRow = LabeledChips("Type", new[]
+            (ThemeMode.Dark, "Dark"), (ThemeMode.Light, "Light"), (ThemeMode.System, "System"),
+            (ThemeMode.Color, "Colour"), (ThemeMode.Background, "Background"),
+        }, _theme, value => { _theme = value; RefreshPreview(); })));
+        _pageHost.Children.Add(Card(LabeledChips("Type", new[]
         {
             (NotchStyle.Notch, "Notch"), (NotchStyle.Island, "Island"),
-        }, _style, value => _style = value);
-        var feelRow = LabeledChips("Surface", new[]
+        }, _style, value => { _style = value; RefreshPreview(); })));
+        _pageHost.Children.Add(Card(LabeledChips("Surface", new[]
         {
             (true, "Glass"), (false, "Solid"),
-        }, _glass, value => _glass = value);
+        }, _glass, value => { _glass = value; RefreshPreview(); })));
 
         var next = DialogUi.Button("Next", primary: true);
         next.Click += (_, _) => ShowPage2();
+        var hint = new TextBlock
+        {
+            Text = "Live preview above — tap the chips to see it change",
+            FontSize = 10.5,
+            Foreground = DialogUi.Muted,
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _pageHost.Children.Add(FooterRow(null, next, hint));
+    }
 
-        _pageHost.Children.Add(themeRow);
-        _pageHost.Children.Add(styleRow);
-        _pageHost.Children.Add(feelRow);
-        _pageHost.Children.Add(FooterRow(null, next));
+    /// <summary>A live pill preview that re-skins as the Theme / Type /
+    /// Surface chips change — the island look before you commit to it.</summary>
+    private Border BuildPreview()
+    {
+        var led = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        var clock = new TextBlock
+        {
+            Text = DateTime.Now.ToString("h:mm"),
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _previewPill = new Border
+        {
+            Width = 220,
+            Height = 45,
+            CornerRadius = new CornerRadius(22),
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { led, clock },
+            },
+        };
+        _previewCaption = new TextBlock
+        {
+            FontSize = 10.5,
+            Foreground = DialogUi.Muted,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        var stack = new StackPanel { Children = { _previewPill, _previewCaption } };
+        _previewHost = new Border { Child = stack, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 14) };
+        RefreshPreview();
+        return _previewHost;
+    }
+
+    private void RefreshPreview()
+    {
+        if (_previewPill is null) return;
+        var light = _theme == ThemeMode.Light;
+        _previewPill.Background = new SolidColorBrush(
+            _glass
+                ? Color.FromRgb(light ? (byte)0xEA : (byte)0x23, light ? (byte)0xEE : (byte)0x27, light ? (byte)0xF5 : (byte)0x2F)
+                : Color.FromRgb(light ? (byte)0xF3 : (byte)0x1A, light ? (byte)0xF5 : (byte)0x1D, light ? (byte)0xF9 : (byte)0x24));
+        _previewPill.BorderBrush = new SolidColorBrush(
+            Color.FromRgb(light ? (byte)0xC9 : (byte)0x2E, light ? (byte)0xD1 : (byte)0x34, light ? (byte)0xDD : (byte)0x40));
+        if (_previewPill.Child is StackPanel row && row.Children.Count == 2)
+        {
+            if (row.Children[0] is Ellipse led)
+            {
+                led.Fill = new SolidColorBrush(light ? Color.FromRgb(0x00, 0x78, 0xD4) : Color.FromRgb(0x50, 0xD6, 0xFF));
+            }
+            if (row.Children[1] is TextBlock clock)
+            {
+                clock.Foreground = new SolidColorBrush(light ? Color.FromRgb(0x14, 0x19, 0x22) : Color.FromRgb(0xF2, 0xF4, 0xF8));
+            }
+        }
+        _previewCaption.Text = _style == NotchStyle.Notch
+            ? "Attaches to the top edge — the cap tucks under the screen"
+            : "Floats below the top edge";
+    }
+
+    /// <summary>Two small step dots so the wizard reads as 1 of 2.</summary>
+    private static FrameworkElement StepDots(int active)
+    {
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 14),
+        };
+        for (var i = 0; i < 2; i++)
+        {
+            panel.Children.Add(new Ellipse
+            {
+                Width = 7,
+                Height = 7,
+                Fill = i == active ? DialogUi.Accent : DialogUi.CardHover,
+                Margin = new Thickness(4),
+            });
+        }
+        return panel;
+    }
+
+    /// <summary>Rounded card wrapper so the wizard's sections read like the
+    /// settings window instead of raw floating chips.</summary>
+    private static Border Card(FrameworkElement inner)
+    {
+        return new Border
+        {
+            Background = DialogUi.Card,
+            BorderBrush = DialogUi.Stroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12, 10, 12, 4),
+            Margin = new Thickness(0, 0, 0, 12),
+            Child = inner,
+        };
     }
 
     private void ShowPage2()
@@ -100,8 +211,9 @@ public sealed class SetupWindow : Window
         _pageHost.Children.Add(Header(
             "Where it lives & what it shows",
             "One island per screen is supported — pick a display, then arrange your widgets."));
+        _pageHost.Children.Add(StepDots(1));
 
-        _pageHost.Children.Add(LabeledChips("Display", new[]
+        _pageHost.Children.Add(Card(LabeledChips("Display", new[]
         {
             (DisplayMode.Main, "Main"), (DisplayMode.All, "All monitors"),
             (DisplayMode.FollowActive, "Follow active"),
@@ -128,7 +240,7 @@ public sealed class SetupWindow : Window
 
     // ------------------------------------------------------- building blocks
 
-    private static Border FooterRow(Button? back, Button primary)
+    private static Border FooterRow(Button? back, Button primary, FrameworkElement? hint = null)
     {
         var row = new StackPanel
         {
@@ -136,6 +248,10 @@ public sealed class SetupWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 16, 0, 0),
         };
+        if (hint is not null)
+        {
+            row.Children.Add(hint);
+        }
         if (back is not null)
         {
             back.Margin = new Thickness(0, 0, 8, 0);

@@ -12,15 +12,50 @@ public partial class SettingsWindow : Window
     private readonly SettingsService _settings;
     private readonly StartupService _startup;
     private readonly Action? _rerunSetup;
+    private readonly Action? _factoryReset;
 
-    public SettingsWindow(SettingsService settings, StartupService startup, Action? rerunSetup = null)
+    public SettingsWindow(SettingsService settings, StartupService startup, Action? rerunSetup = null, Action? factoryReset = null)
     {
         _settings = settings;
         _startup = startup;
         _rerunSetup = rerunSetup;
+        _factoryReset = factoryReset;
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
+        BuildFooterActions();
+    }
+
+    /// <summary>Sticky footer actions: reset everything to defaults, or wipe
+    /// and restart fresh (item: applying / resetting / factory reset).</summary>
+    private void BuildFooterActions()
+    {
+        var reset = DialogUi.Button("Reset to defaults");
+        reset.Margin = new Thickness(0, 0, 8, 0);
+        reset.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, "Reset every Winotch setting back to its default?",
+                    "Reset to defaults", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+            {
+                return;
+            }
+            _settings.Update(_ => WinotchSettings.Defaults);
+            Rows.Children.Clear();
+            BuildSections();
+        };
+        var factory = DialogUi.Button("Factory reset…", danger: true);
+        factory.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this,
+                    "Factory reset wipes ALL settings (notes, apps, fonts, layout) and restarts Winotch fresh. Continue?",
+                    "Factory reset", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            {
+                return;
+            }
+            _factoryReset?.Invoke();
+        };
+        FooterActions.Children.Add(reset);
+        FooterActions.Children.Add(factory);
     }
 
     private string AssemblyVersion()
@@ -94,9 +129,19 @@ public partial class SettingsWindow : Window
             MakeToggleRow("24-hour clock", "Show times in 24h format",
                 s.General.Use24HourClock,
                 v => _settings.Update(x => x with { General = x.General with { Use24HourClock = v } })),
-            MakeToggleRow("Show the date", "Day + month in the pill and clock widget",
+            MakeToggleRow("Show the date", "Day + month in the panel and clock widget",
                 s.General.ShowDate,
                 v => _settings.Update(x => x with { General = x.General with { ShowDate = v } })),
+            MakeToggleRow("Date on the pill", "Also show the day + month on the collapsed pill",
+                s.General.ShowDateOnPill,
+                v => _settings.Update(x => x with { General = x.General with { ShowDateOnPill = v } })),
+            MakeChoiceRow("Clock layout", "Stacked centers the date under the time",
+                new[] { ("standard", "Standard"), ("stacked", "Stacked") },
+                s.General.Layout == ClockLayout.Stacked ? "stacked" : "standard",
+                v => _settings.Update(x => x with
+                {
+                    General = x.General with { Layout = v == "stacked" ? ClockLayout.Stacked : ClockLayout.Standard },
+                })),
         };
         if (_rerunSetup is not null)
         {
@@ -105,7 +150,10 @@ public partial class SettingsWindow : Window
         generalRows.Add(MakeToggleRow("Attach to the top edge", "Unchecked = floating island below the edge",
             s.General.Style == NotchStyle.Notch,
             v => _settings.Update(x => x with { General = x.General with { Style = v ? NotchStyle.Notch : NotchStyle.Island } })));
-        generalRows.Add(MakeToggleRow("Start with Windows", "Launch at sign-in from the tray",
+        generalRows.Add(MakeSliderRow("Drop from top", "0 = tucked under the top edge — or just drag the pill",
+            0, 200, (int)Math.Clamp(s.Appearance.OffsetY, 0, 200),
+            v => UpdateAppearance(x => x with { OffsetY = v })));
+        generalRows.Add(MakeToggleRow("Start with Windows", "Automatically launch when you sign in",
             s.General.StartWithWindows,
             v =>
             {
@@ -116,10 +164,11 @@ public partial class SettingsWindow : Window
         AddSection("General", generalRows.ToArray());
 
         AddSection("Appearance",
-            MakeChoiceRow("Theme", "System follows your Windows app theme live",
+            MakeChoiceRow("Theme", "System follows Windows; Colour tints the island; Background follows your wallpaper",
                 new[]
                 {
-                    ("dark", "Dark"), ("light", "Light"), ("system", "System"), ("color", "Color"),
+                    ("dark", "Dark"), ("light", "Light"), ("system", "System"),
+                    ("color", "Colour"), ("background", "Background"),
                 }, s.Appearance.Theme.ToString().ToLowerInvariant(),
                 v => UpdateAppearance(x => x with { Theme = ParseTheme(v) })),
             MakeAccentRow("Accent", "The highlight color — preset, custom, or Windows",
@@ -129,13 +178,16 @@ public partial class SettingsWindow : Window
                 GradientSkin.Known.Select(g => (g, GradientSkin.Labels[g])).ToArray(),
                 s.Appearance.Gradient,
                 v => UpdateAppearance(x => x with { Gradient = v })),
-            MakeChoiceRow("Surface", "Glass is translucent with live blur; Solid is opaque",
-                new[] { ("glass", "Glass"), ("solid", "Solid") },
-                s.Appearance.Glass ? "glass" : "solid",
+            MakeChoiceRow("Surface", "Glass is translucent; Acrylic is heavier blur with an accent frost; Solid is opaque",
+                new[]
+                {
+                    ("glass", "Glass"), ("acrylic", "Acrylic"), ("solid", "Solid"),
+                }, SurfaceKey(s.Appearance.Surface),
                 v =>
                 {
-                    var glass = v == "glass";
-                    UpdateAppearance(x => x with { Glass = glass });
+                    var surface = ParseSurface(v);
+                    var glass = surface != SurfaceMode.Solid;
+                    UpdateAppearance(x => x with { Surface = surface, Glass = glass });
                     var blurEnabled = _settings.Current.Appearance.BlurEnabled;
                     _blurEnabledRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
                     _opacityRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
@@ -161,7 +213,7 @@ public partial class SettingsWindow : Window
                 new[]
                 {
                     ("auto", "Default"), ("brandclock", "Brand + clock"),
-                    ("clockonly", "Clock only"), ("custom", "Custom text"), ("dotonly", "Dot only"),
+                    ("custom", "Custom text"), ("dotonly", "Dot only"),
                 }, IdleKey(s.Appearance.IdleContent),
                 v =>
                 {
@@ -171,10 +223,22 @@ public partial class SettingsWindow : Window
             _customIdleRow,
             MakeToggleRow("Drag to move", "Grab the pill to move it; the spot is remembered",
                 s.Appearance.DragToMove,
-                v => UpdateAppearance(x => x with { DragToMove = v })));
+                v => UpdateAppearance(x => x with { DragToMove = v })),
+            MakeToggleRow("Calls on the pill", "Green bubble while you're on a call",
+                s.Features.ShowCallsOnPill,
+                v => _settings.Update(x => x with { Features = x.Features with { ShowCallsOnPill = v } })),
+            MakeToggleRow("Now playing on the pill", "Track chip while music plays",
+                s.Features.ShowMediaOnPill,
+                v => _settings.Update(x => x with { Features = x.Features with { ShowMediaOnPill = v } })),
+            MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
+                s.Features.ShowFocusOnPill,
+                v => _settings.Update(x => x with { Features = x.Features with { ShowFocusOnPill = v } })),
+            MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
+                s.Features.ShowBatteryOnPill,
+                v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
 
         AddSection("Alerts",
-            MakeToggleRow("Media toasts", "Pop a toast when the track changes",
+            MakeToggleRow("Now-playing toasts", "Pop a toast when the track changes",
                 s.Toasts.MediaToastsEnabled,
                 v => _settings.Update(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
             MakeToggleRow("Priority alerts", "Low battery, charger, Wi-Fi, mic / camera events",
@@ -185,9 +249,23 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
-            MakeToggleRow("Focus timer", "25 / 5 and 50 / 10 sessions with breaks",
+            MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })));
+                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
+            MakeChoiceRow("Widget size", "How large the expanded panel's cards render",
+                new[]
+                {
+                    ("compact", "Compact"), ("standard", "Standard"), ("large", "Large"),
+                }, s.Widgets.Scale.ToString().ToLowerInvariant(),
+                v => _settings.Update(x => x with
+                {
+                    Widgets = x.Widgets with
+                    {
+                        Scale = v == "compact" ? WidgetScale.Compact
+                            : v == "large" ? WidgetScale.Large
+                            : WidgetScale.Standard,
+                    },
+                })));
     }
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>
@@ -216,7 +294,22 @@ public partial class SettingsWindow : Window
         "light" => ThemeMode.Light,
         "system" => ThemeMode.System,
         "color" => ThemeMode.Color,
+        "background" => ThemeMode.Background,
         _ => ThemeMode.Dark,
+    };
+
+    private static string SurfaceKey(SurfaceMode mode) => mode switch
+    {
+        SurfaceMode.Acrylic => "acrylic",
+        SurfaceMode.Solid => "solid",
+        _ => "glass",
+    };
+
+    private static SurfaceMode ParseSurface(string value) => value switch
+    {
+        "acrylic" => SurfaceMode.Acrylic,
+        "solid" => SurfaceMode.Solid,
+        _ => SurfaceMode.Glass,
     };
 
     // ------------------------------------------------------------- sections
@@ -751,12 +844,15 @@ public partial class SettingsWindow : Window
         return MakeSettingRow(label, sub, wrap);
     }
 
-    /// <summary>Font picker as a live preview: every tile renders the island
-    /// clock (same time format as the pill) in its own typeface, so you can
-    /// compare all candidates before clicking one to apply it.</summary>
+    /// <summary>Font picker: live-preview tiles for the curated faces, a
+    /// searchable list of every font installed on the machine, and an Import
+    /// button that copies a .ttf/.otf into %LOCALAPPDATA%\Winotch\Fonts so
+    /// it can be used like any other face (item: fonts from the user's
+    /// computer + custom font files).</summary>
     private Border MakeFontRow(AppearanceSettings appearance)
     {
-        var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 8) };
+        var stack = new StackPanel();
+        var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 4) };
         var tiles = new List<Border>();
         var clockTexts = new List<TextBlock>();
         var nameTexts = new List<TextBlock>();
@@ -826,8 +922,111 @@ public partial class SettingsWindow : Window
             wrap.Children.Add(tile);
         }
         Paint();
+        stack.Children.Add(wrap);
 
-        return MakeSettingRow("Font", "Each tile shows the island clock in that typeface", wrap);
+        // Every font installed on the machine, plus imported custom fonts.
+        var systemFonts = Fonts.SystemFontFamilies
+            .Select(f => f.Source)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var customFonts = (appearance.CustomFonts ?? new List<string>())
+            .Where(File.Exists)
+            .ToList();
+
+        var picker = new ComboBox
+        {
+            Margin = new Thickness(10, 0, 8, 4),
+            FontSize = 12,
+            Background = (Brush)FindResource("NotchPanelHover"),
+            Foreground = (Brush)FindResource("NotchText"),
+            BorderBrush = (Brush)FindResource("NotchStroke"),
+            Style = (Style)FindResource("NotchCombo"),
+            MaxDropDownHeight = 260,
+        };
+        foreach (var familyName in systemFonts)
+        {
+            picker.Items.Add(new FontOption(FontChoice.SystemId(familyName), familyName));
+        }
+        foreach (var file in customFonts)
+        {
+            var family = FontChoice.CustomFamily(file) ?? Path.GetFileNameWithoutExtension(file);
+            picker.Items.Add(new FontOption(FontChoice.CustomId(file), family + "  (imported)"));
+        }
+        for (var i = 0; i < picker.Items.Count; i++)
+        {
+            if (picker.Items[i] is FontOption option &&
+                string.Equals(option.Id, current, StringComparison.OrdinalIgnoreCase))
+            {
+                picker.SelectedIndex = i;
+                break;
+            }
+        }
+        var applyingPicker = false;
+        picker.SelectionChanged += (_, _) =>
+        {
+            if (applyingPicker || picker.SelectedItem is not FontOption selected) return;
+            current = selected.Id;
+            UpdateAppearance(x => x with { Font = selected.Id });
+            Paint();
+        };
+
+        var import = DialogUi.Button("Import font…");
+        import.Margin = new Thickness(10, 0, 8, 8);
+        import.HorizontalAlignment = HorizontalAlignment.Left;
+        import.Click += (_, _) =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Import a font",
+                Filter = "Font files (*.ttf;*.otf)|*.ttf;*.otf",
+                Multiselect = false,
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                var fontsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Winotch", "Fonts");
+                Directory.CreateDirectory(fontsDir);
+                var dest = Path.Combine(fontsDir, Path.GetFileName(dialog.FileName));
+                var counter = 1;
+                while (File.Exists(dest))
+                {
+                    dest = Path.Combine(fontsDir,
+                        $"{Path.GetFileNameWithoutExtension(dialog.FileName)} ({counter++}){Path.GetExtension(dialog.FileName)}");
+                }
+                File.Copy(dialog.FileName, dest);
+                var fontId = FontChoice.CustomId(dest);
+                var customList = (_settings.Current.Appearance.CustomFonts ?? new List<string>())
+                    .Append(dest)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                UpdateAppearance(x => x with { Font = fontId, CustomFonts = customList });
+                current = fontId;
+                applyingPicker = true;
+                picker.Items.Add(new FontOption(fontId,
+                    (FontChoice.CustomFamily(dest) ?? Path.GetFileNameWithoutExtension(dest)) + "  (imported)"));
+                picker.SelectedIndex = picker.Items.Count - 1;
+                applyingPicker = false;
+                Paint();
+            }
+            catch (IOException)
+            {
+                MessageBox.Show(this, "Couldn't copy the font file into the Winotch fonts folder.",
+                    "Import failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                MessageBox.Show(this, "Couldn't copy the font file into the Winotch fonts folder.",
+                    "Import failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+
+        stack.Children.Add(picker);
+        stack.Children.Add(import);
+        return MakeSettingRow("Font", "Click a tile, pick an installed font, or import a .ttf / .otf", stack);
     }
 
     /// <summary>Accent swatches + custom hex + follow-Windows toggle.</summary>
@@ -971,6 +1170,12 @@ public partial class SettingsWindow : Window
         grid.Children.Add(valueText);
 
         return MakeSettingRow(label, sub, grid);
+    }
+
+    /// <summary>A font picker entry: the persisted font id plus its label.</summary>
+    private sealed record FontOption(string Id, string Label)
+    {
+        public override string ToString() => Label;
     }
 
     private Style? _rowHoverStyle;

@@ -22,6 +22,7 @@ public interface INotchHost
     void OpenSettingsWindow();
     void OpenSetupWizard();
     void RestartApplication();
+    void FactoryReset();
     void QuitApplication();
 }
 
@@ -52,6 +53,8 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private string? _lastCallApp;
     private string? _lastToastKey = "";
     private string _lastMonitorLayout = "";
+    private DisplayMode _lastDisplayMode;
+    private string _lastDisplayDevice = "";
     private bool _disposed;
 
     public OverlayWindowManager(SettingsService settings, StartupService startup)
@@ -61,6 +64,8 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
         _theme.Refresh(settings.Current);
         DialogUi.Current = _theme.Current;
+        _lastDisplayMode = settings.Current.Appearance.Display;
+        _lastDisplayDevice = settings.Current.Appearance.DisplayDeviceName;
         _settings.Changed += OnSettingsChanged;
         _theme.ThemeChanged += OnThemeChanged;
 
@@ -80,9 +85,26 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     /// from the machine fall back to the OS defaults inside TextKit.</summary>
     private void ApplyUiFont()
     {
-        var family = FontChoice.FamilyOf(_settings.Current.Appearance.Font);
-        TextKit.SetUiFamily(family);
-        Application.Current.Resources["NotchUiFont"] = new FontFamily(family);
+        var fontId = _settings.Current.Appearance.Font;
+        var family = FontChoice.FamilyOf(fontId);
+        var customFile = FontChoice.CustomFile(fontId);
+        TextKit.SetUiFamily(family, customFile);
+        Application.Current.Resources["NotchUiFont"] = WpfFontFamily(fontId, family);
+    }
+
+    /// <summary>The WPF font for a font id: a plain family for curated /
+    /// system fonts, or a file-relative FontFamily for an imported .ttf/.otf
+    /// (the family name embedded in the file drives the WPF face).</summary>
+    private static FontFamily WpfFontFamily(string fontId, string family)
+    {
+        var customFile = FontChoice.CustomFile(fontId);
+        if (customFile is null)
+        {
+            return new FontFamily(family);
+        }
+        var directory = Path.GetDirectoryName(customFile) ?? "";
+        return new FontFamily(new Uri(directory + Path.DirectorySeparatorChar, UriKind.Absolute),
+            $"./{Path.GetFileName(customFile)}#{family}");
     }
 
     public void Start()
@@ -227,6 +249,18 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         DialogUi.Current = _theme.Current;
         _settingsWindow?.ApplyTheme(_theme.Current);
         RebuildIfLayoutChanged();
+
+        // Display targeting is not a layout change — rebuilding on the mode /
+        // device change is what actually moves the island(s) (item: the
+        // display settings did nothing before).
+        if (settings.Appearance.Display != _lastDisplayMode ||
+            !string.Equals(settings.Appearance.DisplayDeviceName, _lastDisplayDevice,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _lastDisplayMode = settings.Appearance.Display;
+            _lastDisplayDevice = settings.Appearance.DisplayDeviceName;
+            BuildWindows();
+        }
     }
 
     private void OnThemeChanged(object? sender, EventArgs e)
@@ -271,7 +305,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard);
+            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset);
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
@@ -289,6 +323,21 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         Dispose();
         Application.Current.Shutdown();
+    }
+
+    /// <summary>Wipe every setting back to defaults, delete the settings file
+    /// so the setup wizard greets the next launch, and restart clean.</summary>
+    public void FactoryReset()
+    {
+        _settings.Update(_ => WinotchSettings.Defaults);
+        try
+        {
+            var path = SettingsService.DefaultPath;
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        RestartApplication();
     }
 
     public void RestartApplication()
@@ -353,7 +402,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         foreach (var window in _windows) window.Shell.SetPrivacy(_lastMic, _lastCam);
         FeedStatusTracker();
 
-        var app = CallDetector.FindCallApp();
+        var app = CallDetector.FindCallApp(_lastMic || _lastCam);
         if (!string.Equals(app, _lastCallApp, StringComparison.OrdinalIgnoreCase))
         {
             _lastCallApp = app;
@@ -499,6 +548,22 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         {
             _settings.Update(s => s with { Widgets = s.Widgets with { LauncherApps = apps } });
         }
+    }
+
+    public void OpenFocusEditor()
+    {
+        var widgets = _settings.Current.Widgets;
+        var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes, widgets.FocusAutoCycle);
+        if (window.ShowDialog() != true || window.Result is not { } result) return;
+        _settings.Update(s => s with
+        {
+            Widgets = s.Widgets with
+            {
+                FocusMinutes = result.FocusMinutes,
+                BreakMinutes = result.BreakMinutes,
+                FocusAutoCycle = result.AutoCycle,
+            },
+        });
     }
 
     public void OpenMetricsEditor()
