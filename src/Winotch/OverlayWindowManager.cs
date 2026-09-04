@@ -122,6 +122,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _ = FetchWeatherAsync();
         PollClipboard();
         _media.Start();
+        _ = CheckRainAlertAsync();
 
         if (_settings.Current.General.AutoCheckUpdates)
         {
@@ -169,6 +170,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var weather = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(15) };
         weather.Tick += async (_, _) => await FetchWeatherAsync();
         weather.Start();
+
+        // Rain watch: probe precipitation every 5 minutes; the evaluator only
+        // fires when rain *starts* within 30 minutes, so the 5-minute cadence
+        // can't miss the beginning of an episode.
+        var rain = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(5) };
+        rain.Tick += async (_, _) => await CheckRainAlertAsync();
+        rain.Start();
 
         _clipboardTimer.Start();
     }
@@ -782,6 +790,39 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
                 return $"Weather lookup failed ({ex.GetType().Name}).";
         }
     }
+
+    /// <summary>Probes 15-minute precipitation buckets at the weather
+    /// location and toasts once per rain episode that starts within the next
+    /// 30 minutes. The evaluator suppresses repeats; this only tracks the
+    /// last fired key across probes.</summary>
+    private async Task CheckRainAlertAsync()
+    {
+        if (!_settings.Current.Toasts.RainAlertsEnabled) return;
+        var config = _settings.Current.Widgets.Weather;
+        if (!config.HasLocation) return;
+        try
+        {
+            var probe = await _weather.GetPrecipitationProbeAsync(config.Lat!.Value, config.Lon!.Value);
+            if (probe is null) return;
+            var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var key = RainAlertEvaluator.Evaluate(
+                probe.Times, probe.Probability, probe.Mm, nowUnix, _lastRainAlertKey);
+            if (key is null || key == _lastRainAlertKey) return;
+            _lastRainAlertKey = key;
+            // The key is "rain-<start unix>"; convert back to a friendly delay.
+            var startUnix = long.Parse(key.AsSpan(5), System.Globalization.CultureInfo.InvariantCulture);
+            var minutes = Math.Max(1, (int)Math.Round((startUnix - nowUnix) / 60.0));
+            var when = minutes <= 1 ? "starting now" : $"in about {minutes} min";
+            ShowToast(new ToastSpec("\U0001F327\uFE0F", "Rain soon",
+                $"Precipitation at {config.City} is expected {when}. Grab a jacket.", 6));
+        }
+        catch
+        {
+            // Probe failure is silent — the alert must never become noise.
+        }
+    }
+
+    private string? _lastRainAlertKey;
 
     private async Task FetchWeatherAsync()
     {

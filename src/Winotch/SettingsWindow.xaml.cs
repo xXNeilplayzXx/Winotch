@@ -297,7 +297,10 @@ public partial class SettingsWindow : Window
                 v => _settings.Update(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
             MakeToggleRow("Priority alerts", "Low battery, charger, Wi-Fi, mic / camera events",
                 s.Features.PriorityAlertsEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })));
+                v => _settings.Update(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })),
+            MakeToggleRow("Rain alerts", "Toast when precipitation starts within 30 minutes",
+                s.Toasts.RainAlertsEnabled,
+                v => _settings.Update(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })));
 
         AddSection("Widgets & features",
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",

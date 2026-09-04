@@ -359,10 +359,79 @@ public sealed record ToastSettings
 {
     public bool MediaToastsEnabled { get; init; } = true;
     public bool PriorityAlertsEnabled { get; init; } = true;
+    /// <summary>Toast once per rain episode when precipitation starts within
+    /// the next 30 minutes at the weather location.</summary>
+    public bool RainAlertsEnabled { get; init; } = true;
     public ToastDurationScale DurationScale { get; init; } = ToastDurationScale.Normal;
 
     public ToastSettings Normalize() =>
         Enum.IsDefined(DurationScale) ? this : this with { DurationScale = ToastDurationScale.Normal };
+}
+
+/// <summary>Decides when the rain alert should fire: precipitation beginning
+/// inside the next 30 minutes at the weather location, once per episode.
+/// Pure and unit-testable — the manager feeds it the API's 15-minute buckets
+/// (precipitation probability in %, mm per bucket) plus the previous alert
+/// key, and gets the episode identity to toast (or null for silence).
+///
+/// An "episode" is the contiguous upcoming rainy stretch: when it starts and
+/// everything before it stays dry, the evaluator names it by when the rain
+/// begins ("in 25 min"). Re-alerting only when the dry gap between episodes
+/// is long enough (&gt;= 30 min) keeps one shower from nagging repeatedly.</summary>
+public static class RainAlertEvaluator
+{
+    /// <summary>Minimum probability (0-100) for a bucket to count as rain.</summary>
+    public const double ProbabilityThreshold = 40;
+
+    /// <summary>Dry minutes required between episodes before a new alert may
+    /// fire; shorter gaps count as the same shower.</summary>
+    public const int ReAlertGapMinutes = 30;
+
+    /// <summary>Evaluates the bucket arrays (times as unix seconds UTC) and
+    /// returns the alert key to fire now, or null to stay quiet. The key
+    /// encodes the episode's start bucket so the caller can dedupe.
+    ///
+    /// Logic: if the bucket containing "now" is already rainy, stay quiet
+    /// (that is rain in progress, not rain starting). Otherwise the first
+    /// rainy bucket that starts after now is the episode start — dry buckets
+    /// before it are the expected lead-in. Fire only when that start lies
+    /// within 30 minutes.</summary>
+    public static string? Evaluate(
+        long[] times, double[] probability, double[] mm, long nowUnix, string? lastKey)
+    {
+        // The bucket containing "now" (may be absent when now sits in a gap).
+        for (var i = 0; i < times.Length; i++)
+        {
+            if (times[i] <= nowUnix && nowUnix < times[i] + 900 &&
+                IsRainy(probability[i], mm[i]))
+            {
+                return null; // already raining
+            }
+            if (times[i] > nowUnix) break;
+        }
+
+        // First rainy bucket that starts after now = the episode start.
+        for (var i = 0; i < times.Length; i++)
+        {
+            if (times[i] <= nowUnix) continue; // past or current bucket
+            if (!IsRainy(probability[i], mm[i])) continue;
+            if (times[i] - nowUnix > 30 * 60) return null; // first rain is too far out
+            var key = $"rain-{times[i]}";
+            // Once per event: skip if the previous alert names the same
+            // episode start, or a recent one began shortly before it.
+            if (lastKey == key) return null;
+            if (lastKey is { } prev && long.TryParse(prev.AsSpan(5), out var prevUnix) &&
+                times[i] - prevUnix < ReAlertGapMinutes * 60)
+            {
+                return null;
+            }
+            return key;
+        }
+        return null;
+    }
+
+    private static bool IsRainy(double percentProbability, double mmPerBucket) =>
+        percentProbability >= ProbabilityThreshold || mmPerBucket > 0.05;
 }
 
 public sealed record FeatureSettings

@@ -226,6 +226,46 @@ public sealed class WeatherService : IDisposable
         return (name, lat.GetDouble(), lon.GetDouble());
     }
 
+    /// <summary>Precipitation buckets for the rain alert: 15-minute steps
+    /// covering the recent past (to tell "starting" from "already raining")
+    /// and the next half hour. Times are unix seconds UTC, probability is %,
+    /// precipitation is mm per bucket. Null when the request fails.</summary>
+    public async Task<PrecipitationProbe?> GetPrecipitationProbeAsync(double lat, double lon)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            OpenMeteoForecast + "?latitude=" + lat.ToStringInvariant() +
+            "&longitude=" + lon.ToStringInvariant() +
+            "&minutely_15=precipitation_probability,precipitation" +
+            "&timeformat=unixtime&past_minutely_15=1&forecast_minutely_15=3&forecast_days=1");
+        using var response = await _http.SendAsync(request);
+        if (!response.IsSuccessStatusCode) return null;
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var block = doc.RootElement.TryGetProperty("minutely_15", out var m) ? m : default;
+        if (block.ValueKind != JsonValueKind.Object ||
+            !block.TryGetProperty("time", out var timeEl) ||
+            timeEl.ValueKind != JsonValueKind.Array ||
+            !block.TryGetProperty("precipitation_probability", out var probEl) ||
+            probEl.ValueKind != JsonValueKind.Array ||
+            !block.TryGetProperty("precipitation", out var mmEl) ||
+            mmEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        var n = Math.Min(timeEl.GetArrayLength(),
+            Math.Min(probEl.GetArrayLength(), mmEl.GetArrayLength()));
+        if (n == 0) return null;
+        var times = new long[n];
+        var probability = new double[n];
+        var mm = new double[n];
+        for (var i = 0; i < n; i++)
+        {
+            times[i] = timeEl[i].GetInt64();
+            probability[i] = probEl[i].ValueKind == JsonValueKind.Number ? probEl[i].GetDouble() : 0;
+            mm[i] = mmEl[i].ValueKind == JsonValueKind.Number ? mmEl[i].GetDouble() : 0;
+        }
+        return new PrecipitationProbe(times, probability, mm);
+    }
+
     /// <summary>Fetch current + today's min/max for a location.</summary>
     public async Task<WeatherSnapshot?> GetForecastAsync(string city, double lat, double lon)
     {
@@ -257,6 +297,10 @@ public sealed class WeatherService : IDisposable
             city);
     }
 }
+
+/// <summary>15-minute precipitation buckets around "now" (one past, three
+/// ahead) used by the rain-start alert.</summary>
+public sealed record PrecipitationProbe(long[] Times, double[] Probability, double[] Mm);
 
 internal static class DoubleExtensions
 {
