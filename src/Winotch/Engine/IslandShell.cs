@@ -69,8 +69,8 @@ public sealed class IslandShell
     private bool _dataDirty = true;
     private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
 
-    // Drag-mode (grip button) state: while active the pill shows Reset /
-    // Confirm chips and can be dragged even when Drag-to-move is off.
+    // Drag-mode state (started from Settings): while active the pill shows
+    // Done / Reset buttons and can be dragged even when Drag-to-move is off.
     private bool _dragMode;
 
     // Marquee state for a custom idle text wider than the pill.
@@ -93,9 +93,9 @@ public sealed class IslandShell
     /// expansion so the island does not pop open mid-drag.</summary>
     public bool Dragging { get; set; }
 
-    /// <summary>True while drag mode is active (grip button pressed): the
-    /// pill can be moved even with Drag-to-move off, and Reset / Confirm
-    /// chips hang below it.</summary>
+    /// <summary>True while drag mode is active (entered from Settings): the
+    /// pill shows Done / Reset buttons and can be moved even with
+    /// Drag-to-move off.</summary>
     public bool DragMode => _dragMode;
 
     public void EnterDragMode()
@@ -110,12 +110,6 @@ public sealed class IslandShell
         MarkDataDirty();
     }
 
-    private void ToggleDragMode()
-    {
-        _dragMode = !_dragMode;
-        MarkDataDirty();
-    }
-
     /// <summary>Persist the current offset (Confirm, or after a plain drag).</summary>
     private void PersistOffset() =>
         _settings.Update(s => s with
@@ -127,8 +121,7 @@ public sealed class IslandShell
     {
         OffsetX = 0;
         OffsetY = 0;
-        PersistOffset();
-        ExitDragMode();
+        MarkDataDirty();
     }
 
     public IslandShell(SettingsService settings, ThemeService themeService)
@@ -428,6 +421,12 @@ public sealed class IslandShell
     private (double Width, double Height) MiniTarget()
     {
         var appearance = _settings.Current.Appearance;
+        if (_dragMode)
+        {
+            var w = 14 + (TextKit.Measure("Done", 11f, TextKit.Semibold) + 24)
+                + 10 + (TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24) + 14;
+            return (Math.Clamp(w, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16)), MiniHeight);
+        }
         if (appearance.CustomSize)
         {
             var w = Math.Min(appearance.Width, Math.Max(150, CanvasWidth - 16));
@@ -631,18 +630,13 @@ public sealed class IslandShell
         ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
             (float)radius, 1f, ShellUi.Fade(Col.White, 0.08));
 
-        if (_dragMode && !expanded)
-        {
-            DrawDragChips(canvas, rect);
-        }
-
         if (_contextMenuOpen)
         {
             DrawContextMenu(canvas);
         }
 
         // LED hover tooltip (collapsed pill only — the state readout).
-        if (!expanded && _blend < 0.5)
+        if (!expanded && !_dragMode && _blend < 0.5)
         {
             var (ledX, ledY) = LedCenter(rect);
             if (Math.Abs(_cursorX - ledX) <= 12 && Math.Abs(_cursorY - ledY) <= 12)
@@ -656,7 +650,7 @@ public sealed class IslandShell
 
     // -------------------------------------------------------------- pill
 
-    private enum MiniKind { Led, Text, Clock, Date, Battery, Media, Focus, Call, Grip }
+    private enum MiniKind { Led, Text, Clock, Date, Battery, Media, Focus, Call }
 
     private readonly record struct MiniItem(MiniKind Kind, double Width);
 
@@ -718,9 +712,6 @@ public sealed class IslandShell
             items.Add(new MiniItem(MiniKind.Focus, TextKit.Measure(FocusLabel(), 11.5f, TextKit.Semibold) + 20));
         }
 
-        // The grip handle (drag-mode entry) always rides the right end.
-        items.Add(new MiniItem(MiniKind.Grip, 24));
-
         // A custom idle text wider than the screen would stretch the pill off
         // the display; clamp the chip and let the text marquee instead.
         _idleMarquee = false;
@@ -755,6 +746,11 @@ public sealed class IslandShell
 
     private void DrawMini(SKCanvas canvas, SKRect rect)
     {
+        if (_dragMode)
+        {
+            DrawDragModePill(canvas, rect);
+            return;
+        }
         var cy = rect.Top + rect.Height / 2;
         var items = BuildMiniRow();
         var total = 0.0;
@@ -792,9 +788,6 @@ public sealed class IslandShell
                     TextKit.Draw(canvas, ShortDate(_settings.Current), x, cy - 8, 10f,
                         ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
                     break;
-                case MiniKind.Grip:
-                    DrawGrip(canvas, x, cy);
-                    break;
                 case MiniKind.Battery:
                     DrawBattery(canvas, x + 8, (float)cy, BatteryText());
                     break;
@@ -830,36 +823,22 @@ public sealed class IslandShell
         }
     }
 
-    /// <summary>The three-dot drag grip at the pill's right end. Clicking it
-    /// toggles drag mode (Reset / Confirm chips appear below the pill).</summary>
-    private void DrawGrip(SKCanvas canvas, float x, float cy)
+    /// <summary>Done / Reset buttons inside the pill while drag mode is on.
+    /// Done commits the new position; Reset snaps back to top-center. The
+    /// pill stays draggable the whole time.</summary>
+    private void DrawDragModePill(SKCanvas canvas, SKRect rect)
     {
-        var cx = x + 12;
-        var hovering = Math.Abs(_cursorX - cx) <= 13 && Math.Abs(_cursorY - cy) <= 13;
-        var color = _dragMode
-            ? ShellUi.Accent
-            : hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.55);
-        if (_dragMode || hovering)
-        {
-            ShellUi.FillCircle(canvas, cx, cy, 11, ShellUi.CardHover);
-        }
-        for (var i = -1; i <= 1; i++)
-        {
-            ShellUi.FillCircle(canvas, cx, cy + i * 5.5f, 1.5f, color);
-        }
-        RegisterButton(new SKRect(cx - 14, cy - 14, cx + 14, cy + 14), ToggleDragMode);
-    }
-
-    /// <summary>Reset / Confirm chips below the pill while drag mode is on.
-    /// Confirm commits the new position; Reset snaps back to the default
-    /// top-center spot. Both leave drag mode.</summary>
-    private void DrawDragChips(SKCanvas canvas, SKRect rect)
-    {
-        var y = (float)(rect.Bottom + 10);
-        var confirm = ChipRight(canvas, "confirm", (float)rect.Right, y, true);
-        var reset = ChipRight(canvas, "reset", confirm.Left - 8, y, false);
-        RegisterButton(confirm, () => { PersistOffset(); ExitDragMode(); });
-        RegisterButton(reset, ResetDragPosition);
+        var cy = rect.Top + rect.Height / 2;
+        var wDone = TextKit.Measure("Done", 11f, TextKit.Semibold) + 24;
+        var wReset = TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24;
+        var total = wDone + 10 + wReset;
+        var left = rect.Left + (float)((rect.Width - total) / 2);
+        DrawChip(canvas, "Done", left, cy, wDone, true);
+        RegisterButton(new SKRect(left, cy - 14, left + wDone, cy + 14),
+            () => { PersistOffset(); ExitDragMode(); });
+        var resetLeft = left + wDone + 10;
+        DrawChip(canvas, "Reset", resetLeft, cy, wReset, false);
+        RegisterButton(new SKRect(resetLeft, cy - 14, resetLeft + wReset, cy + 14), ResetDragPosition);
     }
 
     private void DrawBattery(SKCanvas canvas, float cx, float cy, string text)

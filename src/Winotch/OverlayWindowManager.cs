@@ -301,11 +301,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         foreach (var window in _windows) window.ShowNotch();
     }
 
+    /// <summary>Enter pill drag mode from Settings: make sure the notch is
+    /// visible, then switch every island to its Done / Reset drag pill.</summary>
+    public void EnterDragMode()
+    {
+        ShowNotch();
+        foreach (var window in _windows) window.Shell.EnterDragMode();
+    }
+
     public void OpenSettingsWindow()
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset);
+            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode);
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }

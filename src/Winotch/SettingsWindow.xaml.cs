@@ -14,13 +14,16 @@ public partial class SettingsWindow : Window
     private readonly StartupService _startup;
     private readonly Action? _rerunSetup;
     private readonly Action? _factoryReset;
+    private readonly Action? _enterDragMode;
 
-    public SettingsWindow(SettingsService settings, StartupService startup, Action? rerunSetup = null, Action? factoryReset = null)
+    public SettingsWindow(SettingsService settings, StartupService startup,
+        Action? rerunSetup = null, Action? factoryReset = null, Action? enterDragMode = null)
     {
         _settings = settings;
         _startup = startup;
         _rerunSetup = rerunSetup;
         _factoryReset = factoryReset;
+        _enterDragMode = enterDragMode;
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
@@ -209,7 +212,8 @@ public partial class SettingsWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        AddSection("Pill",
+        var pillRows = new List<UIElement>
+        {
             MakeChoiceRow("Idle content", "What the collapsed pill shows when nothing is playing",
                 new[]
                 {
@@ -225,18 +229,25 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Drag to move", "Grab the pill to move it; the spot is remembered",
                 s.Appearance.DragToMove,
                 v => UpdateAppearance(x => x with { DragToMove = v })),
-            MakeToggleRow("Calls on the pill", "Green bubble while you're on a call",
-                s.Features.ShowCallsOnPill,
-                v => _settings.Update(x => x with { Features = x.Features with { ShowCallsOnPill = v } })),
-            MakeToggleRow("Now playing on the pill", "Track chip while music plays",
-                s.Features.ShowMediaOnPill,
-                v => _settings.Update(x => x with { Features = x.Features with { ShowMediaOnPill = v } })),
-            MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
-                s.Features.ShowFocusOnPill,
-                v => _settings.Update(x => x with { Features = x.Features with { ShowFocusOnPill = v } })),
-            MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
-                s.Features.ShowBatteryOnPill,
-                v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
+        };
+        if (_enterDragMode is not null)
+        {
+            pillRows.Add(MakeButtonRow("Drag mode",
+                "Show the pill with Done / Reset buttons so you can reposition it", _enterDragMode));
+        }
+        pillRows.Add(MakeToggleRow("Calls on the pill", "Green bubble while you're on a call",
+            s.Features.ShowCallsOnPill,
+            v => _settings.Update(x => x with { Features = x.Features with { ShowCallsOnPill = v } })));
+        pillRows.Add(MakeToggleRow("Now playing on the pill", "Track chip while music plays",
+            s.Features.ShowMediaOnPill,
+            v => _settings.Update(x => x with { Features = x.Features with { ShowMediaOnPill = v } })));
+        pillRows.Add(MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
+            s.Features.ShowFocusOnPill,
+            v => _settings.Update(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
+        pillRows.Add(MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
+            s.Features.ShowBatteryOnPill,
+            v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
+        AddSection("Pill", pillRows.ToArray());
 
         AddSection("Alerts",
             MakeToggleRow("Now-playing toasts", "Pop a toast when the track changes",

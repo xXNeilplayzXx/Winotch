@@ -1,49 +1,93 @@
 # Winotch
 
-A dynamic-island style **notch** for Windows 10/11, written in **C# / WPF** with a custom **SkiaSharp** renderer. A slim pill hangs from the top-center of your monitor, shows the essentials, and springs open on hover into a panel with media controls, a focus timer, clipboard history, and status alerts.
+**A Dynamic Island–style notch for Windows 10/11.** A slim pill hangs at the top of your screen showing the essentials — then springs open on hover into a full panel of widgets: media controls, weather, a focus timer, clipboard history, app shortcuts and more.
+
+<!-- HERO: screenshots/collapsed.png — clean capture of the pill on a desktop -->
+
+<p align="center">
+  <img src="screenshots/collapsed.png" alt="The Winotch pill" width="720">
+</p>
+
+Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and every pixel of the screen stays clickable except the pill itself.
 
 > **Note:** this `main` branch is the new C# rewrite (v2.0.0+). The earlier WebView2/Tauri build is archived on the [`legacy`](https://github.com/xXNeilplayzXx/Winotch/tree/legacy) branch — its releases (v0.2.3 → v1.0.1) remain downloadable from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
 
-## How it works
+## What it looks like
 
-Unlike a classic XAML window that resizes to fit its content, Winotch draws one **full-screen transparent overlay window** per monitor and paints the island every frame with SkiaSharp:
+<p align="center">
+  <img src="screenshots/expanded.png" alt="The expanded notch with widgets" width="720">
+</p>
 
-- A **critically-damped spring** drives the island's width/height between collapsed-pill and expanded-panel targets, which is what makes the morph feel weightless.
-- Everything is **clipped to the island's rounded silhouette**, so no content can ever bleed outside the capsule — no black boxes, no square corners during animation (the bugs that plagued the WebView2 build are structurally impossible here).
-- Clicks **pass through** every pixel except the island itself (`WM_NCHITTEST` → `HTTRANSPARENT`), so the rest of the screen stays fully interactive.
-- The window is `WS_EX_NOACTIVATE` + `WS_EX_TOOLWINDOW`: it never steals focus and never shows in the taskbar or Alt-Tab.
+<p align="center">
+  <img src="screenshots/settings.png" alt="Winotch Settings" width="720">
+</p>
 
-The engine (`src/Winotch/Engine`) is deliberately small — a scene of widgets laid out by the shell each frame, fed by plain, unit-tested logic services (`FocusTimer`, `PriorityStatus`, `ClipboardHistory`, `SettingsService`, …).
+## Highlights
 
-## Features (current)
+- **The pill** — a springy, weightless notch that collapses to a tidy pill (clock, status light, live chips) and morphs open on hover. Hang it flush against the top edge like a notch, or float it like an island.
+- **Widgets, your way** — clock, now playing, weather, focus timer, notes, clipboard history, system stats and an app launcher. Add, remove, resize and reorder them; everything persists.
+- **Calls at a glance** — when you're on a call the pill turns into a green chip with the app name and a live timer (Discord, Teams, Zoom, Slack and more).
+- **Theme it completely** — Dark / Light / System / Colour / Background themes, glass or acrylic surfaces, ten background gradients, your pick of any font installed on your PC (or import your own), and a size that fits your screen.
+- **Small touches** — status alerts for low battery, Wi-Fi drops and charger events; a clipboard that keeps your last copies handy; a focus timer that nudges you through work/break cycles.
 
-Full feature parity with the original app (the archived `legacy` WebView2 build), implemented in the rewrite's own design.
+## Getting started
 
-- **Springy notch**: collapses to a pill (LED + clock + battery + live chips), springs open on hover, hangs flush against the top edge in Notch style or floats in Island style (toggle in Settings).
-- **Setup wizard**: a two-page first-run wizard (theme / type / surface, then display + widgets) that opens on a fresh install; **Rerun setup…** from Settings or the tray.
-- **Theme system**: Dark / Light / System (follows your Windows app theme **live**) / Color, plus accent control — preset swatches, a custom hex picker, or **Follow Windows accent** (DWM color, live). Every surface re-skins instantly: island, settings, dialogs.
-- **Appearance**: Glass (real backdrop blur with an on/off switch, **opacity** 10–100% and **blur** 0–40px sliders) or Solid, and the Sunset / Ocean / Aurora / Candy / Graphite background gradients. Glass falls back to a translucent panel when the backdrop can't be captured.
-- **Font**: pick the typeface for the island and app text (Aptos by default, plus Segoe UI Variable, Segoe UI and Bahnschrift) — the settings row renders the live island clock in each candidate so you can compare before clicking; the choice applies instantly to the island, settings and dialogs.
-- **Size**: Compact / Standard / Wide presets and width (150–800) / height (30–200) sliders; sliders stage a draft applied with **Apply** (or discarded with **Reset**).
-- **Display targeting**: Main monitor, a specific display (picked by name or on a **visual map** of your screen layout), **All monitors** (one island per screen), or **Follow active** (the island hops to the monitor under your active window).
-- **Idle content**: Default (LED + clock + battery), Brand + clock, Clock only, custom text, or just the dot.
-- **Drag to move**: grab the collapsed pill and drag it anywhere (toggle in Settings); the spot is remembered.
-- **Right-click the expanded notch**: Hide Winotch, Restart Winotch, or Close Winotch. The tray adds Show/Hide and Restart.
-- **Live call indicator**: while a known call app runs (Zoom, Teams, Discord, Slack, Skype, WhatsApp, Phone Link, …) the pill turns into a green call chip with the app name and a ticking timer.
-- **Status dot**: grey when idle, **red** while the microphone is in use, **green** during a call, **blue** on a call with the mic hot — hover it for the current state. Driven by the real Windows privacy consent store.
-- **Widget deck**: the expanded panel is a stack of widget cards — clock, system stats, now playing, notes, weather, app launcher, focus timer, clipboard. Use **+** in the panel header to add widgets; **drag any card** to reorder (or use the **↑ ↓** buttons), **⚙** to configure, **✕** to remove. Order and settings persist.
-- **Media widget**: now playing title/artist with **album art**, transport controls and a timeline via Windows SMTC; media-change toasts. While playing, the collapsed pill shows the track (with art).
-- **System stats widget**: live CPU, memory, battery and network rates (per-metric toggles via the ⚙ on the card).
-- **Notes widget**: free-form scratchpad persisted in settings; tap the card to edit.
-- **Weather widget**: current conditions, feels-like, today's high/low and city from Open-Meteo (no API key); set a city or use **Windows location** via the ⚙ on the card.
-- **App launcher widget**: a grid of app shortcuts (chrome, edge, terminal, VS Code, notepad, calculator, paint, spotify, steam presets or any path); click to launch, ⚙ to manage.
-- **Focus timer widget**: 25/5 and 50/10 presets, pause/resume/skip/stop, live countdown chip in the pill, completion toasts.
-- **Clipboard widget**: in-memory last-10 text/files/images with thumbnails; copy-again, delete, clear. Never written to disk.
-- **Status alerts**: charger connected (with an animated battery-fill flourish), charger disconnected, low battery (≤20%), Wi-Fi loss/reconnect, microphone/camera in use.
-- **Settings window** (gear icon or tray): 24-hour clock, show date, notch/island style, theme, appearance, size, idle content, drag to move, display targeting, toast + feature toggles, start with Windows, rerun setup.
-- **Tray menu**: settings, rerun setup, pause/resume the notch, hide/show, start with Windows, restart, exit.
+1. Grab the latest **Winotch-vX.Y.Z-x64.zip** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
+2. Unzip it anywhere — it's a portable exe, nothing to install.
+3. Run **`Winotch.exe`**. A first-run wizard sets up your theme and widgets; Windows may show a SmartScreen prompt because the build isn't code-signed — click **More info → Run anyway**.
 
-## Building
+Works on **Windows 10 (2004+)** and **Windows 11**.
+
+## Features
+
+### The notch
+
+- **Springy pill** — collapses to a pill and springs open on hover; a critically-damped spring drives the morph so it feels weightless.
+- **Idle content** — default (status light + clock), brand + clock, custom text (long text auto-scrolls), or just the light.
+- **Pill chips** — show or hide calls, now playing, focus timer and battery chips right on the collapsed pill, plus an optional date chip.
+- **Drag it anywhere** — hit the **Drag mode** button in Settings and the pill switches to a draggable handle with **Done / Reset** buttons: drag it anywhere on screen, **Done** keeps the spot, **Reset** snaps back to top-center. The pill can never be pushed off screen.
+- **Display targeting** — show it on your main monitor, one specific display (pick by name or on a visual map of your layout), **all monitors**, or **follow the active window** to whichever screen you're using.
+- **Click-through everywhere else** — the rest of the screen stays fully interactive; the notch never steals focus and never shows in the taskbar or Alt-Tab.
+
+### Widgets
+
+Open the expanded panel and manage cards with **+** (add), the arrows or drag (reorder), **⚙** (configure) and **✕** (remove).
+
+- **Now playing** — title, artist, album art, transport controls and a timeline via Windows SMTC. Toasts announce track changes ("now-playing toasts"). While music plays, the pill itself shows the track.
+- **Weather** — current conditions, feels-like, today's high/low and city from Open-Meteo (no API key needed). Set a city or let Windows decide.
+- **Focus timer** — work/break presets (15/5, 25/5, 50/10, 90/20) or your own custom minutes, with an optional auto-cycle that keeps alternating; a live countdown shows on the pill.
+- **Clipboard history** — your last 10 copies (text, files, images with thumbnails), kept only in memory — never written to disk. Copy again, or **Clear**.
+- **App launcher** — a grid of shortcuts to launch any app or file; suggested apps included (Chrome, Edge, VS Code, Spotify…).
+- **System stats** — live CPU, memory, battery and network rates.
+- **Notes** — a free-form scratchpad that persists.
+- **Clock** — time, date and your city.
+
+Every widget card comes in **Compact / Standard / Large** sizes.
+
+### Calls & status light
+
+- **Call chip** — while you're actually on a call (mic/camera in use, or a call-style window like a meeting or ringing call), the pill becomes a green chip naming the app with a ticking timer.
+- **Status light** — the little dot beside the clock tells you what's active: **red** while your mic is in use, **amber** while your camera is on, **purple** when both are. Hover it for details.
+
+### Appearance
+
+- **Theme** — Dark, Light, System (follows your Windows theme live), **Colour** (tints the panels with your accent), or **Background** (follows your wallpaper's lightness).
+- **Accent** — preset swatches, a custom hex value, or **Follow Windows accent** for the live Windows highlight colour.
+- **Surface** — Glass (real backdrop blur), Acrylic (heavier blur + accent tint), or Solid.
+- **Gradients** — Sunset, Ocean, Aurora, Candy, Graphite, Peach, Mint, Berry, Midnight or Forest.
+- **Fonts** — every font family installed on your PC, or **Import font…** to add your own `.ttf`/`.otf` (stored in `%LOCALAPPDATA%\Winotch\Fonts`). Applies to the notch and the whole UI.
+- **Size** — Compact / Standard / Wide presets plus fine width/height sliders (draft-and-apply so you can compare before committing). The standard default is 220 × 45 px.
+- **Glass settings** — opacity and blur strength, with a glass on/off switch.
+
+### Alerts & extras
+
+- **Status alerts** — low battery, charger connected/disconnected (with a little battery-fill animation), Wi-Fi loss/reconnect, mic/camera in use.
+- **Right-click the notch** — hide, restart or close Winotch.
+- **Settings window** — everything above plus 24-hour clock, start-with-Windows ("launch when you sign in"), rerun setup, **Reset to defaults** and a **Factory reset** that wipes your settings.
+- **Tray menu** — settings, pause/resume the notch, hide/show, start with Windows, restart, exit.
+- **Setup wizard** — a friendly two-page first run (theme → display & widgets) with a live preview; reopen it any time from Settings or the tray.
+
+## Building from source
 
 Requires the **.NET 8 SDK** on Windows (10 2004+ / 11).
 
@@ -53,22 +97,18 @@ dotnet build Winotch.slnx -c Release
 dotnet test  Winotch.slnx -c Release
 ```
 
-Run the app: `dotnet run --project src/Winotch` (or launch the built exe). Windows may show a SmartScreen prompt for an unsigned dev build — that's expected.
+Run it with `dotnet run --project src/Winotch`, or launch the built exe.
 
-## Releasing
+Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release.
 
-Tag a commit `vX.Y.Z` and push it; the [build-test-release](.github/workflows/build-release.yml) workflow builds, runs the tests, publishes a self-contained portable `Winotch.exe`, and attaches it (plus a zip) to the release.
+## Good to know
 
-## Notes
+- **Fonts** come from your system (Fluent icons, Segoe UI Emoji, Cascadia Mono for timers) — nothing is bundled. A missing font falls back to the OS default.
+- **Glass** blurs the desktop behind the notch. Because the overlay is a full-screen transparent surface, the capture includes the notch's own previous frame, which settles into a soft glow — content on top stays crisp. If the backdrop can't be captured (locked session, etc.) it falls back to a translucent panel.
+- **Clipboard** thumbnails live only in memory.
+- **Call detection** scans known call apps; browser-based calls aren't detected.
+- The notch is a fully custom surface, so it isn't exposed to screen readers; the Settings window is standard accessible XAML.
 
-- Fonts come from the OS (the Appearance font choice, Fluent icons, Segoe UI Emoji, Cascadia Mono for timers) — nothing is bundled. Choosing a family that isn't installed falls back to the OS default.
-- Clipboard images are stored only as small PNG thumbnails in memory.
-- Wi-Fi alerts read the SSID via `netsh`; mic/camera alerts read the Windows privacy consent store.
-- Glass backdrop blur captures the composited screen behind the island and blurs it with Skia; because the overlay window is a full-screen transparent surface, the capture includes the island's own previous frame, which converges to a soft glow (the classic glass artifact) — content on top stays crisp. When the capture fails (locked session etc.) glass falls back to a plain translucent panel.
-- Call detection is a known-app process scan (like the old app) — browser-based calls aren't detected, and the pill shows while a call app is running.
-- UI rendering is **not** accessible to screen readers — the shell is a fully custom surface by design. The settings window is standard XAML.
-- Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin) (SkiaSharp island, spring motion) and [yappologistic/winotch](https://github.com/yappologistic/winotch) (feature set). Both predate this codebase; this project is an independent implementation under The Unlicense.
+## Credits & license
 
-## License
-
-[The Unlicense](LICENSE) — public domain. Use it however you like.
+Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin) (SkiaSharp island, spring motion) and [yappologistic/winotch](https://github.com/yappologistic/winotch) (feature set). Both predate this codebase; this project is an independent implementation released under [The Unlicense](LICENSE) — public domain. Use it however you like.
