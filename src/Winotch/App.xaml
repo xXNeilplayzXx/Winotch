@@ -130,7 +130,7 @@
                                                 CornerRadius="8" Padding="10,5">
                                             <Grid>
                                                 <ContentPresenter Content="{TemplateBinding Content}"
-                                                                  Foreground="{DynamicResource NotchText}"
+                                                                  TextElement.Foreground="{DynamicResource NotchText}"
                                                                   VerticalAlignment="Center" Margin="0,0,18,0" />
                                                 <TextBlock Text="&#xE70D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                                            FontSize="9" Foreground="{DynamicResource NotchMutedText}"
