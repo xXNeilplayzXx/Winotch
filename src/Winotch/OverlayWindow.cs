@@ -169,13 +169,13 @@ public sealed class OverlayWindow : Window, IDisposable
 
     private void StartFrameLoop()
     {
-        CompositionTarget.Rendering += OnFrame;
+        System.Windows.Media.CompositionTarget.Rendering += OnFrame;
         _lastSecond = -1;
     }
 
     private void StopFrameLoop()
     {
-        CompositionTarget.Rendering -= OnFrame;
+        System.Windows.Media.CompositionTarget.Rendering -= OnFrame;
     }
 
     private void OnFrame(object? sender, EventArgs e)

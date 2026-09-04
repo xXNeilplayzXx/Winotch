@@ -367,7 +367,7 @@ public partial class SettingsWindow : Window
         {
             for (var i = 0; i < chips.Count; i++)
             {
-                var selected = options[i].Value == mode;
+                var selected = options[i].Item1 == mode;
                 chips[i].Background = selected
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
@@ -512,11 +512,32 @@ public partial class SettingsWindow : Window
         var chipLabels = new List<TextBlock>();
         var syncingSliders = false;
 
+        var presetOptions = new[] { ("", "Auto") }
+            .Concat(SizePresets.All.Select(p => (p.Id, p.Label)))
+            .ToArray();
+
+        var widthSlider = new Slider
+        {
+            Minimum = 150, Maximum = 800, Value = draftWidth,
+            IsSnapToTickEnabled = true, TickFrequency = 5,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("NotchAccent"),
+        };
+        var heightSlider = new Slider
+        {
+            Minimum = 30, Maximum = 200, Value = draftHeight,
+            IsSnapToTickEnabled = true, TickFrequency = 1,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("NotchAccent"),
+        };
+        var widthValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
+        var heightValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
+
         void PaintChips()
         {
             for (var i = 0; i < chips.Count; i++)
             {
-                var selected = string.Equals(presetOptions[i].Id, presetId, StringComparison.OrdinalIgnoreCase);
+                var selected = string.Equals(presetOptions[i].Item1, presetId, StringComparison.OrdinalIgnoreCase);
                 chips[i].Background = selected
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
@@ -549,15 +570,15 @@ public partial class SettingsWindow : Window
             }
             else
             {
-                presetId = preset.Id;
-                draftWidth = preset.Width;
-                draftHeight = preset.Height;
+                presetId = preset.Value.Id;
+                draftWidth = preset.Value.Width;
+                draftHeight = preset.Value.Height;
                 UpdateAppearance(x => x with
                 {
                     CustomSize = true,
-                    Width = preset.Width,
-                    Height = preset.Height,
-                    SizePreset = preset.Id,
+                    Width = preset.Value.Width,
+                    Height = preset.Value.Height,
+                    SizePreset = preset.Value.Id,
                 });
             }
             SetSliders();
@@ -565,9 +586,6 @@ public partial class SettingsWindow : Window
         }
 
         var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 4) };
-        var presetOptions = new[] { ("", "Auto") }
-            .Concat(SizePresets.All.Select(p => (p.Id, p.Label)))
-            .ToArray();
         foreach (var (id, label) in presetOptions)
         {
             var text = new TextBlock { Text = label, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
@@ -586,23 +604,6 @@ public partial class SettingsWindow : Window
         }
         PaintChips();
         stack.Children.Add(wrap);
-
-        var widthSlider = new Slider
-        {
-            Minimum = 150, Maximum = 800, Value = draftWidth,
-            IsSnapToTickEnabled = true, TickFrequency = 5,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("NotchAccent"),
-        };
-        var heightSlider = new Slider
-        {
-            Minimum = 30, Maximum = 200, Value = draftHeight,
-            IsSnapToTickEnabled = true, TickFrequency = 1,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("NotchAccent"),
-        };
-        var widthValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
-        var heightValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
 
         widthSlider.ValueChanged += (_, e) =>
         {
@@ -851,6 +852,21 @@ public partial class SettingsWindow : Window
             }
         }
 
+        var hexBox = new TextBox
+        {
+            Text = appearance.AccentHex,
+            Width = 76,
+            FontFamily = new FontFamily("Consolas, Courier New"),
+            FontSize = 11.5,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Background = (Brush)FindResource("NotchPanelHover"),
+            Foreground = (Brush)FindResource("NotchText"),
+            BorderBrush = (Brush)FindResource("NotchStroke"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 3, 6, 3),
+            Margin = new Thickness(0, 0, 6, 6),
+        };
+
         foreach (var hex in ThemeService.AccentSwatches)
         {
             var color = ThemeService.ParseHex(hex).ToWpf();
@@ -875,21 +891,6 @@ public partial class SettingsWindow : Window
             swatches.Add(swatch);
             wrap.Children.Add(swatch);
         }
-
-        var hexBox = new TextBox
-        {
-            Text = appearance.AccentHex,
-            Width = 76,
-            FontFamily = new FontFamily("Consolas, Courier New"),
-            FontSize = 11.5,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Background = (Brush)FindResource("NotchPanelHover"),
-            Foreground = (Brush)FindResource("NotchText"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6, 3, 6, 3),
-            Margin = new Thickness(0, 0, 6, 6),
-        };
         void ApplyHex()
         {
             var parsed = ThemeService.ParseHex(hexBox.Text.Trim());

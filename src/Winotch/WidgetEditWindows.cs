@@ -22,7 +22,7 @@ internal static class DialogUi
     public static SolidColorBrush Muted => Brush(Current.Muted);
     public static SolidColorBrush Accent => Brush(Current.Accent);
     public static SolidColorBrush Danger => Brush(Current.Danger);
-    public static SolidColorBrush OnAccent => Brush(Current.IsLight ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x06, 0x13, 0x1A));
+    public static SolidColorBrush OnAccent => Brush(Current.IsLight ? Col.White : new Col(0x06, 0x13, 0x1A));
 
     private static SolidColorBrush Brush(Col c) => new(Color.FromArgb(c.A, c.R, c.G, c.B));
 

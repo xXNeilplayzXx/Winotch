@@ -366,8 +366,8 @@ public sealed class IslandShell
         }
         var total = 0.0;
         foreach (var item in BuildMiniRow()) total += item.Width + 8;
-        var w = Math.Clamp(total, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16));
-        return (w, MiniHeight);
+        var width = Math.Clamp(total, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16));
+        return (width, MiniHeight);
     }
 
     private double ExpandedHeight(WinotchSettings settings)
@@ -647,8 +647,7 @@ public sealed class IslandShell
                 case MiniKind.Media:
                     var trackBudget = Math.Max(40, rect.Right - x - 26);
                     var track = ShellUi.Ellipsize(MiniTrackLabel(), trackBudget, 11.5f, TextKit.Semibold);
-                    var hasArt = Media?.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 18, out var artThumb);
-                    if (hasArt)
+                    if (Media?.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 18, out var artThumb))
                     {
                         canvas.DrawBitmap(artThumb!, new SKRect(x + 1, cy - 9, x + 19, cy + 9));
                     }
@@ -929,11 +928,11 @@ public sealed class IslandShell
         if (Media is not { } media) return;
         var cardH = 80f;
         var right = left + width;
-        var hasArt = media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 52, out var art);
-        var textX = left + (hasArt ? 76 : 12);
-        if (hasArt)
+        var textX = left + 12;
+        if (media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 52, out var art))
         {
             canvas.DrawBitmap(art!, new SKRect(left + 12, top + 14, left + 64, top + 66));
+            textX = left + 76;
         }
         TextKit.Draw(canvas,
             ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", right - textX - 16 - 100, 12.5f, TextKit.Semibold),

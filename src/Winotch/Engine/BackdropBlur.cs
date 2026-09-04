@@ -115,7 +115,10 @@ public static class BackdropBlur
                 var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
                 try
                 {
-                    Marshal.Copy(data.Scan0, bitmap.GetPixels(), w * h * 4);
+                    var length = w * h * 4;
+                    var pixels = new byte[length];
+                    Marshal.Copy(data.Scan0, pixels, 0, length);
+                    Marshal.Copy(pixels, 0, bitmap.GetPixels(), length);
                 }
                 finally
                 {

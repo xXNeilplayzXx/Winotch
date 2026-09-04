@@ -482,7 +482,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var window = new WeatherEditWindow(_settings.Current.Widgets.Weather);
         if (window.ShowDialog() != true) return;
-        if (window.Result is { } city)
+        if (window.City is { } city)
         {
             _ = ResolveAndFetchWeatherAsync(city);
         }
@@ -562,19 +562,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         try
         {
             var location = await WindowsLocation.ResolveAsync();
-            if (location is null)
+            if (location is not { } loc)
             {
                 ShowToast(new ToastSpec("", "Weather",
                     "Windows location is unavailable — allow location in Settings → Privacy → Location, then retry.", 6));
                 return;
             }
-            var hit = await _weather.SearchByCoordinatesAsync(location.Lat, location.Lon);
-            var city = hit?.Name ?? $"({location.Lat:0.##}, {location.Lon:0.##})";
+            var hit = await _weather.SearchByCoordinatesAsync(loc.Lat, loc.Lon);
+            var city = hit?.Name ?? $"({loc.Lat:0.##}, {loc.Lon:0.##})";
             _settings.Update(s => s with
             {
                 Widgets = s.Widgets with
                 {
-                    Weather = new WeatherWidgetConfig { City = city, Lat = location.Lat, Lon = location.Lon },
+                    Weather = new WeatherWidgetConfig { City = city, Lat = loc.Lat, Lon = loc.Lon },
                 },
             });
             await FetchWeatherAsync();

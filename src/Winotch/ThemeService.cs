@@ -163,7 +163,7 @@ public sealed class ThemeService
         var fallback = ParseHex(light ? LightDefaultAccentHex : DefaultAccentHex);
         return appearance.Accent switch
         {
-            AccentMode.FollowOs => (_os.OsAccent() is { } os ? ParseWpf(os) : null) ?? fallback,
+            AccentMode.FollowOs => (_os.OsAccent() is { } os ? (Col?)ParseWpf(os) : null) ?? fallback,
             AccentMode.Custom => ParseHex(appearance.AccentHex),
             _ => fallback,
         };

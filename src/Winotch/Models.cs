@@ -168,11 +168,11 @@ public static class GradientSkin
     /// intensity multiplier, drawn as a diagonal wash over the island body.</summary>
     public static (byte R, byte G, byte B, double Alpha)[] Stops(string id) => id switch
     {
-        Sunset => new[] { (255, 122, 89, 0.20), (239, 68, 68, 0.06), (168, 85, 247, 0.10) },
-        Ocean => new[] { (14, 165, 233, 0.18), (37, 99, 235, 0.06), (6, 182, 212, 0.10) },
-        Aurora => new[] { (16, 185, 129, 0.16), (37, 99, 235, 0.05), (139, 92, 246, 0.09) },
-        Candy => new[] { (236, 72, 153, 0.18), (168, 85, 247, 0.06), (59, 130, 246, 0.09) },
-        Graphite => new[] { (148, 163, 184, 0.12), (100, 116, 139, 0.05), (71, 85, 105, 0.10) },
+        Sunset => new[] { ((byte)255, (byte)122, (byte)89, 0.20), ((byte)239, (byte)68, (byte)68, 0.06), ((byte)168, (byte)85, (byte)247, 0.10) },
+        Ocean => new[] { ((byte)14, (byte)165, (byte)233, 0.18), ((byte)37, (byte)99, (byte)235, 0.06), ((byte)6, (byte)182, (byte)212, 0.10) },
+        Aurora => new[] { ((byte)16, (byte)185, (byte)129, 0.16), ((byte)37, (byte)99, (byte)235, 0.05), ((byte)139, (byte)92, (byte)246, 0.09) },
+        Candy => new[] { ((byte)236, (byte)72, (byte)153, 0.18), ((byte)168, (byte)85, (byte)247, 0.06), ((byte)59, (byte)130, (byte)246, 0.09) },
+        Graphite => new[] { ((byte)148, (byte)163, (byte)184, 0.12), ((byte)100, (byte)116, (byte)139, 0.05), ((byte)71, (byte)85, (byte)105, 0.10) },
         _ => Array.Empty<(byte, byte, byte, double)>(),
     };
 }
