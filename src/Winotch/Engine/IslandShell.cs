@@ -218,8 +218,11 @@ public sealed class IslandShell
     // notch otherwise costs ~nothing instead of a full Skia redraw per frame.
 
     public bool IsExpanded => _blend > 0.5;
+    private bool _sizeAnimating;
+
     public bool Animating =>
         _blend is > 0.001 and < 0.999 ||
+        _sizeAnimating ||
         _idleMarquee ||
         _cardAnim.Count > 0 ||
         _arrowFlashId is not null;
@@ -404,6 +407,10 @@ public sealed class IslandShell
         var size = _size.Step(deltaTime, target);
         _w = size.X;
         _h = size.Y;
+        // The spring keeps easing after _blend reaches its ends; while it is
+        // still moving, the backdrop must not re-capture every frame either.
+        var sizeMotion = Math.Abs(target.X - _w) + Math.Abs(target.Y - _h);
+        _sizeAnimating = sizeMotion > 0.75;
 
         if (vertical)
         {
@@ -673,8 +680,15 @@ public sealed class IslandShell
 
             if (glass && blurEnabled && blurRadius > 0 && rect.Width > 0 && rect.Height > 0)
             {
+                // While the expand/collapse animation moves the island, the
+                // backdrop would be re-captured every frame; reuse the last
+                // capture until the motion settles (a blurred backdrop cannot
+                // be told apart from its stale self mid-transition).
+                var animating = _blend is > 0.001 and < 0.999 ||
+                                _sizeAnimating;
                 BackdropBlur.Draw(canvas, rect, _originXPx, _originYPx, _dpiScale,
-                    blurRadius, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255));
+                    blurRadius, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255),
+                    allowStale: animating);
             }
 
             using (var body = ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha))
@@ -698,7 +712,7 @@ public sealed class IslandShell
                     (float)radius, ShellUi.Fade(Col.White, 0.05));
             }
 
-            if (_blend < 0.999)
+            if (_blend < 0.996)
             {
                 using var miniLayer = new SKPaint
                 {
@@ -708,7 +722,7 @@ public sealed class IslandShell
                 DrawMini(canvas, rect);
                 canvas.Restore();
             }
-            if (_blend > 0.001)
+            if (_blend > 0.004)
             {
                 using var panelLayer = new SKPaint
                 {

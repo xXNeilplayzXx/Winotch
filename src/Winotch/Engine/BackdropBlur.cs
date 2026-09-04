@@ -43,7 +43,8 @@ public static class BackdropBlur
     /// are the overlay window's physical top-left; <paramref name="dpiScale"/>
     /// converts the DIP rect to physical pixels.</summary>
     public static void Draw(SKCanvas canvas, SKRect dipRect,
-        int originXPx, int originYPx, double dpiScale, int blurRadius, byte alpha)
+        int originXPx, int originYPx, double dpiScale, int blurRadius, byte alpha,
+        bool allowStale = false)
     {
         if (blurRadius <= 0 || alpha <= 0 || dipRect.Width <= 0 || dipRect.Height <= 0 || dpiScale <= 0)
         {
@@ -64,21 +65,33 @@ public static class BackdropBlur
         {
             if (!Cache.TryGetValue(key, out var entry) || now - entry.At > RefreshInterval)
             {
-                var captured = Capture(x, y, cw, ch, cBlur);
-                if (captured is null) return;
-                if (Cache.TryGetValue(key, out var old))
+                // While the island animates (expand / collapse) its rect — and
+                // therefore the cache key — changes every frame; capturing and
+                // blurring the screen once per frame is exactly the lag users
+                // feel during the transition. Reuse the most recent backdrop,
+                // stretched to the new rect, until the animation settles.
+                if (allowStale && Cache.Count > 0)
                 {
-                    old.Bitmap.Dispose();
+                    entry = Cache.Values.OrderByDescending(v => v.At).First();
                 }
-                else if (Cache.Count >= MaxEntries)
+                else
                 {
-                    // Evict the oldest entry (first in insertion order).
-                    var oldest = Cache.OrderBy(kv => kv.Value.At).First();
-                    oldest.Value.Bitmap.Dispose();
-                    Cache.Remove(oldest.Key);
+                    var captured = Capture(x, y, cw, ch, cBlur);
+                    if (captured is null) return;
+                    if (Cache.TryGetValue(key, out var old))
+                    {
+                        old.Bitmap.Dispose();
+                    }
+                    else if (Cache.Count >= MaxEntries)
+                    {
+                        // Evict the oldest entry (first in insertion order).
+                        var oldest = Cache.OrderBy(kv => kv.Value.At).First();
+                        oldest.Value.Bitmap.Dispose();
+                        Cache.Remove(oldest.Key);
+                    }
+                    Cache[key] = (captured, now);
+                    entry = Cache[key];
                 }
-                Cache[key] = (captured, now);
-                entry = Cache[key];
             }
 
             using var paint = new SKPaint
