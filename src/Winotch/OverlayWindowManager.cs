@@ -355,12 +355,12 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             if (!manual && _settings.Current.General.LastPromptedUpdate == info.Tag) return;
 
             var window = new UpdateWindow(info);
-            var accepted = window.ShowDialog() == true && window.StagedExe is { } staged;
+            var accepted = window.ShowDialog() == true;
             _settings.Update(x => x with
             {
                 General = x.General with { LastPromptedUpdate = info.Tag },
             });
-            if (accepted)
+            if (accepted && window.StagedExe is { } staged)
             {
                 UpdateService.ApplyAndRestart(staged, window.DownloadPath);
                 QuitApplication();
@@ -377,7 +377,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         if (_settingsWindow is null)
         {
             _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode,
-                CheckForUpdates);
+                () => CheckForUpdates(manual: true));
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }

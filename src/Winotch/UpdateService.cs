@@ -12,8 +12,8 @@ namespace Winotch;
 public sealed record UpdateInfo(string Tag, string Version, string ZipUrl, long SizeBytes)
 {
     /// <summary>True when this release is newer than the running build.</summary>
-    public bool IsNewerThan(Version current) =>
-        Version.TryParse(Version, out var other) && other > current;
+    public bool IsNewerThan(System.Version current) =>
+        System.Version.TryParse(Version, out var other) && other > current;
 }
 
 /// <summary>Auto-updater: asks GitHub Releases for the latest Winotch, compares
