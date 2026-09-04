@@ -178,13 +178,15 @@ public sealed class ThemeService
         if (string.IsNullOrWhiteSpace(hex)) return DefaultAccentFallback;
         var trimmed = hex.Trim();
         if (trimmed[0] == '#') trimmed = trimmed[1..];
-        if (trimmed.Length is not (6 or 8) ||
-            !uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
+        if (trimmed.Length is 6 or 8 &&
+            uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
-            return DefaultAccentFallback;
+            // 6-digit RRGGBB, or 8-digit RRGGBBAA where the trailing alpha
+            // byte is dropped (accents are always opaque).
+            var shift = trimmed.Length == 8 ? 8 : 0;
+            return Col.Rgba((byte)(value >> (16 + shift)), (byte)(value >> (8 + shift)), (byte)(value >> shift));
         }
-        // 8-digit hex keeps RGB and drops alpha (accents are always opaque).
-        return Col.Rgba((byte)(value >> 16), (byte)(value >> 8), (byte)value);
+        return DefaultAccentFallback;
     }
 
     private static Col ParseHexCore(string hex)
