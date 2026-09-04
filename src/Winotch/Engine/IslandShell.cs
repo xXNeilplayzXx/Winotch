@@ -461,7 +461,11 @@ public sealed class IslandShell
             "weather" => 106,
             "launcher" => 40 + LauncherRows(settings) * 58,
             "focus" => settings.Features.FocusTimerEnabled ? 150 : 0,
-            "clipboard" => settings.Features.ClipboardHistoryEnabled ? 38 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36 : 0,
+            "clipboard" => settings.Features.ClipboardHistoryEnabled
+                ? ClipboardItems.Count == 0
+                    ? 74
+                    : 68 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36
+                : 0,
             _ => 0,
         };
         return height * settings.Widgets.Scale.Factor();
@@ -979,12 +983,6 @@ public sealed class IslandShell
         var index = enabled.IndexOf(id);
         var cy = top + 16;
 
-        // Grip-dot hint: grab the card anywhere to drag-reorder it.
-        for (var i = -1; i <= 1; i++)
-        {
-            ShellUi.FillCircle(canvas, left + 10, cy + i * 4f, 1.1f, ShellUi.Fade(ShellUi.Muted, 0.8f));
-        }
-
         TextKit.Draw(canvas, WidgetSettings.Labels[id].ToUpperInvariant(), left + 22, top + 10, 8.5f,
             ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
 
@@ -1279,24 +1277,25 @@ public sealed class IslandShell
 
     private void DrawClipboardWidget(SKCanvas canvas, float left, float top, float width)
     {
-        var rows = Math.Clamp(ClipboardItems.Count, 1, 5);
         var right = left + width;
-        var clearRect = ChipRight(canvas, "Clear", right - 10, top + 16, false);
-        RegisterButton(clearRect, ClearClipboardRequested);
-
         if (ClipboardItems.Count == 0)
         {
             TextKit.Draw(canvas, "Nothing copied yet — text, files and images you copy will appear here.",
                 left + 12, top + 44, 10.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+            return;
         }
-        else
+
+        var rows = Math.Min(5, ClipboardItems.Count);
+        // Clear sits on its own line below the card header, clear of the ✕ /
+        // arrow buttons that live in the top+16 row (it used to overlap them).
+        var clearRect = ChipRight(canvas, "Clear", right - 14, top + 46, false);
+        RegisterButton(clearRect, ClearClipboardRequested);
+
+        var rowY = top + 64f;
+        for (var i = 0; i < rows; i++)
         {
-            var rowY = top + 34f;
-            for (var i = 0; i < Math.Min(rows, ClipboardItems.Count); i++)
-            {
-                DrawClipboardRow(canvas, left, right, rowY, ClipboardItems[i]);
-                rowY += 36;
-            }
+            DrawClipboardRow(canvas, left, right, rowY, ClipboardItems[i]);
+            rowY += 36;
         }
     }
 
