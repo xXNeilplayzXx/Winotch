@@ -169,18 +169,28 @@ public sealed class ThemeService
         };
     }
 
+    /// <summary>DefaultAccentHex parsed once, without recursion (ParseHex used
+    /// to call itself to build this fallback, which never terminated).</summary>
+    private static readonly Col DefaultAccentFallback = ParseHexCore(DefaultAccentHex);
+
     public static Col ParseHex(string? hex)
     {
-        var fallback = ParseHex(DefaultAccentHex);
-        if (string.IsNullOrWhiteSpace(hex)) return fallback;
+        if (string.IsNullOrWhiteSpace(hex)) return DefaultAccentFallback;
         var trimmed = hex.Trim();
         if (trimmed[0] == '#') trimmed = trimmed[1..];
         if (trimmed.Length is not (6 or 8) ||
             !uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
-            return fallback;
+            return DefaultAccentFallback;
         }
         // 8-digit hex keeps RGB and drops alpha (accents are always opaque).
+        return Col.Rgba((byte)(value >> 16), (byte)(value >> 8), (byte)value);
+    }
+
+    private static Col ParseHexCore(string hex)
+    {
+        var trimmed = hex[0] == '#' ? hex[1..] : hex;
+        uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value);
         return Col.Rgba((byte)(value >> 16), (byte)(value >> 8), (byte)value);
     }
 
