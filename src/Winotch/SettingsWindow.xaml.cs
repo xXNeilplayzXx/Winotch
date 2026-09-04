@@ -212,7 +212,7 @@ public partial class SettingsWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        var pillRows = new List<UIElement>
+        var pillRows = new List<FrameworkElement>
         {
             MakeChoiceRow("Idle content", "What the collapsed pill shows when nothing is playing",
                 new[]
