@@ -63,7 +63,7 @@ Open the expanded panel and manage cards with **+** (add), the arrows or drag (r
 - **Notes** — a free-form scratchpad that persists.
 - **Clock** — time, date and your city.
 
-Each card sizes itself independently — hit **⚙** on a card and pick **Compact / Standard / Large** for that widget only.
+Each card sizes itself independently — hit **⚙** on a card and pick **Compact / Standard / Large** for that widget only. The whole card content — text, icons and rows — scales with the size, so a Compact card is genuinely smaller and never clips, while a Large card fills its taller box.
 
 ### Calls & status light
 

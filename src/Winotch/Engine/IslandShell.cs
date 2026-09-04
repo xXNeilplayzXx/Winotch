@@ -1193,7 +1193,45 @@ public sealed class IslandShell
 
     // ------------------------------------------------------ widget dispatch
 
+    /// <summary>Draw a widget's body. Cards can be Compact/Standard/Large:
+    /// the card box's height is already scaled by the widget's size factor,
+    /// so the body content is drawn through that same scale — anchored to the
+    /// card's top-left with the virtual width widened to compensate, so the
+    /// horizontal layout lands on the same pixels. Text, icons and rows grow
+    /// and shrink with the box instead of overflowing a short card or leaving
+    /// a large one mostly empty. Registered buttons and cursor-based hover are
+    /// mapped into the scaled local frame (like the rotated pill does).</summary>
     private void DrawWidgetBody(SKCanvas canvas, float left, float top, float width, string id, WinotchSettings settings)
+    {
+        var f = (float)settings.Widgets.SizeFor(id).Factor();
+        if (f == 1f)
+        {
+            DrawWidgetBodyCore(canvas, left, top, width, id, settings);
+            return;
+        }
+        canvas.Save();
+        canvas.Translate(left, top);
+        canvas.Scale(f, f);
+        var prevMap = _buttonMap;
+        var prevCursorX = _cursorX;
+        var prevCursorY = _cursorY;
+        _buttonMap = canvas.TotalMatrix;
+        _cursorX = left + (_cursorX - left) / f;
+        _cursorY = top + (_cursorY - top) / f;
+        try
+        {
+            DrawWidgetBodyCore(canvas, 0, 0, width / f, id, settings);
+        }
+        finally
+        {
+            _buttonMap = prevMap;
+            _cursorX = prevCursorX;
+            _cursorY = prevCursorY;
+        }
+        canvas.Restore();
+    }
+
+    private void DrawWidgetBodyCore(SKCanvas canvas, float left, float top, float width, string id, WinotchSettings settings)
     {
         switch (id)
         {
