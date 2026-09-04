@@ -147,10 +147,10 @@ public class ThemeTests
     public void SizePresets_Closest_SelectsNearest()
     {
         // Standard is 220x45; neighbouring sizes map to the closest preset.
-        Assert.Equal("compact", SizePresets.Closest(250, 40).Id);
+        Assert.Equal("standard", SizePresets.Closest(250, 40).Id);
         Assert.Equal("standard", SizePresets.Closest(220, 45).Id);
         Assert.Equal("wide", SizePresets.Closest(430, 48).Id);
-        Assert.Equal("compact", SizePresets.Closest(330, 44).Id);
+        Assert.Equal("wide", SizePresets.Closest(330, 44).Id);
     }
 
     [Fact]

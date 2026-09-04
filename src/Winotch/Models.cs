@@ -137,7 +137,7 @@ public static class SizePresets
 {
     public static readonly (string Id, string Label, int Width, int Height)[] All =
     {
-        ("compact", "Compact", 260, 40),
+        ("compact", "Compact", 180, 40),
         ("standard", "Standard", 220, 45),
         ("wide", "Wide", 420, 48),
     };
