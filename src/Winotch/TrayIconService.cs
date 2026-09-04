@@ -63,10 +63,12 @@ public sealed class TrayIconService : IDisposable
         var menu = new Forms.ContextMenuStrip();
         var settingsItem = new Forms.ToolStripMenuItem("Open Settings");
         var setupItem = new Forms.ToolStripMenuItem("Rerun setup…");
+        var updateItem = new Forms.ToolStripMenuItem("Check for updates…");
         var restartItem = new Forms.ToolStripMenuItem("Restart Winotch");
         var exitItem = new Forms.ToolStripMenuItem("Exit");
         settingsItem.Click += (_, _) => Dispatch(_host.OpenSettingsWindow);
         setupItem.Click += (_, _) => Dispatch(_host.OpenSetupWizard);
+        updateItem.Click += (_, _) => Dispatch(() => _host.CheckForUpdates());
         _pauseItem.Click += (_, _) => Dispatch(() => _host.SetPaused(!_host.IsPaused));
         _visibilityItem.Click += (_, _) => Dispatch(() =>
         {
@@ -79,6 +81,7 @@ public sealed class TrayIconService : IDisposable
         menu.Opening += (_, _) => RefreshMenuState();
         menu.Items.Add(settingsItem);
         menu.Items.Add(setupItem);
+        menu.Items.Add(updateItem);
         menu.Items.Add(_pauseItem);
         menu.Items.Add(_visibilityItem);
         menu.Items.Add(_startupItem);

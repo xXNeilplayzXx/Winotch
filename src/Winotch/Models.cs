@@ -319,6 +319,13 @@ public sealed record GeneralSettings
     public ClockLayout Layout { get; init; } = ClockLayout.Standard;
     public bool StartWithWindows { get; init; }
     public NotchStyle Style { get; init; } = NotchStyle.Notch;
+
+    /// <summary>Look for a newer build on GitHub when the app starts.</summary>
+    public bool AutoCheckUpdates { get; init; } = true;
+
+    /// <summary>Release tag the user was last offered and dismissed, so the
+    /// automatic check doesn't nag about the same version twice.</summary>
+    public string LastPromptedUpdate { get; init; } = "";
 }
 
 /// <summary>How the expanded panel header and clock widget stack the date:

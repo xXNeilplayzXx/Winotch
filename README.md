@@ -86,6 +86,7 @@ Every widget card comes in **Compact / Standard / Large** sizes.
 - **Settings window** — everything above plus 24-hour clock, start-with-Windows ("launch when you sign in"), rerun setup, **Reset to defaults** and a **Factory reset** that wipes your settings.
 - **Tray menu** — settings, pause/resume the notch, hide/show, start with Windows, restart, exit.
 - **Setup wizard** — a friendly two-page first run (theme → display & widgets) with a live preview; reopen it any time from Settings or the tray.
+- **Auto-updates** — checks GitHub for newer builds at startup (toggle in Settings) and offers a one-click download + restart; the tray menu and Settings can check on demand. Needs the GitHub repo to be public.
 
 ## Building from source
 

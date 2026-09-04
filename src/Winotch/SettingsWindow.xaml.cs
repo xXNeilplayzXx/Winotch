@@ -15,15 +15,18 @@ public partial class SettingsWindow : Window
     private readonly Action? _rerunSetup;
     private readonly Action? _factoryReset;
     private readonly Action? _enterDragMode;
+    private readonly Action? _checkForUpdates;
 
     public SettingsWindow(SettingsService settings, StartupService startup,
-        Action? rerunSetup = null, Action? factoryReset = null, Action? enterDragMode = null)
+        Action? rerunSetup = null, Action? factoryReset = null, Action? enterDragMode = null,
+        Action? checkForUpdates = null)
     {
         _settings = settings;
         _startup = startup;
         _rerunSetup = rerunSetup;
         _factoryReset = factoryReset;
         _enterDragMode = enterDragMode;
+        _checkForUpdates = checkForUpdates;
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
@@ -165,6 +168,15 @@ public partial class SettingsWindow : Window
                 var executable = StartupService.CurrentExecutablePath();
                 _startup.SetEnabled(v, executable);
             }));
+        generalRows.Add(MakeToggleRow("Check for updates automatically",
+            "Look for newer builds on GitHub when Winotch starts",
+            s.General.AutoCheckUpdates,
+            v => _settings.Update(x => x with { General = x.General with { AutoCheckUpdates = v } })));
+        if (_checkForUpdates is not null)
+        {
+            generalRows.Add(MakeButtonRow("Check for updates",
+                "See if a newer build is available", _checkForUpdates));
+        }
         AddSection("General", generalRows.ToArray());
 
         AddSection("Appearance",

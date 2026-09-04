@@ -21,6 +21,7 @@ public interface INotchHost
     void ShowNotch();
     void OpenSettingsWindow();
     void OpenSetupWizard();
+    void CheckForUpdates();
     void RestartApplication();
     void FactoryReset();
     void QuitApplication();
@@ -42,6 +43,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private readonly WeatherService _weather = new();
     private readonly SystemStatsSampler _statsSampler = new();
     private readonly List<OverlayWindow> _windows = new();
+    private readonly UpdateService _updateService = new();
 
     private readonly DispatcherTimer _clipboardTimer;
     private SettingsWindow? _settingsWindow;
@@ -56,6 +58,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private DisplayMode _lastDisplayMode;
     private string _lastDisplayDevice = "";
     private bool _disposed;
+    private bool _updateCheckInFlight;
 
     public OverlayWindowManager(SettingsService settings, StartupService startup)
     {
@@ -117,6 +120,18 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _ = FetchWeatherAsync();
         PollClipboard();
         _media.Start();
+
+        if (_settings.Current.General.AutoCheckUpdates)
+        {
+            // Let the shell settle and the release hit the network after a beat.
+            var check = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(6) };
+            check.Tick += (_, _) =>
+            {
+                check.Stop();
+                CheckForUpdates(manual: false);
+            };
+            check.Start();
+        }
     }
 
     private void StartTimers()
@@ -309,11 +324,60 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         foreach (var window in _windows) window.Shell.EnterDragMode();
     }
 
+    /// <summary>Check GitHub for a newer release. Automatic checks stay
+    /// silent unless an update is found; manual checks always report the
+    /// outcome as a toast.</summary>
+    public async void CheckForUpdates(bool manual = false)
+    {
+        if (_updateCheckInFlight) return;
+        _updateCheckInFlight = true;
+        try
+        {
+            var info = await _updateService.CheckAsync();
+            if (info is null)
+            {
+                if (manual)
+                {
+                    ShowToast(new ToastSpec("", "Update check failed",
+                        "Couldn't reach GitHub — check your connection (the repo must be public for auto-updates).", 6));
+                }
+                return;
+            }
+            if (!info.IsNewerThan(UpdateService.CurrentVersion))
+            {
+                if (manual)
+                {
+                    ShowToast(new ToastSpec("", "Up to date",
+                        $"You're running the latest version ({UpdateService.CurrentVersionText}).", 4.5));
+                }
+                return;
+            }
+            if (!manual && _settings.Current.General.LastPromptedUpdate == info.Tag) return;
+
+            var window = new UpdateWindow(info);
+            var accepted = window.ShowDialog() == true && window.StagedExe is { } staged;
+            _settings.Update(x => x with
+            {
+                General = x.General with { LastPromptedUpdate = info.Tag },
+            });
+            if (accepted)
+            {
+                UpdateService.ApplyAndRestart(staged, window.DownloadPath);
+                QuitApplication();
+            }
+        }
+        finally
+        {
+            _updateCheckInFlight = false;
+        }
+    }
+
     public void OpenSettingsWindow()
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode);
+            _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode,
+                CheckForUpdates);
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
