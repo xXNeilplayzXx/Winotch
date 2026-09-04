@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Winotch;
 
 /// <summary>Searches Windows for installed applications by resolving Start
