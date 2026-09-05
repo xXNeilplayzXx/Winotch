@@ -509,44 +509,50 @@ public sealed class IslandShell
             var pad = expanded ? 8 : 12;
             var hoverRect = new SKRect(rect.Left - pad, rect.Top - pad, rect.Right + pad, rect.Bottom + pad);
             var cursor = new SKPoint((float)_cursorX, (float)_cursorY);
+            // The pill's resting hover rect — where the collapsed pill settles
+            // (from MiniTarget, live so custom sizes and drag mode apply).
+            // Both the trigger and the collapse-hold key off it: gating the
+            // trigger on the resting rect stops a cursor parked in a band the
+            // animating pill sweeps across from re-triggering expansion
+            // mid-flight (side pills' capsules slide away from the panel and
+            // back, which used to loop forever), and the same geometry holds
+            // the panel open over the pill's own footprint on collapse.
+            var mini = MiniTarget();
+            double restX, restY;
+            if (Vertical)
+            {
+                const double inset = 8;
+                restX = settings.General.Edge == PillEdge.Left
+                    ? inset
+                    : CanvasWidth - mini.Width - inset;
+                restY = Math.Clamp((CanvasHeight - mini.Height) / 2 + OffsetY,
+                    6, Math.Max(6, CanvasHeight - mini.Height - 6));
+            }
+            else
+            {
+                var notch = settings.General.Style == NotchStyle.Notch;
+                restX = Math.Clamp((CanvasWidth - mini.Width) / 2 + OffsetX,
+                    6, Math.Max(6, CanvasWidth - mini.Width - 6));
+                var yMin = notch ? NotchTopMini : 0;
+                restY = Math.Clamp((notch ? NotchTopMini : IslandTopMini) + OffsetY,
+                    yMin, Math.Max(yMin, CanvasHeight - mini.Height));
+            }
+            var restRect = new SKRect((float)(restX - 12), (float)(restY - 12),
+                (float)(restX + mini.Width + 12), (float)(restY + mini.Height + 12));
             // The add menu floats below the island and can extend past its
             // bounds — keep the panel up while the cursor is over it so its
             // rows stay visible and clickable.
             var overAddMenu = _addMenuOpen && AddMenuRect().Contains(cursor);
-            if (!_wantExpanded && hoverRect.Contains(cursor) && _blend < 0.5)
+            if (!_wantExpanded && hoverRect.Contains(cursor) && restRect.Contains(cursor) && _blend < 0.5)
             {
                 _wantExpanded = true;
             }
             else if (_wantExpanded && !hoverRect.Contains(cursor) && !overAddMenu)
             {
-                // The cursor may sit in the gap between the pill's resting
-                // footprint and the panel's hover rect (e.g. just above the
-                // notch, where the collapsed pill's hover reach extends past
-                // the expanded panel's). Collapsing there would instantly
-                // re-trigger expansion — an endless loop — so the panel holds
-                // while the cursor is over the collapsed pill's own zone too.
-                var mini = MiniTarget();
-                double restX, restY;
-                if (Vertical)
-                {
-                    const double inset = 8;
-                    restX = settings.General.Edge == PillEdge.Left
-                        ? inset
-                        : CanvasWidth - mini.Width - inset;
-                    restY = Math.Clamp((CanvasHeight - mini.Height) / 2 + OffsetY,
-                        6, Math.Max(6, CanvasHeight - mini.Height - 6));
-                }
-                else
-                {
-                    var notch = settings.General.Style == NotchStyle.Notch;
-                    restX = Math.Clamp((CanvasWidth - mini.Width) / 2 + OffsetX,
-                        6, Math.Max(6, CanvasWidth - mini.Width - 6));
-                    var yMin = notch ? NotchTopMini : 0;
-                    restY = Math.Clamp((notch ? NotchTopMini : IslandTopMini) + OffsetY,
-                        yMin, Math.Max(yMin, CanvasHeight - mini.Height));
-                }
-                var restRect = new SKRect((float)(restX - 12), (float)(restY - 12),
-                    (float)(restX + mini.Width + 12), (float)(restY + mini.Height + 12));
+                // Same reasoning as the trigger gate: the cursor may sit in
+                // the gap between the resting footprint and the panel's hover
+                // rect (e.g. just above the notch, or beside a side pill) —
+                // hold there instead of collapsing and instantly re-expanding.
                 if (!restRect.Contains(cursor))
                 {
                     _wantExpanded = false;
