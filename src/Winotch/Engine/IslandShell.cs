@@ -1135,14 +1135,14 @@ public sealed class IslandShell
         var yCursor = y + 48f;
 
         // Widget cards in persisted order. The add menu floats above them.
-        foreach (var (id, left, top, width, _) in PanelCards())
+        foreach (var (id, cardLeft, top, cardWidth, _) in PanelCards())
         {
             var cardH = WidgetCardHeight(id, settings);
             if (cardH <= 0) continue;
             var ftop = CardTop(id, top);
-            DrawCard(canvas, left, ftop, width, (float)cardH);
-            DrawCardHeader(canvas, left, ftop, width, id);
-            DrawWidgetBody(canvas, left, ftop, width, id, settings);
+            DrawCard(canvas, cardLeft, ftop, cardWidth, (float)cardH);
+            DrawCardHeader(canvas, cardLeft, ftop, cardWidth, id);
+            DrawWidgetBody(canvas, cardLeft, ftop, cardWidth, id, settings);
         }
 
     }
