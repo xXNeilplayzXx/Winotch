@@ -519,9 +519,40 @@ public sealed class IslandShell
             }
             else if (_wantExpanded && !hoverRect.Contains(cursor) && !overAddMenu)
             {
-                _wantExpanded = false;
-                _addMenuOpen = false;
-                _contextMenuOpen = false;
+                // The cursor may sit in the gap between the pill's resting
+                // footprint and the panel's hover rect (e.g. just above the
+                // notch, where the collapsed pill's hover reach extends past
+                // the expanded panel's). Collapsing there would instantly
+                // re-trigger expansion — an endless loop — so the panel holds
+                // while the cursor is over the collapsed pill's own zone too.
+                var mini = MiniTarget();
+                double restX, restY;
+                if (Vertical)
+                {
+                    const double inset = 8;
+                    restX = settings.General.Edge == PillEdge.Left
+                        ? inset
+                        : CanvasWidth - mini.Width - inset;
+                    restY = Math.Clamp((CanvasHeight - mini.Height) / 2 + OffsetY,
+                        6, Math.Max(6, CanvasHeight - mini.Height - 6));
+                }
+                else
+                {
+                    var notch = settings.General.Style == NotchStyle.Notch;
+                    restX = Math.Clamp((CanvasWidth - mini.Width) / 2 + OffsetX,
+                        6, Math.Max(6, CanvasWidth - mini.Width - 6));
+                    var yMin = notch ? NotchTopMini : 0;
+                    restY = Math.Clamp((notch ? NotchTopMini : IslandTopMini) + OffsetY,
+                        yMin, Math.Max(yMin, CanvasHeight - mini.Height));
+                }
+                var restRect = new SKRect((float)(restX - 12), (float)(restY - 12),
+                    (float)(restX + mini.Width + 12), (float)(restY + mini.Height + 12));
+                if (!restRect.Contains(cursor))
+                {
+                    _wantExpanded = false;
+                    _addMenuOpen = false;
+                    _contextMenuOpen = false;
+                }
             }
         }
     }
