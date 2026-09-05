@@ -184,7 +184,7 @@ public sealed class SetupWindow : Window
             ? "Attaches to the top edge — the cap tucks under the screen"
             : "Floats below the top edge";
         _previewCaption.Text += _openDirection == ExpandDirection.Horizontal
-            ? " · opens outward"
+            ? " · widgets in two columns"
             : " · opens downward";
     }
 

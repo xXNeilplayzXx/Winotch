@@ -355,6 +355,50 @@ public enum PillEdge { Top, Left, Right }
 /// <summary>The character of the notch's expand / collapse animation.</summary>
 public enum ExpandDirection { Vertical, Horizontal }
 
+/// <summary>Pure layout math for the expanded panel's two-column mode
+/// (Horizontal open direction): visible cards in persisted order split into
+/// columns balanced by total card height, order preserved within each
+/// column so the list still reads left-to-right, top-to-bottom.</summary>
+public static class PanelLayout
+{
+    /// <summary>A card the panel will actually draw: (id, height ≥ 0).</summary>
+    public readonly record struct PanelCard(string Id, double Height);
+
+    /// <summary>Split visible cards into at most <paramref name="columns"/>
+    /// columns whose total heights stay balanced: the boundary index is the
+    /// one whose left/right height sums are closest to equal, so a tall card
+    /// right after the midpoint moves to the second column instead of
+    /// overshooting it. Order is preserved throughout.</summary>
+    public static List<List<PanelCard>> SplitColumns(IEnumerable<PanelCard> cards, int columns = 2)
+    {
+        var visible = cards.Where(c => c.Height > 0).ToList();
+        var result = Enumerable.Range(0, Math.Max(1, columns)).Select(_ => new List<PanelCard>()).ToList();
+        if (visible.Count == 0) return result;
+        if (columns <= 1 || visible.Count == 1)
+        {
+            result[0].AddRange(visible);
+            return result;
+        }
+        var total = visible.Sum(c => c.Height);
+        var bestIndex = 1;
+        var bestDiff = double.MaxValue;
+        double leftSum = 0;
+        for (var k = 1; k < visible.Count; k++)
+        {
+            leftSum += visible[k - 1].Height;
+            var diff = Math.Abs(total - 2 * leftSum);
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                bestIndex = k;
+            }
+        }
+        result[0].AddRange(visible.Take(bestIndex));
+        result[1].AddRange(visible.Skip(bestIndex));
+        return result;
+    }
+}
+
 public sealed record ToastSettings
 {
     public bool MediaToastsEnabled { get; init; } = true;

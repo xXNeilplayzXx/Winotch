@@ -308,7 +308,7 @@ public sealed class OverlayWindow : Window, IDisposable
 
         if (_dragWidgetId is not null)
         {
-            var target = _shell.WidgetIndexAtY(point.Y);
+            var target = _shell.WidgetIndexAt(point.X, point.Y);
             if (target >= 0 && target != _lastWidgetIndex)
             {
                 _lastWidgetIndex = target;

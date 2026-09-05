@@ -11,6 +11,8 @@ public sealed class IslandShell
     private const double MiniHeight = 44;
     private const double MiniWidthMin = 150;
     private const double ExpandedWidth = 398;
+    private const double ExpandedWidthHorizontal = 620;
+    private const double ColumnGap = 12;
     private const double NotchTopMini = -13;
     private const double NotchTopPanel = -6;
     private const double IslandTopMini = 10;
@@ -411,18 +413,21 @@ public sealed class IslandShell
         var expanded = _blend > 0.5;
 
         var miniTarget = MiniTarget();
-        var expandedW = Math.Min(ExpandedWidth, Math.Max(120, CanvasWidth - 16));
-        var expandedH = ExpandedHeight(settings);
-
         var vertical = Vertical;
 
-        // Open direction shapes the unfold: Vertical keeps the classic
-        // downward grow; Horizontal blooms wide from the pill's center first,
-        // with the height trailing so the panel "unfolds" outward.
+        // Open direction shapes both the unfold and the resting panel:
+        // Vertical keeps the classic 398px single-column downward grow;
+        // Horizontal blooms wide to a ~620px two-column panel from the
+        // pill's center, with the height trailing so it "unfolds" outward.
         var openDirection = settings.General.OpenDirection;
+        var horizontalOpen = !vertical && openDirection == ExpandDirection.Horizontal;
+        var expandedW = Math.Min(
+            horizontalOpen ? ExpandedWidthHorizontal : ExpandedWidth,
+            Math.Max(120, CanvasWidth - 16));
+        var expandedH = ExpandedHeight(settings);
         var wTarget = expanded ? expandedW : miniTarget.Width;
         var hTarget = expanded ? expandedH : miniTarget.Height;
-        if (expanded && !vertical && openDirection == ExpandDirection.Horizontal && _blend < 1)
+        if (expanded && horizontalOpen && _blend < 1)
         {
             // Width leads: give the spring the full width now and interpolate
             // the height from the mini pill up as the crossfade completes.
@@ -568,13 +573,72 @@ public sealed class IslandShell
 
     private double ExpandedHeight(WinotchSettings settings)
     {
-        var h = 16 + 46.0; // top pad + header row
-        foreach (var id in settings.Widgets.Enabled)
+        const double header = 16 + 46.0; // top pad + header row
+        var h = header;
+        if (UseColumns(settings))
         {
-            h += 12 + WidgetCardHeight(id, settings);
+            // Two columns: the panel only needs to be as tall as the taller
+            // one, so Horizontal mode is wider *and* shorter than stacked.
+            foreach (var column in ColumnSplit(settings))
+            {
+                var ch = column.Sum(id => 12 + WidgetCardHeight(id, settings));
+                h = Math.Max(h, header + ch);
+            }
+        }
+        else
+        {
+            foreach (var id in settings.Widgets.Enabled)
+            {
+                h += 12 + WidgetCardHeight(id, settings);
+            }
         }
         h += 12; // bottom pad
         return Math.Min(h, Math.Max(120, CanvasHeight - 24));
+    }
+
+    /// <summary>Horizontal open direction lays the cards out in two columns
+    /// once at least two cards are visible — top pills (island/notch) only;
+    /// side pills keep their slide-out full-width panel.</summary>
+    private bool UseColumns(WinotchSettings settings) =>
+        !Vertical &&
+        settings.General.OpenDirection == ExpandDirection.Horizontal &&
+        settings.Widgets.Enabled.Count(CardVisible) >= 2;
+
+    /// <summary>Visibility without WidgetCardHeight — the launcher's height
+    /// depends on column count, so column math must not call it back.</summary>
+    private bool CardVisible(string id) => id switch
+    {
+        "media" => Media is not null,
+        "focus" => _settings.Current.Features.FocusTimerEnabled,
+        "clipboard" => _settings.Current.Features.ClipboardHistoryEnabled,
+        "clock" or "system" or "notes" or "weather" or "launcher" => true,
+        _ => false,
+    };
+
+    /// <summary>The visible cards in drawn order, split into two columns
+    /// balanced by height (order preserved; left column fills first).</summary>
+    private List<List<string>> ColumnSplit(WinotchSettings settings)
+    {
+        var cards = settings.Widgets.Enabled
+            .Where(CardVisible)
+            .Select(id => new PanelLayout.PanelCard(id, WidgetCardHeight(id, settings)))
+            .ToList();
+        return PanelLayout.SplitColumns(cards)
+            .Select(c => c.Select(card => card.Id).ToList())
+            .ToList();
+    }
+
+    /// <summary>Column geometry inside the expanded panel: (left, width) per
+    /// column, or a single full-width column when not using columns.</summary>
+    private (float Left, float Width)[] ColumnRects(float panelLeft, float panelWidth)
+    {
+        const float pad = 14f;
+        if (UseColumns(_settings.Current) && panelWidth >= pad * 2 + ColumnGap + 200)
+        {
+            var colW = (panelWidth - pad * 2 - (float)ColumnGap) / 2;
+            return new[] { (panelLeft + pad, colW), (panelLeft + pad + colW + (float)ColumnGap, colW) };
+        }
+        return new[] { (panelLeft + pad, panelWidth - pad * 2) };
     }
 
     private double WidgetCardHeight(string id, WinotchSettings settings)
@@ -598,8 +662,9 @@ public sealed class IslandShell
         return height * settings.Widgets.SizeFor(id).Factor();
     }
 
-    private static int LauncherRows(WinotchSettings settings) =>
-        Math.Max(1, (int)Math.Ceiling(Math.Min(settings.Widgets.LauncherApps.Count, 12) / 4.0));
+    private int LauncherRows(WinotchSettings settings) =>
+        Math.Max(1, (int)Math.Ceiling(Math.Min(settings.Widgets.LauncherApps.Count, 12) /
+            (UseColumns(settings) ? 3.0 : 4.0)));
 
     public bool IsInteractiveAt(double xDip, double yDip)
     {
@@ -1070,15 +1135,14 @@ public sealed class IslandShell
         var yCursor = y + 48f;
 
         // Widget cards in persisted order. The add menu floats above them.
-        foreach (var id in settings.Widgets.Enabled)
+        foreach (var (id, left, top, width, _) in PanelCards())
         {
-            var cardH = (float)WidgetCardHeight(id, settings);
+            var cardH = WidgetCardHeight(id, settings);
             if (cardH <= 0) continue;
-            var top = CardTop(id, yCursor + 4);
-            DrawCard(canvas, left, top, rect.Width - pad * 2, cardH);
-            DrawCardHeader(canvas, left, top, rect.Width - pad * 2, id);
-            DrawWidgetBody(canvas, left, top, rect.Width - pad * 2, id, settings);
-            yCursor = top + cardH + 12;
+            var ftop = CardTop(id, top);
+            DrawCard(canvas, left, ftop, width, (float)cardH);
+            DrawCardHeader(canvas, left, ftop, width, id);
+            DrawWidgetBody(canvas, left, ftop, width, id, settings);
         }
 
     }
@@ -1557,7 +1621,9 @@ public sealed class IslandShell
             return;
         }
 
-        const int columns = 4;
+        // 4 tiles across on the full-width card, 3 in a two-column panel —
+        // matching LauncherRows so the card height always fits the grid.
+        var columns = UseColumns(settings) ? 3 : 4;
         var tileWidth = (width - 28) / columns;
         const float tileHeight = 48f;
         var gridY = top + 38f;
@@ -1651,7 +1717,7 @@ public sealed class IslandShell
 
     private void MoveWidget(string id, int direction)
     {
-        var before = CardLayout().ToDictionary(c => c.Id, c => c.Top);
+        var before = PanelCards().ToDictionary(c => c.Id, c => c.Top);
         var enabled = _settings.Current.Widgets.Enabled.ToList();
         var from = enabled.IndexOf(id);
         var to = from + direction;
@@ -1660,7 +1726,7 @@ public sealed class IslandShell
         _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
 
         // Animate every card whose top moved, and flash the clicked arrow.
-        var after = CardLayout().ToDictionary(c => c.Id, c => c.Top);
+        var after = PanelCards().ToDictionary(c => c.Id, c => c.Top);
         var now = DateTime.UtcNow;
         foreach (var (cardId, beforeTop) in before)
         {
@@ -1704,44 +1770,70 @@ public sealed class IslandShell
         _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
     }
 
-    /// <summary>The visible widget cards in panel layout order (same math as
-    /// DrawPanel), used to hit-test card headers for drag-to-reorder.</summary>
-    private IEnumerable<(string Id, float Top, float Height)> CardLayout()
+    /// <summary>The expanded panel's card layout: one rect per visible card
+    /// in draw order (left column top-to-bottom, then right). Shared by the
+    /// renderer and hit-testing so they can never disagree; the top offset
+    /// (panel top + 66 = pad 14 + header 48 + gap 4) and the 12px inter-card
+    /// gap mirror DrawPanel and ExpandedHeight exactly.</summary>
+    private IEnumerable<(string Id, float Left, float Top, float Width, float Height)> PanelCards()
     {
         var settings = _settings.Current;
-        var y = (float)_y + 66f;
-        foreach (var id in settings.Widgets.Enabled)
+        var top0 = (float)_y + 66f;
+        var rects = ColumnRects((float)_x, (float)_w);
+        if (!UseColumns(settings))
         {
-            var cardH = (float)WidgetCardHeight(id, settings);
-            if (cardH <= 0) continue;
-            yield return (id, y, cardH);
-            y += cardH + 12;
+            var (left, width) = rects[0];
+            var yCursor = top0;
+            foreach (var id in settings.Widgets.Enabled)
+            {
+                var cardH = (float)WidgetCardHeight(id, settings);
+                if (cardH <= 0) continue;
+                yield return (id, left, yCursor, width, cardH);
+                yCursor += cardH + 12;
+            }
+            yield break;
+        }
+        var split = ColumnSplit(settings);
+        for (var c = 0; c < split.Count && c < rects.Length; c++)
+        {
+            var yCursor = top0;
+            foreach (var id in split[c])
+            {
+                var cardH = (float)WidgetCardHeight(id, settings);
+                if (cardH <= 0) continue;
+                yield return (id, rects[c].Left, yCursor, rects[c].Width, cardH);
+                yCursor += cardH + 12;
+            }
         }
     }
 
-    /// <summary>The widget card under the point, or null (expanded panel only).</summary>
+    /// <summary>The widget card under the point, or null (expanded panel only).
+    /// Rect-based so it is correct in both single-column and two-column layouts.</summary>
     public string? WidgetCardAt(double xDip, double yDip)
     {
         if (_blend <= 0.5) return null;
-        if (xDip < _x + 8 || xDip > _x + _w - 8) return null;
-        foreach (var (id, top, height) in CardLayout())
+        foreach (var (id, left, top, width, height) in PanelCards())
         {
-            if (yDip >= top && yDip <= top + height) return id;
+            if (xDip >= left && xDip <= left + width && yDip >= top && yDip <= top + height) return id;
         }
         return null;
     }
 
-    /// <summary>The card slot index nearest to a vertical point (drag target).</summary>
-    public int WidgetIndexAtY(double yDip)
+    /// <summary>The card slot nearest to a point (drag target) — nearest card
+    /// center in 2D, so reorder works across both columns in Horizontal mode.</summary>
+    public int WidgetIndexAt(double xDip, double yDip)
     {
-        var cards = CardLayout().ToList();
+        var cards = PanelCards().ToList();
         if (cards.Count == 0) return -1;
         var best = 0;
         var bestDistance = double.MaxValue;
         for (var i = 0; i < cards.Count; i++)
         {
-            var center = cards[i].Top + cards[i].Height / 2;
-            var distance = Math.Abs(yDip - center);
+            var cx = cards[i].Left + cards[i].Width / 2;
+            var cy = cards[i].Top + cards[i].Height / 2;
+            var dx = xDip - cx;
+            var dy = yDip - cy;
+            var distance = dx * dx + dy * dy;
             if (distance < bestDistance)
             {
                 bestDistance = distance;
