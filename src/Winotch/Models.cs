@@ -399,6 +399,40 @@ public static class PanelLayout
     }
 }
 
+/// <summary>Greedy word-wrap for card text: splits a string into lines that
+/// each measure within a budget. Pure and unit-testable — the caller supplies
+/// the measure callback (TextKit passes real Skia measurement), so no Skia
+/// types are needed here.</summary>
+public static class TextLayout
+{
+    /// <summary>Wrap <paramref name="text"/> so no line exceeds
+    /// <paramref name="maxWidth"/> (same unit as the measure callback).
+    /// Words are never split mid-word: a single word longer than the budget
+    /// gets a line of its own. Runs of spaces collapse; empty or
+    /// whitespace-only input yields no lines; a non-positive budget returns
+    /// the text as a single line rather than mangling it.</summary>
+    public static List<string> Wrap(string text, float maxWidth, Func<string, float> measure)
+    {
+        var lines = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return lines;
+        if (maxWidth <= 0) return [text];
+        var current = "";
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = current.Length == 0 ? word : current + " " + word;
+            if (measure(candidate) <= maxWidth || current.Length == 0)
+            {
+                current = candidate;
+                continue;
+            }
+            lines.Add(current);
+            current = word;
+        }
+        if (current.Length > 0) lines.Add(current);
+        return lines;
+    }
+}
+
 public sealed record ToastSettings
 {
     public bool MediaToastsEnabled { get; init; } = true;

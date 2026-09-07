@@ -108,6 +108,23 @@ public static class TextKit
         canvas.DrawText(text, centerX - width / 2, baseline, paint);
     }
 
+    /// <summary>Draw text word-wrapped to maxWidth, starting at the top-left
+    /// (x, y) with the given spacing between lines; returns the number of
+    /// lines drawn. Wrapping is greedy word-wrap (see TextLayout.Wrap).</summary>
+    public static int DrawWrapped(SKCanvas canvas, string text, float x, float y,
+        float maxWidth, float size, Col color, SKTypeface? face = null, float lineHeight = 15f)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        var lines = TextLayout.Wrap(text, maxWidth, s => Measure(s, size, face));
+        var cursor = y;
+        foreach (var line in lines)
+        {
+            Draw(canvas, line, x, cursor, size, color, face);
+            cursor += lineHeight;
+        }
+        return lines.Count;
+    }
+
     public static float LineHeight(float size, SKTypeface? face = null)
     {
         using var paint = NewPaint(size, face ?? UiRegular, Col.White);

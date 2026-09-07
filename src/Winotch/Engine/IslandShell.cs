@@ -421,9 +421,7 @@ public sealed class IslandShell
         // pill's center, with the height trailing so it "unfolds" outward.
         var openDirection = settings.General.OpenDirection;
         var horizontalOpen = !vertical && openDirection == ExpandDirection.Horizontal;
-        var expandedW = Math.Min(
-            horizontalOpen ? ExpandedWidthHorizontal : ExpandedWidth,
-            Math.Max(120, CanvasWidth - 16));
+        var expandedW = SettledExpandedWidth(settings);
         var expandedH = ExpandedHeight(settings);
         var wTarget = expanded ? expandedW : miniTarget.Width;
         var hTarget = expanded ? expandedH : miniTarget.Height;
@@ -678,6 +676,24 @@ public sealed class IslandShell
         return new[] { (panelLeft + pad, panelWidth - pad * 2) };
     }
 
+    /// <summary>The resting expanded panel width — the same math as
+    /// UpdateGeometry's width target, callable from layout/height code
+    /// without depending on the live animated size.</summary>
+    private double SettledExpandedWidth(WinotchSettings settings) =>
+        Math.Min(
+            !Vertical && settings.General.OpenDirection == ExpandDirection.Horizontal
+                ? ExpandedWidthHorizontal
+                : ExpandedWidth,
+            Math.Max(120, CanvasWidth - 16));
+
+    /// <summary>Width a card lays out at once the panel has settled — a
+    /// column half in two-column mode, else the full inner width (same math
+    /// as ColumnRects). Text wrapping uses this instead of the live animated
+    /// width so wrap-derived heights don't chase the unfold animation; the
+    /// two agree exactly once the spring settles.</summary>
+    private float CardLayoutWidth(WinotchSettings settings) =>
+        ColumnRects(0, (float)SettledExpandedWidth(settings))[0].Width;
+
     private double WidgetCardHeight(string id, WinotchSettings settings)
     {
         var height = id switch
@@ -691,7 +707,7 @@ public sealed class IslandShell
             "focus" => settings.Features.FocusTimerEnabled ? 150 : 0,
             "clipboard" => settings.Features.ClipboardHistoryEnabled
                 ? ClipboardItems.Count == 0
-                    ? 74
+                    ? ClipboardEmptyHeight(settings)
                     : 68 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36
                 : 0,
             _ => 0,
@@ -1595,8 +1611,8 @@ public sealed class IslandShell
         var x = left + 14;
         if (string.IsNullOrWhiteSpace(text))
         {
-            TextKit.Draw(canvas, "Jot something down — tap this card to open the editor.",
-                x, top + 46, 11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
+            TextKit.DrawWrapped(canvas, "Jot something down — tap this card to open the editor.",
+                x, top + 46, width - 28, 11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
         }
         else
         {
@@ -1651,8 +1667,13 @@ public sealed class IslandShell
         var apps = settings.Widgets.LauncherApps.Take(12).ToList();
         if (apps.Count == 0)
         {
-            TextKit.Draw(canvas, "No apps yet — add some from the \u2699 on this card.", left + 14, top + 42,
-                11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
+            // Keep the hint clear of the "add apps" chip that shares its
+            // row — it used to run under the chip and off the card edge in
+            // two-column mode (the hint is ~277px, a column card ~290px).
+            var chipW = TextKit.Measure("add apps", 11f, TextKit.Semibold) + 24;
+            var hint = ShellUi.Ellipsize("No apps yet — add some from the \u2699 on this card.",
+                width - 46 - chipW, 11.5f, TextKit.Regular);
+            TextKit.Draw(canvas, hint, left + 14, top + 42, 11.5f, ShellUi.Fade(ShellUi.Muted, 0.9f));
             var chip = ChipRight(canvas, "add apps", left + width - 22, top + 50, false);
             RegisterButton(chip, LauncherEditRequested);
             return;
@@ -1726,13 +1747,50 @@ public sealed class IslandShell
         DrawFocusActions(canvas, left, top, width, accent);
     }
 
+    private const string ClipboardHint = "Nothing copied yet — text, files and images you copy will appear here.";
+
+    private List<string>? _clipboardHintLines;
+    private float _clipboardHintLinesWidth = -1;
+
+    /// <summary>The empty-state hint wrapped to a card's layout width, cached
+    /// per width so the per-frame draw + height path doesn't re-measure the
+    /// string every frame. Shared by the drawer and ClipboardEmptyHeight so
+    /// the two can never drift apart.</summary>
+    private List<string> ClipboardHintLines(float layoutWidth)
+    {
+        if (_clipboardHintLines is null || Math.Abs(_clipboardHintLinesWidth - layoutWidth) >= 0.5)
+        {
+            _clipboardHintLines = TextLayout.Wrap(ClipboardHint, layoutWidth - 24,
+                s => TextKit.Measure(s, 10.5f));
+            _clipboardHintLinesWidth = layoutWidth;
+        }
+        return _clipboardHintLines;
+    }
+
+    /// <summary>Empty clipboard card height: text offset + wrapped hint lines
+    /// + bottom pad, in the same unscaled frame the card draws in (the whole
+    /// card then scales by the widget's size factor).</summary>
+    private double ClipboardEmptyHeight(WinotchSettings settings)
+    {
+        var factor = settings.Widgets.SizeFor("clipboard").Factor();
+        var layoutWidth = (float)(CardLayoutWidth(settings) / factor);
+        return (44 + ClipboardHintLines(layoutWidth).Count * 15 + 12) * factor;
+    }
+
     private void DrawClipboardWidget(SKCanvas canvas, float left, float top, float width)
     {
         var right = left + width;
         if (ClipboardItems.Count == 0)
         {
-            TextKit.Draw(canvas, "Nothing copied yet — text, files and images you copy will appear here.",
-                left + 12, top + 44, 10.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+            // The hint is wider than a column card, so it word-wraps inside
+            // the card and the card height grows with it (shared line list).
+            var hintColor = ShellUi.Fade(ShellUi.Muted, 0.85f);
+            var hintY = top + 44;
+            foreach (var line in ClipboardHintLines(width))
+            {
+                TextKit.Draw(canvas, line, left + 12, hintY, 10.5f, hintColor);
+                hintY += 15;
+            }
             return;
         }
 
