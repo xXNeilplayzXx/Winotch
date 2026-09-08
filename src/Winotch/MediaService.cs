@@ -1,3 +1,4 @@
+using System.Threading;
 using SkiaSharp;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -86,9 +87,10 @@ public sealed class MediaService : IDisposable
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Transient failure — clear state and retry the manager.
+                    System.Diagnostics.Debug.WriteLine($"[Winotch Error] MediaService loop failed: {ex.Message}");
                     _manager = null;
                     if (_hasLast)
                     {
@@ -109,9 +111,12 @@ public sealed class MediaService : IDisposable
 
     public void Stop()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = null;
+        var ctsToDispose = Interlocked.Exchange(ref _cts, null);
+        if (ctsToDispose is not null)
+        {
+            try { ctsToDispose.Cancel(); } catch { }
+            try { ctsToDispose.Dispose(); } catch { }
+        }
     }
 
     public async Task PlayPauseAsync()
@@ -124,14 +129,21 @@ public sealed class MediaService : IDisposable
             if (playing) await session.TryPauseAsync();
             else await session.TryPlayAsync();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] Media PlayPause failed: {ex.Message}");
+        }
     }
 
     public async Task NextAsync()
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TrySkipNextAsync(); } catch { }
+            try { await session.TrySkipNextAsync(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Winotch Error] Media Next failed: {ex.Message}");
+            }
         }
     }
 
@@ -139,7 +151,11 @@ public sealed class MediaService : IDisposable
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TrySkipPreviousAsync(); } catch { }
+            try { await session.TrySkipPreviousAsync(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Winotch Error] Media Previous failed: {ex.Message}");
+            }
         }
     }
 
@@ -154,7 +170,10 @@ public sealed class MediaService : IDisposable
                 await session.TryChangePlaybackPositionAsync(
                     (long)(seconds * TimeSpan.TicksPerSecond));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Winotch Error] Media Seek failed: {ex.Message}");
+            }
         }
     }
 
@@ -170,9 +189,16 @@ public sealed class MediaService : IDisposable
                 .FirstOrDefault(s => IsPlaying(s));
             if (playing is not null) return playing;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] BestSession GetSessions failed: {ex.Message}");
+        }
         try { return manager.GetCurrentSession(); }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] BestSession GetCurrentSession failed: {ex.Message}");
+            return null;
+        }
     }
 
     private static bool IsPlaying(GlobalSystemMediaTransportControlsSession session)
@@ -182,7 +208,11 @@ public sealed class MediaService : IDisposable
             return session.GetPlaybackInfo()?.PlaybackStatus ==
                    GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] IsPlaying failed: {ex.Message}");
+            return false;
+        }
     }
 
     private async Task<MediaSnapshot?> ReadAsync(GlobalSystemMediaTransportControlsSessionManager manager)
@@ -210,7 +240,10 @@ public sealed class MediaService : IDisposable
                 position = timeline.Position.TotalSeconds;
                 duration = timeline.EndTime.TotalSeconds;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Winotch Error] GetTimelineProperties failed: {ex.Message}");
+            }
 
             // Album art is re-derivable on every 1s poll; decode it only once
             // per track identity (the base64 is byte-identical across polls).
@@ -229,8 +262,9 @@ public sealed class MediaService : IDisposable
             var canSeek = info?.Controls?.IsPlaybackPositionEnabled ?? false;
             return new MediaSnapshot(title, artist, playing, position, duration, art, canSeek);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] ReadAsync failed: {ex.Message}");
             return null;
         }
     }
@@ -275,8 +309,9 @@ public sealed class MediaService : IDisposable
             using var png2 = image2.Encode(SKEncodedImageFormat.Png, 80);
             return Convert.ToBase64String(png2.ToArray());
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] DecodeArtworkAsync failed: {ex.Message}");
             return null;
         }
     }
@@ -284,7 +319,11 @@ public sealed class MediaService : IDisposable
     private static string Safe(Func<string> getter)
     {
         try { return getter() ?? ""; }
-        catch { return ""; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] Safe getter failed: {ex.Message}");
+            return "";
+        }
     }
 
     /// <summary>"Microsoft.MSEdge" → "Microsoft Edge", "chrome.exe" → "Chrome".</summary>

@@ -49,7 +49,8 @@ public sealed class SettingsService
         lock (_gate)
         {
             updated = change(_current).Normalize();
-            if (updated == _current) return;
+            // Use structural equality for record comparison instead of reference equality
+            if (updated.Equals(_current)) return;
             _current = updated;
             TrySave(updated);
         }

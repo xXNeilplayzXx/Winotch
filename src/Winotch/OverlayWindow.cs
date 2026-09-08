@@ -106,7 +106,8 @@ public sealed class OverlayWindow : Window, IDisposable
         Left = monitor.LeftDip;
         Top = monitor.TopDip;
         Width = monitor.WidthDip;
-        Height = monitor.Bounds.Height / scale;
+        // Guard against zero or negative DPI scale to prevent division by zero
+        Height = scale > 0.001 ? monitor.Bounds.Height / scale : monitor.Bounds.Height;
         _shell.ApplyTheme();
     }
 
@@ -154,10 +155,10 @@ public sealed class OverlayWindow : Window, IDisposable
         _shell.QuitRequested += _manager.QuitApplication;
         _shell.HideRequested += _manager.HideNotch;
         _shell.RestartRequested += _manager.RestartApplication;
-        _shell.MediaPrevRequested += () => _ = _manager.MediaPreviousAsync();
-        _shell.MediaPlayPauseRequested += () => _ = _manager.MediaPlayPauseAsync();
-        _shell.MediaNextRequested += () => _ = _manager.MediaNextAsync();
-        _shell.MediaSeekRequested += s => _ = _manager.MediaSeekAsync(s);
+        _shell.MediaPrevRequested += () => _ = SafeAsync(_manager.MediaPreviousAsync());
+        _shell.MediaPlayPauseRequested += () => _ = SafeAsync(_manager.MediaPlayPauseAsync());
+        _shell.MediaNextRequested += () => _ = SafeAsync(_manager.MediaNextAsync());
+        _shell.MediaSeekRequested += s => _ = SafeAsync(_manager.MediaSeekAsync(s));
         _shell.VolumeChangedRequested += _manager.MediaVolumeChanged;
         _shell.VolumeMuteRequested += _manager.MediaVolumeMuteToggled;
         _shell.CopyClipboardEntryRequested += _manager.CopyClipboardEntry;
@@ -170,6 +171,20 @@ public sealed class OverlayWindow : Window, IDisposable
         _shell.SystemMetricsEditRequested += _manager.OpenMetricsEditor;
         _shell.CardSizeEditRequested += _manager.OpenCardSizeEditor;
         _shell.LaunchAppRequested += _manager.LaunchApp;
+    }
+
+    /// <summary>Wraps an async Task to catch and log any exceptions, preventing
+    /// unhandled exceptions in fire-and-forget event handlers from crashing the app.</summary>
+    private static async Task SafeAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch Error] Async event handler failed: {ex.Message}");
+        }
     }
 
     // ----------------------------------------------------------- frame loop

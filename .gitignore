@@ -1,21 +1,19 @@
-# Build output
+```
+# Build artifacts
 bin/
 obj/
-artifacts/
-publish/
+*.exe
+*.dll
+*.pdb
+*.userprefs
 
-# IDE
-.vs/
-.idea/
+# Dependencies
+packages/
+
+# Logs
+*.log
+
+# User-specific files
 *.user
-.vscode/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Local tooling / scratch (never committed)
-.freebuff/
-
-# Release scratch
-*.tmp
+.vs/
+```
