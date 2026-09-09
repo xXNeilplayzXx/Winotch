@@ -1,16 +1,17 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Shapes;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace Winotch;
 
-/// <summary>The two-page setup wizard (the legacy onboarding, restyled for the
-/// rewrite): page 1 picks the look (theme, Notch vs Island, Glass vs Solid);
-/// page 2 picks the display and arranges the widgets. Opens on first run and
-/// from "Rerun setup…". Everything is applied live on Get started.</summary>
-public sealed class SetupWindow : Window
+/// <summary>The two-page setup wizard: page 1 picks the look (theme, Notch vs
+/// Island, Glass vs Solid); page 2 picks the display and arranges the widgets.
+/// Opens on first run and from "Rerun setup…".</summary>
+public sealed class SetupWindow : Avalonia.Controls.Window
 {
     private readonly SettingsService _settings;
     private ThemeMode _theme;
@@ -49,34 +50,28 @@ public sealed class SetupWindow : Window
         Width = 500;
         Height = 560;
         SizeToContent = SizeToContent.Manual;
-        ResizeMode = ResizeMode.NoResize;
+        CanResize = false;
 
         Content = new ScrollViewer
         {
             Content = _pageHost,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
+        ScrollViewer.SetVerticalScrollBarVisibility((ScrollViewer)Content, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility((ScrollViewer)Content, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
         ShowPage1();
     }
 
-    private FrameworkElement Header(string title, string sub)
+    private Control Header(string title, string sub)
     {
         var stack = new StackPanel { Margin = new Thickness(4, 2, 4, 14) };
         stack.Children.Add(new TextBlock
         {
-            Text = title,
-            FontSize = 21,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = DialogUi.Text,
+            Text = title, FontSize = 21, FontWeight = FontWeight.SemiBold, Foreground = DialogUi.Text,
         });
         stack.Children.Add(new TextBlock
         {
-            Text = sub,
-            FontSize = 12,
-            Foreground = DialogUi.Muted,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0),
+            Text = sub, FontSize = 12, Foreground = DialogUi.Muted,
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
         });
         return stack;
     }
@@ -113,31 +108,24 @@ public sealed class SetupWindow : Window
         var hint = new TextBlock
         {
             Text = "Live preview above — tap the chips to see it change",
-            FontSize = 10.5,
-            Foreground = DialogUi.Muted,
+            FontSize = 10.5, Foreground = DialogUi.Muted,
             Margin = new Thickness(0, 0, 12, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
         _pageHost.Children.Add(FooterRow(null, next, hint));
     }
 
-    /// <summary>A live pill preview that re-skins as the Theme / Type /
-    /// Surface chips change — the island look before you commit to it.</summary>
     private Border BuildPreview()
     {
         var led = new Ellipse { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
         var clock = new TextBlock
         {
-            Text = DateTime.Now.ToString("h:mm"),
-            FontSize = 15,
-            FontWeight = FontWeights.SemiBold,
+            Text = DateTime.Now.ToString("h:mm"), FontSize = 15, FontWeight = FontWeight.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
         };
         _previewPill = new Border
         {
-            Width = 220,
-            Height = 45,
-            CornerRadius = new CornerRadius(22),
+            Width = 220, Height = 45, CornerRadius = new CornerRadius(22),
             BorderThickness = new Thickness(1),
             Child = new StackPanel
             {
@@ -148,8 +136,7 @@ public sealed class SetupWindow : Window
         };
         _previewCaption = new TextBlock
         {
-            FontSize = 10.5,
-            Foreground = DialogUi.Muted,
+            FontSize = 10.5, Foreground = DialogUi.Muted,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 8, 0, 0),
         };
@@ -188,8 +175,7 @@ public sealed class SetupWindow : Window
             : " · opens downward";
     }
 
-    /// <summary>Two small step dots so the wizard reads as 1 of 2.</summary>
-    private static FrameworkElement StepDots(int active)
+    private static Control StepDots(int active)
     {
         var panel = new StackPanel
         {
@@ -201,8 +187,7 @@ public sealed class SetupWindow : Window
         {
             panel.Children.Add(new Ellipse
             {
-                Width = 7,
-                Height = 7,
+                Width = 7, Height = 7,
                 Fill = i == active ? DialogUi.Accent : DialogUi.CardHover,
                 Margin = new Thickness(4),
             });
@@ -210,18 +195,13 @@ public sealed class SetupWindow : Window
         return panel;
     }
 
-    /// <summary>Rounded card wrapper so the wizard's sections read like the
-    /// settings window instead of raw floating chips.</summary>
-    private static Border Card(FrameworkElement inner)
+    private static Border Card(Control inner)
     {
         return new Border
         {
-            Background = DialogUi.Card,
-            BorderBrush = DialogUi.Stroke,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(12, 10, 12, 4),
-            Margin = new Thickness(0, 0, 0, 12),
+            Background = DialogUi.Card, BorderBrush = DialogUi.Stroke,
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12, 10, 12, 4), Margin = new Thickness(0, 0, 0, 12),
             Child = inner,
         };
     }
@@ -237,16 +217,16 @@ public sealed class SetupWindow : Window
         _pageHost.Children.Add(Card(LabeledChips("Display", new[]
         {
             (DisplayMode.Main, "Main"), (DisplayMode.All, "All monitors"),
-            (DisplayMode.FollowActive, "Follow active"),
-            (DisplayMode.Named, "Specific…"),
+            (DisplayMode.FollowActive, "Follow active"), (DisplayMode.Named, "Specific…"),
         }, _display, value =>
         {
             _display = value;
-            _displayMapCard.Visibility = value == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
+            if (_displayMapCard is not null)
+                _displayMapCard.IsVisible = value == DisplayMode.Named;
         })));
 
         _displayMapCard = BuildDisplayMap();
-        _displayMapCard.Visibility = _display == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
+        _displayMapCard.IsVisible = _display == DisplayMode.Named;
         _pageHost.Children.Add(_displayMapCard);
 
         _launcherCard = BuildLauncherCard();
@@ -262,9 +242,7 @@ public sealed class SetupWindow : Window
         _pageHost.Children.Add(FooterRow(back, done));
     }
 
-    // ------------------------------------------------------- building blocks
-
-    private static Border FooterRow(Button? back, Button primary, FrameworkElement? hint = null)
+    private static Border FooterRow(Button? back, Button primary, Control? hint = null)
     {
         var row = new StackPanel
         {
@@ -272,33 +250,23 @@ public sealed class SetupWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 16, 0, 0),
         };
-        if (hint is not null)
-        {
-            row.Children.Add(hint);
-        }
+        if (hint is not null) row.Children.Add(hint);
         if (back is not null)
         {
             back.Margin = new Thickness(0, 0, 8, 0);
             row.Children.Add(back);
         }
         row.Children.Add(primary);
-        return new Border
-        {
-            Child = row,
-            Margin = new Thickness(4, 0, 4, 0),
-        };
+        return new Border { Child = row, Margin = new Thickness(4, 0, 4, 0) };
     }
 
-    private static FrameworkElement LabeledChips<T>(string label, IReadOnlyList<(T Value, string Label)> options,
+    private static Control LabeledChips<T>(string label, IReadOnlyList<(T Value, string Label)> options,
         T current, Action<T> onChanged)
     {
         var text = new TextBlock
         {
-            Text = label.ToUpperInvariant(),
-            FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = DialogUi.Muted,
-            FontFamily = new FontFamily("Consolas, Courier New"),
+            Text = label.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeight.SemiBold,
+            Foreground = DialogUi.Muted, FontFamily = new FontFamily("Consolas, Courier New, monospace"),
             Margin = new Thickness(4, 0, 0, 6),
         };
         var wrap = new WrapPanel { Margin = new Thickness(4, 0, 4, 14) };
@@ -322,19 +290,17 @@ public sealed class SetupWindow : Window
             var option = options[i];
             var labelText = new TextBlock
             {
-                Text = option.Label,
-                FontSize = 12,
-                FontWeight = FontWeights.SemiBold,
+                Text = option.Label, FontSize = 12, FontWeight = FontWeight.SemiBold,
             };
             var chip = new Border
             {
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(13, 5, 13, 5),
                 Margin = new Thickness(0, 0, 8, 8),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = labelText,
             };
-            chip.MouseLeftButtonUp += (_, _) =>
+            chip.PointerPressed += (_, _) =>
             {
                 current = option.Value;
                 onChanged(option.Value);
@@ -346,58 +312,37 @@ public sealed class SetupWindow : Window
         }
         Paint();
 
-        var stack = new StackPanel { Children = { text, wrap } };
-        return stack;
+        return new StackPanel { Children = { text, wrap } };
     }
 
-    /// <summary>The launcher-app picker: when the App launcher widget is
-    /// enabled, Windows' Start Menu is scanned for installed applications
-    /// (once, on a background thread) and offered as toggle chips so the
-    /// launcher is useful the moment setup finishes.</summary>
     private Border BuildLauncherCard()
     {
         var text = new TextBlock
         {
-            Text = "LAUNCHER APPS",
-            FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = DialogUi.Muted,
-            FontFamily = new FontFamily("Consolas, Courier New"),
+            Text = "LAUNCHER APPS", FontSize = 10, FontWeight = FontWeight.SemiBold,
+            Foreground = DialogUi.Muted, FontFamily = new FontFamily("Consolas, Courier New, monospace"),
             Margin = new Thickness(4, 0, 0, 6),
         };
-
         _launcherEmpty = new TextBlock
         {
-            Text = "Scanning installed apps\u2026",
-            FontSize = 11.5,
-            Foreground = DialogUi.Muted,
+            Text = "Scanning installed apps\u2026", FontSize = 11.5, Foreground = DialogUi.Muted,
             Margin = new Thickness(4, 0, 4, 8),
         };
-
         _launcherChips = new WrapPanel { Margin = new Thickness(4, 0, 4, 0) };
-
         var stack = new StackPanel { Children = { text, _launcherEmpty, _launcherChips } };
         return new Border
         {
-            Child = stack,
-            Background = DialogUi.Panel,
-            BorderBrush = DialogUi.Stroke,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10, 10, 10, 10),
-            Margin = new Thickness(4, 12, 4, 0),
+            Child = stack, Background = DialogUi.Panel, BorderBrush = DialogUi.Stroke,
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(10, 10, 10, 10), Margin = new Thickness(4, 12, 4, 0),
         };
     }
 
-    /// <summary>The picker only makes sense when the App launcher widget is
-    /// part of this setup; show or hide the whole card accordingly.</summary>
     private void UpdateLauncherCardVisibility()
     {
         if (_launcherCard is { } card)
         {
-            card.Visibility = _widgets.Contains("launcher")
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            card.IsVisible = _widgets.Contains("launcher");
         }
         if (_widgets.Contains("launcher") && !_launcherScanStarted)
         {
@@ -406,23 +351,24 @@ public sealed class SetupWindow : Window
         }
     }
 
-    /// <summary>Resolve Start Menu shortcuts on a background thread (COM
-    /// objects are created on that thread) and marshal the results back to
-    /// the UI thread to fill the chip row.</summary>
     private void StartLauncherScan()
     {
-        var worker = new System.Threading.Thread(() =>
+        _ = Task.Run(() =>
         {
             List<LauncherApp> found;
             try
             {
-                found = LauncherScanner.ScanInstalledApps();
+                // Use the launcher service from platform layer
+                var svc = new Platform.Linux.LinuxLauncherService();
+                found = svc.ScanApplications()
+                    .Select(a => new LauncherApp(a.Name, a.ExecutablePath))
+                    .ToList();
             }
             catch
             {
-                found = [];
+                found = new List<LauncherApp>();
             }
-            Dispatcher.Invoke(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 if (_launcherEmpty is { } empty)
                 {
@@ -432,13 +378,7 @@ public sealed class SetupWindow : Window
                 }
                 PaintLauncherChips(found);
             });
-        })
-        {
-            IsBackground = true,
-            Name = "LauncherScan",
-        };
-        worker.SetApartmentState(System.Threading.ApartmentState.STA); // COM (WScript.Shell)
-        worker.Start();
+        });
     }
 
     private void PaintLauncherChips(List<LauncherApp> found)
@@ -452,8 +392,7 @@ public sealed class SetupWindow : Window
             var chipLabel = new TextBlock
             {
                 Text = (selected ? "\u2713 " : "+ ") + app.Label,
-                FontSize = 11.5,
-                FontWeight = FontWeights.SemiBold,
+                FontSize = 11.5, FontWeight = FontWeight.SemiBold,
             };
             var chip = new Border
             {
@@ -463,22 +402,17 @@ public sealed class SetupWindow : Window
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 4, 10, 4),
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = chipLabel,
             };
-            chip.MouseLeftButtonUp += (_, _) =>
+            chip.PointerPressed += (_, _) =>
             {
                 var already = _launcherApps.Any(a =>
                     string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
                 if (already)
-                {
-                    _launcherApps.RemoveAll(a =>
-                        string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
-                }
+                    _launcherApps.RemoveAll(a => string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
                 else
-                {
                     _launcherApps.Add(app);
-                }
                 chipLabel.Text = (already ? "+ " : "\u2713 ") + app.Label;
                 chip.Background = already ? DialogUi.CardHover : DialogUi.Accent;
                 chip.BorderBrush = already ? DialogUi.Stroke : DialogUi.Accent;
@@ -487,8 +421,6 @@ public sealed class SetupWindow : Window
         }
     }
 
-    /// <summary>The visual display map: each monitor drawn as a button scaled
-    /// onto the virtual desktop; clicking picks it (Display = Named).</summary>
     private Border BuildDisplayMap()
     {
         var monitors = MonitorTargeting.CaptureScreens();
@@ -498,14 +430,10 @@ public sealed class SetupWindow : Window
             Margin = new Thickness(4, 0, 4, 14),
             Height = 150,
         };
-
         var label = new TextBlock
         {
-            Text = "Pick a display on the map",
-            FontSize = 11.5,
-            Foreground = DialogUi.Muted,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            Text = "Pick a display on the map", FontSize = 11.5, Foreground = DialogUi.Muted,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
         };
         map.Children.Add(label);
@@ -524,33 +452,25 @@ public sealed class SetupWindow : Window
                 var height = Math.Max(20, monitor.Bounds.Height * scale);
                 var x = (monitor.Bounds.Left - minX) * scale;
                 var y = (monitor.Bounds.Top - minY) * scale;
-
                 var name = monitor.IsPrimary ? "Main" : monitor.DeviceName.TrimStart('\\').Replace("DISPLAY", "Screen ");
                 var text = new TextBlock
                 {
                     Text = $"{name}\n{monitor.Bounds.Width}×{monitor.Bounds.Height}",
-                    FontSize = 9.5,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize = 9.5, TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                     Foreground = DialogUi.Text,
                 };
                 var button = new Border
                 {
-                    Width = width,
-                    Height = height,
-                    Background = DialogUi.CardHover,
-                    BorderBrush = DialogUi.Stroke,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6),
-                    Child = text,
-                    Cursor = Cursors.Hand,
+                    Width = width, Height = height, Background = DialogUi.CardHover,
+                    BorderBrush = DialogUi.Stroke, BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6), Child = text,
+                    Cursor = new Cursor(StandardCursorType.Hand),
                     Margin = new Thickness(x, y, 0, 0),
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
+                    HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
                 };
                 var deviceName = monitor.DeviceName;
-                button.MouseLeftButtonUp += (_, _) =>
+                button.PointerPressed += (_, _) =>
                 {
                     _display = DisplayMode.Named;
                     _displayDevice = deviceName;
@@ -571,22 +491,15 @@ public sealed class SetupWindow : Window
             }
         }
 
-        return new Border
-        {
-            Child = map,
-            Margin = new Thickness(0, 0, 0, 0),
-        };
+        return new Border { Child = map };
     }
 
-    private FrameworkElement BuildWidgetsCard()
+    private Control BuildWidgetsCard()
     {
         var text = new TextBlock
         {
-            Text = "WIDGETS",
-            FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = DialogUi.Muted,
-            FontFamily = new FontFamily("Consolas, Courier New"),
+            Text = "WIDGETS", FontSize = 10, FontWeight = FontWeight.SemiBold,
+            Foreground = DialogUi.Muted, FontFamily = new FontFamily("Consolas, Courier New, monospace"),
             Margin = new Thickness(4, 0, 0, 6),
         };
         var list = new StackPanel { Margin = new Thickness(4, 0, 4, 0) };
@@ -599,34 +512,27 @@ public sealed class SetupWindow : Window
             {
                 var labelText = new TextBlock
                 {
-                    Text = WidgetSettings.Labels[id],
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = DialogUi.Text,
+                    Text = WidgetSettings.Labels[id], FontSize = 12,
+                    FontWeight = FontWeight.SemiBold, Foreground = DialogUi.Text,
                 };
                 var remove = new TextBlock
                 {
-                    Text = "✕",
-                    FontSize = 11,
-                    Foreground = DialogUi.Muted,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 0, 2, 0),
+                    Text = "\u2715", FontSize = 11, Foreground = DialogUi.Muted,
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 2, 0),
                 };
                 var row = new Border
                 {
-                    Background = DialogUi.Card,
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(10, 6, 8, 6),
-                    Margin = new Thickness(0, 0, 0, 6),
+                    Background = DialogUi.Card, CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(10, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6),
                     Child = new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         Children = { labelText, remove },
                     },
-                    Cursor = Cursors.Hand,
+                    Cursor = new Cursor(StandardCursorType.Hand),
                 };
                 var widgetId = id;
-                row.MouseLeftButtonUp += (_, _) =>
+                row.PointerPressed += (_, _) =>
                 {
                     _widgets.Remove(widgetId);
                     Paint();
@@ -642,21 +548,14 @@ public sealed class SetupWindow : Window
                 var chip = new Border
                 {
                     CornerRadius = new CornerRadius(8),
-                    Background = DialogUi.CardHover,
-                    BorderBrush = DialogUi.Stroke,
+                    Background = DialogUi.CardHover, BorderBrush = DialogUi.Stroke,
                     BorderThickness = new Thickness(1),
-                    Padding = new Thickness(10, 4, 10, 4),
-                    Margin = new Thickness(0, 0, 6, 6),
-                    Child = new TextBlock
-                    {
-                        Text = "+ " + WidgetSettings.Labels[id],
-                        FontSize = 11.5,
-                        Foreground = DialogUi.Text,
-                    },
-                    Cursor = Cursors.Hand,
+                    Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 6),
+                    Child = new TextBlock { Text = "+ " + WidgetSettings.Labels[id], FontSize = 11.5, Foreground = DialogUi.Text },
+                    Cursor = new Cursor(StandardCursorType.Hand),
                 };
                 var widgetId = id;
-                chip.MouseLeftButtonUp += (_, _) =>
+                chip.PointerPressed += (_, _) =>
                 {
                     _widgets.Add(widgetId);
                     Paint();
@@ -669,19 +568,16 @@ public sealed class SetupWindow : Window
 
         var scroll = new ScrollViewer
         {
-            Content = list,
-            MaxHeight = 170,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = list, MaxHeight = 170,
         };
+        ScrollViewer.SetVerticalScrollBarVisibility(scroll, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
 
         var stack = new StackPanel { Children = { text, scroll, addWrap } };
         return new Border
         {
-            Child = stack,
-            Background = DialogUi.Panel,
+            Child = stack, Background = DialogUi.Panel,
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10, 10, 10, 8),
-            Margin = new Thickness(4, 0, 4, 0),
+            Padding = new Thickness(10, 10, 10, 8), Margin = new Thickness(4, 0, 4, 0),
         };
     }
 
@@ -693,10 +589,8 @@ public sealed class SetupWindow : Window
             General = s.General with { Style = _style, OpenDirection = _openDirection },
             Appearance = s.Appearance with
             {
-                Theme = _theme,
-                Glass = _glass,
-                Display = _display,
-                DisplayDeviceName = _displayDevice,
+                Theme = _theme, Glass = _glass,
+                Display = _display, DisplayDeviceName = _displayDevice,
             },
             Widgets = s.Widgets with
             {
@@ -704,6 +598,6 @@ public sealed class SetupWindow : Window
                 LauncherApps = _launcherApps.Count > 0 ? _launcherApps : s.Widgets.LauncherApps,
             },
         });
-        DialogResult = true;
+        Close(true);
     }
 }

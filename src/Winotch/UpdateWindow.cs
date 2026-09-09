@@ -1,14 +1,15 @@
 using System.IO;
 using System.Net.Http;
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
 
 namespace Winotch;
 
 /// <summary>"Update available" dialog. Confirming downloads the release zip
 /// (progress shown inline), stages the new exe, and hands its path to the
 /// host, which schedules the swap and quits so the new build can start.</summary>
-public sealed class UpdateWindow : Window
+public sealed class UpdateWindow : Avalonia.Controls.Window
 {
     private readonly UpdateInfo _info;
     private readonly Button _go;
@@ -29,15 +30,15 @@ public sealed class UpdateWindow : Window
         Width = 400;
         SizeToContent = SizeToContent.Height;
 
-        var stack = new StackPanel { Margin = new Thickness(20, 16, 20, 18) };
-        stack.Children.Add(DialogUi.Label("A new version is available", 16, weight: FontWeights.SemiBold));
+        var stack = new StackPanel { Margin = new Avalonia.Thickness(20, 16, 20, 18) };
+        stack.Children.Add(DialogUi.Label("A new version is available", 16, weight: FontWeight.SemiBold));
         stack.Children.Add(new TextBlock
         {
             Text = $"Winotch v{_info.Version} is ready — you're running {UpdateService.CurrentVersionText}.",
             FontSize = 12,
             Foreground = DialogUi.Muted,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 6, 0, 0),
+            Margin = new Avalonia.Thickness(0, 6, 0, 0),
         });
 
         _progress = new ProgressBar
@@ -46,17 +47,17 @@ public sealed class UpdateWindow : Window
             Maximum = 100,
             Value = 0,
             Height = 8,
-            Margin = new Thickness(0, 16, 0, 0),
+            Margin = new Avalonia.Thickness(0, 16, 0, 0),
             Background = DialogUi.CardHover,
             Foreground = DialogUi.Accent,
-            BorderThickness = new Thickness(0),
-            Visibility = Visibility.Collapsed,
+            BorderThickness = new Avalonia.Thickness(0),
+            IsVisible = false,
         };
         stack.Children.Add(_progress);
 
         _status = DialogUi.Label("", 11, muted: true);
         _status.TextWrapping = TextWrapping.Wrap;
-        _status.Margin = new Thickness(0, 6, 0, 0);
+        _status.Margin = new Avalonia.Thickness(0, 6, 0, 0);
         stack.Children.Add(_status);
 
         _go = DialogUi.Button("Update & restart", primary: true);
@@ -68,10 +69,10 @@ public sealed class UpdateWindow : Window
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 18, 0, 0),
+            Margin = new Avalonia.Thickness(0, 18, 0, 0),
         };
         buttons.Children.Add(_later);
-        _go.Margin = new Thickness(8, 0, 0, 0);
+        _go.Margin = new Avalonia.Thickness(8, 0, 0, 0);
         buttons.Children.Add(_go);
         stack.Children.Add(buttons);
         Content = stack;
@@ -82,7 +83,7 @@ public sealed class UpdateWindow : Window
         _go.IsEnabled = false;
         _later.IsEnabled = false;
         _progress.Value = 0;
-        _progress.Visibility = Visibility.Visible;
+        _progress.IsVisible = true;
         _status.Text = "Downloading…";
         _status.Foreground = DialogUi.Muted;
 
@@ -97,15 +98,14 @@ public sealed class UpdateWindow : Window
             _status.Text = "Preparing…";
             StagedExe = UpdateService.StageExe(zip, stage);
             DownloadPath = zip;
-            DialogResult = true;
-            Close();
+            Close(true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or HttpRequestException or TaskCanceledException or InvalidDataException)
         {
             TryDelete(zip);
             _status.Text = "Download failed — check your connection and try again.";
             _status.Foreground = DialogUi.Danger;
-            _progress.Visibility = Visibility.Collapsed;
+            _progress.IsVisible = false;
             _go.IsEnabled = true;
             _later.IsEnabled = true;
         }

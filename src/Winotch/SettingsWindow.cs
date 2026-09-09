@@ -1,14 +1,20 @@
 using System.IO;
+using Path = System.IO.Path;
+using Avalonia.Controls.Shapes;
 using System.Reflection;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Winotch.Engine;
 
 namespace Winotch;
 
-public partial class SettingsWindow : Window
+public partial class SettingsWindow : Avalonia.Controls.Window
 {
     private readonly SettingsService _settings;
     private readonly StartupService _startup;
@@ -27,79 +33,156 @@ public partial class SettingsWindow : Window
         _factoryReset = factoryReset;
         _enterDragMode = enterDragMode;
         _checkForUpdates = checkForUpdates;
-        InitializeComponent();
-        VersionText.Text = AssemblyVersion();
+
+        Title = "Winotch — Settings";
+        Width = 470;
+        MinHeight = 540;
+        Height = 600;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Background = Res("NotchPanel");
+
+        var root = new Grid { Margin = new Thickness(26, 22, 26, 20) };
+        root.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        root.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        root.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        // Header
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 20) };
+        var headerLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        headerLeft.Children.Add(new Ellipse { Width = 11, Height = 11, Fill = Res("NotchAccent"), VerticalAlignment = VerticalAlignment.Center });
+        headerLeft.Children.Add(new TextBlock { Text = "Winotch", FontSize = 23, FontWeight = FontWeight.SemiBold, Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        headerLeft.Children.Add(new TextBlock { Text = "Settings", FontSize = 23, Foreground = Res("NotchMutedText"), Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        _versionBadge = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = Res("NotchPanelRaised"),
+            BorderBrush = Res("NotchStroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(10, 4),
+        };
+        _versionText = new TextBlock { FontSize = 11, Foreground = Res("NotchMutedText"), FontFamily = new FontFamily("Consolas, Courier New, monospace") };
+        _versionBadge.Child = _versionText;
+        _versionText.Text = AssemblyVersion();
+        header.Children.Add(headerLeft);
+        header.Children.Add(_versionBadge);
+
+        // Content
+        _rows = new StackPanel();
+        var scroller = new ScrollViewer { Content = _rows };
+        ScrollViewer.SetVerticalScrollBarVisibility(scroller, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+
+        // Footer
+        var footer = new Border
+        {
+            Background = Res("NotchPanelRaised"),
+            BorderBrush = Res("NotchStroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(13, 9),
+            Margin = new Thickness(0, 16, 0, 0),
+        };
+        var footerStack = new StackPanel();
+        var footerInfo = new StackPanel { Orientation = Orientation.Horizontal };
+        footerInfo.Children.Add(new TextBlock
+        {
+            Text = "\u2713", FontSize = 11, Foreground = Res("NotchAccent"),
+            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 9, 0),
+        });
+        var footerText = new StackPanel();
+        footerText.Children.Add(new TextBlock { Text = "Settings apply live", FontSize = 11, Foreground = Res("NotchText"), FontWeight = FontWeight.SemiBold });
+        footerText.Children.Add(new TextBlock
+        {
+            Text = "Stored as JSON — settings persist across sessions",
+            FontSize = 10.5, Foreground = Res("NotchMutedText"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
+        });
+        footerInfo.Children.Add(footerText);
+        _footerActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+        footerStack.Children.Add(footerInfo);
+        footerStack.Children.Add(_footerActions);
+        footer.Child = footerStack;
+
+        Grid.SetRow(header, 0);
+        Grid.SetRow(scroller, 1);
+        Grid.SetRow(footer, 2);
+        root.Children.Add(header);
+        root.Children.Add(scroller);
+        root.Children.Add(footer);
+
+        Content = root;
         BuildSections();
         BuildFooterActions();
     }
 
+    private readonly Border _versionBadge;
+    private readonly TextBlock _versionText;
+    private readonly StackPanel _rows;
+    private readonly StackPanel _footerActions;
+
     /// <summary>Sticky footer actions: reset everything to defaults, or wipe
-    /// and restart fresh (item: applying / resetting / factory reset).</summary>
+    /// and restart fresh.</summary>
     private void BuildFooterActions()
     {
         var reset = DialogUi.Button("Reset to defaults");
         reset.Margin = new Thickness(0, 0, 8, 0);
-        reset.Click += (_, _) =>
+        reset.Click += async (_, _) =>
         {
-            if (MessageBox.Show(this, "Reset every Winotch setting back to its default?",
-                    "Reset to defaults", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
-            {
+            if (!await NotchMessageBox.Confirm(this,
+                "Reset every Winotch setting back to its default?",
+                "Reset to defaults"))
                 return;
-            }
             _settings.Update(_ => WinotchSettings.Defaults);
-            Rows.Children.Clear();
+            _rows.Children.Clear();
             BuildSections();
         };
         var factory = DialogUi.Button("Factory reset…", danger: true);
-        factory.Click += (_, _) =>
+        factory.Click += async (_, _) =>
         {
-            if (MessageBox.Show(this,
-                    "Factory reset wipes ALL settings (notes, apps, fonts, layout) and restarts Winotch fresh. Continue?",
-                    "Factory reset", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
-            {
+            if (!await NotchMessageBox.Confirm(this,
+                "Factory reset wipes ALL settings (notes, apps, fonts, layout) and restarts Winotch fresh. Continue?",
+                "Factory reset"))
                 return;
-            }
             _factoryReset?.Invoke();
         };
-        FooterActions.Children.Add(reset);
-        FooterActions.Children.Add(factory);
+        _footerActions.Children.Add(reset);
+        _footerActions.Children.Add(factory);
     }
 
-    private string AssemblyVersion()
+    private static string AssemblyVersion()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         return version is null ? "" : $"v{version.Major}.{version.Minor}.{version.Build}";
     }
 
-    /// <summary>Re-skin every WPF surface from the resolved shell theme
-    /// (called live by the overlay when the theme/accent changes). When the
-    /// theme actually changed (<paramref name="rebuild"/>), the rows are
-    /// rebuilt so their brushes follow the new palette — a live light/dark
-    /// switch never leaves stale colors behind.</summary>
+    /// <summary>Re-skin every surface from the resolved shell theme.</summary>
     public void ApplyTheme(ShellTheme theme, bool rebuild = false)
     {
         DialogUi.Current = theme;
-        if (Application.Current.Resources["NotchUiFont"] is FontFamily uiFont)
-        {
-            FontFamily = uiFont;
-        }
-        SetBrush("NotchPanel", theme.WpfPanelTop);
-        SetBrush("NotchPanelRaised", theme.WpfCard);
-        SetBrush("NotchPanelHover", theme.WpfCardHover);
-        SetBrush("NotchStroke", theme.WpfStroke);
-        SetBrush("NotchAccent", theme.WpfAccent);
-        SetBrush("NotchText", theme.WpfText);
-        SetBrush("NotchMutedText", theme.WpfMuted);
-        SetBrush("NotchHairline", theme.WpfHairline);
+        Background = Res("NotchPanel");
+        SetBrush("NotchPanel", theme.AvaloniaPanelTop);
+        SetBrush("NotchPanelRaised", theme.AvaloniaCard);
+        SetBrush("NotchPanelHover", theme.AvaloniaCardHover);
+        SetBrush("NotchStroke", theme.AvaloniaStroke);
+        SetBrush("NotchAccent", theme.AvaloniaAccent);
+        SetBrush("NotchText", theme.AvaloniaText);
+        SetBrush("NotchMutedText", theme.AvaloniaMuted);
+        SetBrush("NotchHairline", theme.AvaloniaHairline);
         if (rebuild)
         {
-            Rows.Children.Clear();
+            _rows.Children.Clear();
             BuildSections();
         }
     }
 
-    private static void SetBrush(string key, Color color) =>
-        Application.Current.Resources[key] = new SolidColorBrush(color);
+    private static void SetBrush(string key, Color color)
+    {
+        if (Application.Current?.Resources[key] is IBrush)
+            Application.Current.Resources[key] = new SolidColorBrush(color);
+    }
+
+    private static IBrush Res(string key) =>
+        Application.Current?.FindResource(key) as IBrush ?? new SolidColorBrush(Colors.Transparent);
 
     private Border _opacityRow = null!;
     private Border _blurRow = null!;
@@ -122,16 +205,13 @@ public partial class SettingsWindow : Window
             v =>
             {
                 UpdateAppearance(x => x with { BlurEnabled = v });
-                // The strength slider matters only while blur is on.
-                _blurRow.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
+                _blurRow.IsVisible = v;
             });
-        _blurEnabledRow.Visibility = s.Appearance.Glass ? Visibility.Visible : Visibility.Collapsed;
-        _opacityRow.Visibility = s.Appearance.Glass ? Visibility.Visible : Visibility.Collapsed;
-        _blurRow.Visibility = s.Appearance.Glass && s.Appearance.BlurEnabled
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        _blurEnabledRow.IsVisible = s.Appearance.Glass;
+        _opacityRow.IsVisible = s.Appearance.Glass;
+        _blurRow.IsVisible = s.Appearance.Glass && s.Appearance.BlurEnabled;
 
-        var generalRows = new List<FrameworkElement>
+        var generalRows = new List<Control>
         {
             MakeToggleRow("24-hour clock", "Show times in 24h format",
                 s.General.Use24HourClock,
@@ -160,7 +240,7 @@ public partial class SettingsWindow : Window
         generalRows.Add(MakeSliderRow("Drop from top", "0 = tucked under the top edge — or just drag the pill",
             0, 200, (int)Math.Clamp(s.Appearance.OffsetY, 0, 200),
             v => UpdateAppearance(x => x with { OffsetY = v })));
-        generalRows.Add(MakeToggleRow("Start with Windows", "Automatically launch when you sign in",
+        generalRows.Add(MakeToggleRow("Start with system", "Automatically launch when you sign in",
             s.General.StartWithWindows,
             v =>
             {
@@ -180,14 +260,14 @@ public partial class SettingsWindow : Window
         AddSection("General", generalRows.ToArray());
 
         AddSection("Appearance",
-            MakeChoiceRow("Theme", "System follows Windows; Colour tints the island; Background follows your wallpaper",
+            MakeChoiceRow("Theme", "System follows OS; Colour tints the island; Background follows your wallpaper",
                 new[]
                 {
                     ("dark", "Dark"), ("light", "Light"), ("system", "System"),
                     ("color", "Colour"), ("background", "Background"),
                 }, s.Appearance.Theme.ToString().ToLowerInvariant(),
                 v => UpdateAppearance(x => x with { Theme = ParseTheme(v) })),
-            MakeAccentRow("Accent", "The highlight color — preset, custom, or Windows",
+            MakeAccentRow("Accent", "The highlight color — preset, custom, or follow OS",
                 s.Appearance),
             MakeFontRow(s.Appearance),
             MakeChoiceRow("Gradient", "A background skin over the island body",
@@ -205,26 +285,23 @@ public partial class SettingsWindow : Window
                     var glass = surface != SurfaceMode.Solid;
                     UpdateAppearance(x => x with { Surface = surface, Glass = glass });
                     var blurEnabled = _settings.Current.Appearance.BlurEnabled;
-                    _blurEnabledRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
-                    _opacityRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
-                    _blurRow.Visibility = glass && blurEnabled ? Visibility.Visible : Visibility.Collapsed;
+                    _blurEnabledRow.IsVisible = glass;
+                    _opacityRow.IsVisible = glass;
+                    _blurRow.IsVisible = glass && blurEnabled;
                 }),
             _blurEnabledRow,
             _opacityRow,
             _blurRow);
 
         AddSection("Size", MakeSizeControl(s.Appearance));
-
         AddSection("Display", MakeDisplayControl(s.Appearance));
 
         _customIdleRow = MakeTextBoxRow("Custom idle text", "Shown in the pill when 'Custom text' is selected",
             s.Appearance.CustomIdleText,
             text => UpdateAppearance(x => x with { CustomIdleText = text }));
-        _customIdleRow.Visibility = s.Appearance.IdleContent == IdleContentMode.Custom
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        _customIdleRow.IsVisible = s.Appearance.IdleContent == IdleContentMode.Custom;
 
-        var pillRows = new List<FrameworkElement>
+        var pillRows = new List<Control>
         {
             MakeChoiceRow("Idle content", "What the collapsed pill shows when nothing is playing",
                 new[]
@@ -235,7 +312,7 @@ public partial class SettingsWindow : Window
                 v =>
                 {
                     UpdateAppearance(x => x with { IdleContent = ParseIdle(v) });
-                    _customIdleRow.Visibility = v == "custom" ? Visibility.Visible : Visibility.Collapsed;
+                    _customIdleRow.IsVisible = v == "custom";
                 }),
             _customIdleRow,
             MakeToggleRow("Drag to move", "Grab the pill to move it; the spot is remembered",
@@ -247,8 +324,6 @@ public partial class SettingsWindow : Window
                 v =>
                 {
                     var edge = ParseEdge(v);
-                    // Switching edges re-anchors the pill; drop the old drag
-                    // offset so it doesn't land in a stale spot on the new edge.
                     var appearance = edge == _settings.Current.General.Edge
                         ? _settings.Current.Appearance
                         : _settings.Current.Appearance with { OffsetX = 0, OffsetY = 0 };
@@ -306,8 +381,6 @@ public partial class SettingsWindow : Window
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
-            // Widget card sizes moved into each card's own ⚙ settings dialog,
-            // so the card layout is per-widget instead of one size for all.
             MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })));
@@ -373,19 +446,19 @@ public partial class SettingsWindow : Window
 
     // ------------------------------------------------------------- sections
 
-    private void AddSection(string title, params FrameworkElement[] rows)
+    private void AddSection(string title, params Control[] rows)
     {
-        Rows.Children.Add(new TextBlock
+        _rows.Children.Add(new TextBlock
         {
             Text = title.ToUpperInvariant(),
-            Style = (Style)FindResource("SectionLabelText"),
+            Classes = { "section-label" },
             Margin = new Thickness(2, 0, 0, 8),
         });
 
         var card = new Border
         {
-            Background = (Brush)FindResource("NotchPanelRaised"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
+            Background = Res("NotchPanelRaised"),
+            BorderBrush = Res("NotchStroke"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(4, 4, 4, 4),
@@ -401,13 +474,13 @@ public partial class SettingsWindow : Window
                 stack.Children.Add(new Border
                 {
                     Height = 1,
-                    Background = (Brush)FindResource("NotchHairline"),
+                    Background = Res("NotchHairline"),
                     Margin = new Thickness(10, 0, 10, 0),
                 });
             }
         }
         card.Child = stack;
-        Rows.Children.Add(card);
+        _rows.Children.Add(card);
     }
 
     // ------------------------------------------------------------- toggles
@@ -415,15 +488,15 @@ public partial class SettingsWindow : Window
     private Border MakeToggleRow(string label, string sub, bool initial, Action<bool> onChanged)
     {
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
 
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock
         {
             Text = label,
             FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
+            FontWeight = FontWeight.SemiBold,
         });
         if (!string.IsNullOrEmpty(sub))
         {
@@ -431,7 +504,7 @@ public partial class SettingsWindow : Window
             {
                 Text = sub,
                 FontSize = 11,
-                Foreground = (Brush)FindResource("NotchMutedText"),
+                Foreground = Res("NotchMutedText"),
                 Margin = new Thickness(0, 1, 0, 0),
             });
         }
@@ -439,40 +512,29 @@ public partial class SettingsWindow : Window
         var toggle = new CheckBox
         {
             IsChecked = initial,
-            Style = (Style)FindResource("NotchSwitch"),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        toggle.Checked += (_, _) => onChanged(true);
-        toggle.Unchecked += (_, _) => onChanged(false);
+        toggle.IsCheckedChanged += (_, _) => onChanged(toggle.IsChecked == true);
 
         Grid.SetColumn(text, 0);
         Grid.SetColumn(toggle, 1);
         grid.Children.Add(text);
         grid.Children.Add(toggle);
 
-        return new Border
-        {
-            Child = grid,
-            Padding = new Thickness(10, 9, 8, 9),
-            Margin = new Thickness(0, 1, 0, 1),
-            CornerRadius = new CornerRadius(8),
-            Style = RowHoverStyle,
-        };
+        return MakeHoverBorder(grid);
     }
 
     // --------------------------------------------------------------- rows
 
-    /// <summary>A setting with a label/sub header and a custom control below
-    /// (chips, sliders, swatches).</summary>
-    private Border MakeSettingRow(string label, string sub, FrameworkElement control)
+    private Border MakeSettingRow(string label, string sub, Control control)
     {
         var header = new StackPanel { Margin = new Thickness(10, 9, 8, 2) };
         header.Children.Add(new TextBlock
         {
             Text = label,
             FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
+            FontWeight = FontWeight.SemiBold,
         });
         if (!string.IsNullOrEmpty(sub))
         {
@@ -480,28 +542,34 @@ public partial class SettingsWindow : Window
             {
                 Text = sub,
                 FontSize = 11,
-                Foreground = (Brush)FindResource("NotchMutedText"),
+                Foreground = Res("NotchMutedText"),
                 Margin = new Thickness(0, 1, 0, 0),
                 TextWrapping = TextWrapping.Wrap,
             });
         }
 
         var stack = new StackPanel { Children = { header, control } };
-        return new Border
+        return MakeHoverBorder(stack);
+    }
+
+    private static Border MakeHoverBorder(Control child)
+    {
+        var border = new Border
         {
-            Child = stack,
-            Padding = new Thickness(0, 2, 0, 4),
+            Child = child,
+            Padding = new Thickness(10, 9, 8, 9),
             Margin = new Thickness(0, 1, 0, 1),
             CornerRadius = new CornerRadius(8),
-            Style = RowHoverStyle,
         };
+        var defaultBg = border.Background;
+        border.PointerEntered += (_, _) => border.Background = Res("NotchPanelHover");
+        border.PointerExited += (_, _) => border.Background = defaultBg;
+        return border;
     }
 
     // ------------------------------------------------------------ display
 
-    /// <summary>Display targeting: mode chips plus a visual map of the
-    /// monitors (click a monitor to target it specifically).</summary>
-    private FrameworkElement MakeDisplayControl(AppearanceSettings appearance)
+    private Control MakeDisplayControl(AppearanceSettings appearance)
     {
         var stack = new StackPanel();
         var mode = appearance.Display;
@@ -513,39 +581,37 @@ public partial class SettingsWindow : Window
         };
         var chips = new List<Border>();
         var chipLabels = new List<TextBlock>();
-        Border mapCard = null!;
+        Border? mapCard = null;
 
         void Paint()
         {
             for (var i = 0; i < chips.Count; i++)
             {
                 var selected = options[i].Item1 == mode;
-                chips[i].Background = selected
-                    ? (Brush)FindResource("NotchAccent")
-                    : (Brush)FindResource("NotchPanelHover");
+                chips[i].Background = selected ? Res("NotchAccent") : Res("NotchPanelHover");
                 chipLabels[i].Foreground = selected
                     ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
-                    : (Brush)FindResource("NotchText");
+                    : Res("NotchText");
             }
             if (mapCard is not null)
             {
-                mapCard.Visibility = mode == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
+                mapCard.IsVisible = mode == DisplayMode.Named;
             }
         }
 
         var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 4) };
         foreach (var (value, labelText) in options)
         {
-            var text = new TextBlock { Text = labelText, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            var text = new TextBlock { Text = labelText, FontSize = 11.5, FontWeight = FontWeight.SemiBold };
             var chip = new Border
             {
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(11, 4, 11, 4),
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = text,
             };
-            chip.MouseLeftButtonUp += (_, _) =>
+            chip.PointerPressed += (_, _) =>
             {
                 mode = value;
                 if (value != DisplayMode.Named)
@@ -584,7 +650,7 @@ public partial class SettingsWindow : Window
         var monitors = MonitorTargeting.CaptureScreens();
         var map = new Grid
         {
-            Background = (Brush)Application.Current.Resources["NotchPanelHover"],
+            Background = Res("NotchPanelHover"),
             Margin = new Thickness(10, 0, 8, 8),
             Height = 140,
         };
@@ -592,7 +658,7 @@ public partial class SettingsWindow : Window
         {
             Text = "Click a display",
             FontSize = 11.5,
-            Foreground = (Brush)Application.Current.Resources["NotchMutedText"],
+            Foreground = Res("NotchMutedText"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
@@ -616,16 +682,15 @@ public partial class SettingsWindow : Window
                 {
                     Width = width,
                     Height = height,
-                    Background = (Brush)Application.Current.Resources["NotchPanelHover"],
+                    Background = Res("NotchPanelHover"),
                     BorderBrush = string.Equals(selectedDevice, monitor.DeviceName, StringComparison.OrdinalIgnoreCase)
-                        ? (Brush)Application.Current.Resources["NotchAccent"]
-                        : (Brush)Application.Current.Resources["NotchStroke"],
+                        ? Res("NotchAccent") : Res("NotchStroke"),
                     BorderThickness = new Thickness(string.Equals(selectedDevice, monitor.DeviceName, StringComparison.OrdinalIgnoreCase) ? 2 : 1),
                     CornerRadius = new CornerRadius(6),
                     Margin = new Thickness((monitor.Bounds.Left - minX) * scale, (monitor.Bounds.Top - minY) * scale, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
-                    Cursor = Cursors.Hand,
+                    Cursor = new Cursor(StandardCursorType.Hand),
                     Child = new TextBlock
                     {
                         Text = $"{name}\n{monitor.Bounds.Width}×{monitor.Bounds.Height}",
@@ -633,27 +698,21 @@ public partial class SettingsWindow : Window
                         TextAlignment = TextAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Foreground = (Brush)Application.Current.Resources["NotchText"],
+                        Foreground = Res("NotchText"),
                     },
                 };
                 var deviceName = monitor.DeviceName;
-                button.MouseLeftButtonUp += (_, _) => onPicked(deviceName);
+                button.PointerPressed += (_, _) => onPicked(deviceName);
                 map.Children.Add(button);
             }
         }
 
-        return new Border
-        {
-            Child = map,
-            CornerRadius = new CornerRadius(10),
-        };
+        return new Border { Child = map, CornerRadius = new CornerRadius(10) };
     }
 
     // --------------------------------------------------------------- size
 
-    /// <summary>The legacy size UI: one-click presets, width/height sliders
-    /// staged as a draft, and Apply / Reset to commit or discard it.</summary>
-    private FrameworkElement MakeSizeControl(AppearanceSettings appearance)
+    private Control MakeSizeControl(AppearanceSettings appearance)
     {
         var presetId = appearance.CustomSize ? appearance.SizePreset : "";
         var draftWidth = appearance.CustomSize ? appearance.Width : SizePresets.All[1].Width;
@@ -673,29 +732,24 @@ public partial class SettingsWindow : Window
             Minimum = 150, Maximum = 800, Value = draftWidth,
             IsSnapToTickEnabled = true, TickFrequency = 5,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("NotchAccent"),
         };
         var heightSlider = new Slider
         {
             Minimum = 30, Maximum = 200, Value = draftHeight,
             IsSnapToTickEnabled = true, TickFrequency = 1,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("NotchAccent"),
         };
-        var widthValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
-        var heightValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New"), Foreground = (Brush)FindResource("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
+        var widthValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New, monospace"), Foreground = Res("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
+        var heightValue = new TextBlock { FontSize = 11, FontFamily = new FontFamily("Consolas, Courier New, monospace"), Foreground = Res("NotchMutedText"), MinWidth = 28, TextAlignment = TextAlignment.Right, Margin = new Thickness(10, 0, 2, 0) };
 
         void PaintChips()
         {
             for (var i = 0; i < chips.Count; i++)
             {
                 var selected = string.Equals(presetOptions[i].Item1, presetId, StringComparison.OrdinalIgnoreCase);
-                chips[i].Background = selected
-                    ? (Brush)FindResource("NotchAccent")
-                    : (Brush)FindResource("NotchPanelHover");
+                chips[i].Background = selected ? Res("NotchAccent") : Res("NotchPanelHover");
                 chipLabels[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
-                    : (Brush)FindResource("NotchText");
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A)) : Res("NotchText");
             }
         }
 
@@ -714,7 +768,6 @@ public partial class SettingsWindow : Window
             var preset = SizePresets.Find(id);
             if (preset is null)
             {
-                // Auto: back to content-sized pill.
                 presetId = "";
                 draftWidth = SizePresets.All[1].Width;
                 draftHeight = SizePresets.All[1].Height;
@@ -727,10 +780,7 @@ public partial class SettingsWindow : Window
                 draftHeight = preset.Value.Height;
                 UpdateAppearance(x => x with
                 {
-                    CustomSize = true,
-                    Width = preset.Value.Width,
-                    Height = preset.Value.Height,
-                    SizePreset = preset.Value.Id,
+                    CustomSize = true, Width = preset.Value.Width, Height = preset.Value.Height, SizePreset = preset.Value.Id,
                 });
             }
             SetSliders();
@@ -740,16 +790,16 @@ public partial class SettingsWindow : Window
         var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 4) };
         foreach (var (id, label) in presetOptions)
         {
-            var text = new TextBlock { Text = label, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            var text = new TextBlock { Text = label, FontSize = 11.5, FontWeight = FontWeight.SemiBold };
             var chip = new Border
             {
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(11, 4, 11, 4),
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = text,
             };
-            chip.MouseLeftButtonUp += (_, _) => ApplyPreset(id);
+            chip.PointerPressed += (_, _) => ApplyPreset(id);
             chips.Add(chip);
             chipLabels.Add(text);
             wrap.Children.Add(chip);
@@ -776,9 +826,7 @@ public partial class SettingsWindow : Window
 
         void CommitDraft() => UpdateAppearance(x => x with
         {
-            CustomSize = true,
-            Width = draftWidth,
-            Height = draftHeight,
+            CustomSize = true, Width = draftWidth, Height = draftHeight,
             SizePreset = SizePresets.Closest(draftWidth, draftHeight).Id,
         });
 
@@ -803,12 +851,10 @@ public partial class SettingsWindow : Window
             Margin = new Thickness(0, 2, 10, 8),
             Children = { reset, apply },
         };
-        ((FrameworkElement)buttons.Children[0]).Margin = new Thickness(0, 0, 8, 0);
+        ((Control)buttons.Children[0]).Margin = new Thickness(0, 0, 8, 0);
 
-        stack.Children.Add(MakeSliderRow("Width", "150–800 px (staged until Apply)",
-            widthSlider, widthValue));
-        stack.Children.Add(MakeSliderRow("Height", "30–200 px (staged until Apply)",
-            heightSlider, heightValue));
+        stack.Children.Add(MakeSliderRow("Width", "150–800 px (staged until Apply)", widthSlider, widthValue));
+        stack.Children.Add(MakeSliderRow("Height", "30–200 px (staged until Apply)", heightSlider, heightValue));
         stack.Children.Add(buttons);
 
         return MakeSettingRow("Size", "Presets apply instantly; sliders stage a draft (Apply / Reset)", stack);
@@ -817,8 +863,8 @@ public partial class SettingsWindow : Window
     private Border MakeSliderRow(string label, string sub, Slider slider, TextBlock valueText)
     {
         var grid = new Grid { Margin = new Thickness(10, 4, 8, 6) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
         Grid.SetColumn(slider, 0);
         Grid.SetColumn(valueText, 1);
         grid.Children.Add(slider);
@@ -843,16 +889,16 @@ public partial class SettingsWindow : Window
             FontSize = 12,
             Margin = new Thickness(10, 4, 10, 8),
             Padding = new Thickness(8, 5, 8, 5),
-            Background = (Brush)FindResource("NotchPanelHover"),
-            Foreground = (Brush)FindResource("NotchText"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
+            Background = Res("NotchPanelHover"),
+            Foreground = Res("NotchText"),
+            BorderBrush = Res("NotchStroke"),
             BorderThickness = new Thickness(1),
         };
         box.KeyDown += (_, e) =>
         {
-            if (e.Key == Key.Enter) onChanged(box.Text.Trim());
+            if (e.Key == Key.Return) onChanged(box.Text?.Trim() ?? "");
         };
-        box.LostFocus += (_, _) => onChanged(box.Text.Trim());
+        box.LostFocus += (_, _) => onChanged(box.Text?.Trim() ?? "");
         return MakeSettingRow(label, sub, box);
     }
 
@@ -868,27 +914,24 @@ public partial class SettingsWindow : Window
             for (var i = 0; i < chips.Count; i++)
             {
                 var selected = string.Equals(options[i].Value, current, StringComparison.OrdinalIgnoreCase);
-                chips[i].Background = selected
-                    ? (Brush)FindResource("NotchAccent")
-                    : (Brush)FindResource("NotchPanelHover");
+                chips[i].Background = selected ? Res("NotchAccent") : Res("NotchPanelHover");
                 labels[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
-                    : (Brush)FindResource("NotchText");
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A)) : Res("NotchText");
             }
         }
 
         foreach (var (value, optionLabel) in options)
         {
-            var text = new TextBlock { Text = optionLabel, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            var text = new TextBlock { Text = optionLabel, FontSize = 11.5, FontWeight = FontWeight.SemiBold };
             var chip = new Border
             {
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(11, 4, 11, 4),
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = text,
             };
-            chip.MouseLeftButtonUp += (_, _) =>
+            chip.PointerPressed += (_, _) =>
             {
                 current = value;
                 onChanged(value);
@@ -903,11 +946,6 @@ public partial class SettingsWindow : Window
         return MakeSettingRow(label, sub, wrap);
     }
 
-    /// <summary>Font picker: live-preview tiles for the curated faces, a
-    /// searchable list of every font installed on the machine, and an Import
-    /// button that copies a .ttf/.otf into %LOCALAPPDATA%\Winotch\Fonts so
-    /// it can be used like any other face (item: fonts from the user's
-    /// computer + custom font files).</summary>
     private Border MakeFontRow(AppearanceSettings appearance)
     {
         var stack = new StackPanel();
@@ -922,46 +960,34 @@ public partial class SettingsWindow : Window
             for (var i = 0; i < tiles.Count; i++)
             {
                 var selected = string.Equals(FontChoice.Known[i].Id, current, StringComparison.OrdinalIgnoreCase);
-                tiles[i].Background = selected
-                    ? (Brush)FindResource("NotchAccent")
-                    : (Brush)FindResource("NotchPanelHover");
+                tiles[i].Background = selected ? Res("NotchAccent") : Res("NotchPanelHover");
                 clockTexts[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
-                    : (Brush)FindResource("NotchText");
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A)) : Res("NotchText");
                 nameTexts[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
-                    : (Brush)FindResource("NotchMutedText");
+                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A)) : Res("NotchMutedText");
             }
         }
 
         var clock = DateTime.Now.ToString(_settings.Current.General.Use24HourClock ? "H:mm" : "h:mm");
         foreach (var (id, label) in FontChoice.Known)
         {
-            var family = new FontFamily(FontChoice.FamilyOf(id));
+            var familyName = FontChoice.FamilyOf(id);
+            var family = new FontFamily(familyName);
             var clockText = new TextBlock
             {
-                Text = clock,
-                FontSize = 19,
-                FontWeight = FontWeights.SemiBold,
-                FontFamily = family,
+                Text = clock, FontSize = 19, FontWeight = FontWeight.SemiBold, FontFamily = family,
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
             var nameText = new TextBlock
             {
-                Text = label,
-                FontSize = 9.5,
-                FontFamily = family,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 3, 0, 0),
+                Text = label, FontSize = 9.5, FontFamily = family,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0),
             };
             var tile = new Border
             {
-                Width = 88,
-                Height = 60,
-                CornerRadius = new CornerRadius(10),
-                Background = (Brush)FindResource("NotchPanelHover"),
-                Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Width = 88, Height = 60, CornerRadius = new CornerRadius(10),
+                Background = Res("NotchPanelHover"), Margin = new Thickness(0, 0, 6, 6),
+                Cursor = new Cursor(StandardCursorType.Hand),
                 Child = new StackPanel
                 {
                     VerticalAlignment = VerticalAlignment.Center,
@@ -969,7 +995,7 @@ public partial class SettingsWindow : Window
                 },
             };
             var fontId = id;
-            tile.MouseLeftButtonUp += (_, _) =>
+            tile.PointerPressed += (_, _) =>
             {
                 current = fontId;
                 UpdateAppearance(x => x with { Font = fontId });
@@ -983,9 +1009,9 @@ public partial class SettingsWindow : Window
         Paint();
         stack.Children.Add(wrap);
 
-        // Every font installed on the machine, plus imported custom fonts.
-        var systemFonts = Fonts.SystemFontFamilies
-            .Select(f => f.Source)
+        // System fonts via Avalonia FontManager
+        var systemFonts = Avalonia.Media.FontManager.Current.SystemFonts
+            .Select(f => f.Name)
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
@@ -998,10 +1024,6 @@ public partial class SettingsWindow : Window
         {
             Margin = new Thickness(10, 0, 8, 4),
             FontSize = 12,
-            Background = (Brush)FindResource("NotchPanelHover"),
-            Foreground = (Brush)FindResource("NotchText"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
-            Style = (Style)FindResource("NotchCombo"),
             MaxDropDownHeight = 260,
         };
         foreach (var familyName in systemFonts)
@@ -1034,29 +1056,32 @@ public partial class SettingsWindow : Window
         var import = DialogUi.Button("Import font…");
         import.Margin = new Thickness(10, 0, 8, 8);
         import.HorizontalAlignment = HorizontalAlignment.Left;
-        import.Click += (_, _) =>
+        import.Click += async (_, _) =>
         {
-            var dialog = new Microsoft.Win32.OpenFileDialog
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Import a font",
-                Filter = "Font files (*.ttf;*.otf)|*.ttf;*.otf",
-                Multiselect = false,
-            };
-            if (dialog.ShowDialog(this) != true) return;
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("Font files") { Patterns = new[] { "*.ttf", "*.otf" } } },
+            });
+            if (files.Count == 0) return;
+            var sourcePath = files[0].Path.LocalPath;
             try
             {
                 var fontsDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Winotch", "Fonts");
                 Directory.CreateDirectory(fontsDir);
-                var dest = Path.Combine(fontsDir, Path.GetFileName(dialog.FileName));
+                var dest = Path.Combine(fontsDir, Path.GetFileName(sourcePath));
                 var counter = 1;
                 while (File.Exists(dest))
                 {
                     dest = Path.Combine(fontsDir,
-                        $"{Path.GetFileNameWithoutExtension(dialog.FileName)} ({counter++}){Path.GetExtension(dialog.FileName)}");
+                        $"{Path.GetFileNameWithoutExtension(sourcePath)} ({counter++}){Path.GetExtension(sourcePath)}");
                 }
-                File.Copy(dialog.FileName, dest);
+                File.Copy(sourcePath, dest);
                 var fontId = FontChoice.CustomId(dest);
                 var customList = (_settings.Current.Appearance.CustomFonts ?? new List<string>())
                     .Append(dest)
@@ -1071,15 +1096,9 @@ public partial class SettingsWindow : Window
                 applyingPicker = false;
                 Paint();
             }
-            catch (IOException)
+            catch (Exception)
             {
-                MessageBox.Show(this, "Couldn't copy the font file into the Winotch fonts folder.",
-                    "Import failed", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                MessageBox.Show(this, "Couldn't copy the font file into the Winotch fonts folder.",
-                    "Import failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _ = NotchMessageBox.Confirm(this, "Couldn't copy the font file into the Winotch fonts folder.", "Import failed");
             }
         };
 
@@ -1088,7 +1107,6 @@ public partial class SettingsWindow : Window
         return MakeSettingRow("Font", "Click a tile, pick an installed font, or import a .ttf / .otf", stack);
     }
 
-    /// <summary>Accent swatches + custom hex + follow-Windows toggle.</summary>
     private Border MakeAccentRow(string label, string sub, AppearanceSettings appearance)
     {
         var wrap = new WrapPanel { Margin = new Thickness(10, 4, 8, 4) };
@@ -1103,9 +1121,7 @@ public partial class SettingsWindow : Window
                                string.Equals(ThemeService.ParseHex(ThemeService.AccentSwatches[i]).ToHex(),
                                    ThemeService.ParseHex(currentSettings.AccentHex).ToHex(),
                                    StringComparison.OrdinalIgnoreCase);
-                swatches[i].BorderBrush = selected
-                    ? (Brush)FindResource("NotchAccent")
-                    : (Brush)FindResource("NotchStroke");
+                swatches[i].BorderBrush = selected ? Res("NotchAccent") : Res("NotchStroke");
                 swatches[i].BorderThickness = new Thickness(selected ? 2 : 1);
             }
         }
@@ -1114,12 +1130,12 @@ public partial class SettingsWindow : Window
         {
             Text = appearance.AccentHex,
             Width = 76,
-            FontFamily = new FontFamily("Consolas, Courier New"),
+            FontFamily = new FontFamily("Consolas, Courier New, monospace"),
             FontSize = 11.5,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Background = (Brush)FindResource("NotchPanelHover"),
-            Foreground = (Brush)FindResource("NotchText"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
+            Background = Res("NotchPanelHover"),
+            Foreground = Res("NotchText"),
+            BorderBrush = Res("NotchStroke"),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(6, 3, 6, 3),
             Margin = new Thickness(0, 0, 6, 6),
@@ -1127,19 +1143,17 @@ public partial class SettingsWindow : Window
 
         foreach (var hex in ThemeService.AccentSwatches)
         {
-            var color = ThemeService.ParseHex(hex).ToWpf();
+            var color = ThemeService.ParseHex(hex);
             var swatch = new Border
             {
-                Width = 22,
-                Height = 22,
-                CornerRadius = new CornerRadius(11),
-                Background = new SolidColorBrush(color),
-                BorderBrush = (Brush)FindResource("NotchStroke"),
+                Width = 22, Height = 22, CornerRadius = new CornerRadius(11),
+                Background = new SolidColorBrush(color.ToAvalonia()),
+                BorderBrush = Res("NotchStroke"),
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = new Cursor(StandardCursorType.Hand),
             };
-            swatch.MouseLeftButtonUp += (_, _) =>
+            swatch.PointerPressed += (_, _) =>
             {
                 hexBox.Text = hex;
                 appearance = appearance with { AccentHex = hex };
@@ -1151,7 +1165,7 @@ public partial class SettingsWindow : Window
         }
         void ApplyHex()
         {
-            var parsed = ThemeService.ParseHex(hexBox.Text.Trim());
+            var parsed = ThemeService.ParseHex(hexBox.Text?.Trim() ?? "");
             if (string.Equals(parsed.ToHex(), ThemeService.ParseHex(appearance.AccentHex).ToHex(),
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -1161,27 +1175,25 @@ public partial class SettingsWindow : Window
             UpdateAppearance(x => x with { Accent = AccentMode.Custom, AccentHex = parsed.ToHex() });
             RefreshAccentSelection();
         }
-        hexBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) ApplyHex(); };
+        hexBox.KeyDown += (_, e) => { if (e.Key == Key.Return) ApplyHex(); };
         hexBox.LostFocus += (_, _) => ApplyHex();
         wrap.Children.Add(hexBox);
 
         var follow = new CheckBox
         {
-            Content = "Follow Windows accent",
+            Content = new TextBlock { Text = "Follow OS accent" },
             IsChecked = appearance.Accent == AccentMode.FollowOs,
             FontSize = 11.5,
-            Foreground = (Brush)FindResource("NotchText"),
+            Foreground = Res("NotchText"),
             VerticalContentAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 3, 0, 6),
         };
-        follow.Checked += (_, _) =>
+        follow.IsCheckedChanged += (_, _) =>
         {
-            UpdateAppearance(x => x with { Accent = AccentMode.FollowOs });
-            RefreshAccentSelection();
-        };
-        follow.Unchecked += (_, _) =>
-        {
-            UpdateAppearance(x => x with { Accent = AccentMode.Default });
+            if (follow.IsChecked == true)
+                UpdateAppearance(x => x with { Accent = AccentMode.FollowOs });
+            else
+                UpdateAppearance(x => x with { Accent = AccentMode.Default });
             RefreshAccentSelection();
         };
         wrap.Children.Add(follow);
@@ -1190,33 +1202,25 @@ public partial class SettingsWindow : Window
         return MakeSettingRow(label, sub, wrap);
     }
 
-    /// <summary>A labeled slider with a live value readout.</summary>
     private Border MakeSliderRow(string label, string sub, int min, int max, int current,
         Action<double> onChanged)
     {
         var grid = new Grid { Margin = new Thickness(10, 4, 8, 6) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
 
         var slider = new Slider
         {
-            Minimum = min,
-            Maximum = max,
-            Value = current,
-            IsSnapToTickEnabled = true,
-            TickFrequency = 1,
+            Minimum = min, Maximum = max, Value = current,
+            IsSnapToTickEnabled = true, TickFrequency = 1,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("NotchAccent"),
         };
         var valueText = new TextBlock
         {
-            Text = $"{current}",
-            FontSize = 11,
-            FontFamily = new FontFamily("Consolas, Courier New"),
-            Foreground = (Brush)FindResource("NotchMutedText"),
-            Margin = new Thickness(10, 0, 2, 0),
-            MinWidth = 28,
-            TextAlignment = TextAlignment.Right,
+            Text = $"{current}", FontSize = 11,
+            FontFamily = new FontFamily("Consolas, Courier New, monospace"),
+            Foreground = Res("NotchMutedText"), Margin = new Thickness(10, 0, 2, 0),
+            MinWidth = 28, TextAlignment = TextAlignment.Right,
         };
         slider.ValueChanged += (_, e) =>
         {
@@ -1231,28 +1235,49 @@ public partial class SettingsWindow : Window
         return MakeSettingRow(label, sub, grid);
     }
 
-    /// <summary>A font picker entry: the persisted font id plus its label.</summary>
     private sealed record FontOption(string Id, string Label)
     {
         public override string ToString() => Label;
     }
+}
 
-    private Style? _rowHoverStyle;
-
-    private Style RowHoverStyle
+/// <summary>Simple message box replacement for Avalonia (no built-in MessageBox).</summary>
+internal static class NotchMessageBox
+{
+    public static async Task<bool> Confirm(Avalonia.Controls.Window parent, string message, string title)
     {
-        get
+        var dialog = new Avalonia.Controls.Window
         {
-            if (_rowHoverStyle is null)
-            {
-                var style = new Style(typeof(Border));
-                var hover = new Trigger { Property = Border.IsMouseOverProperty, Value = true };
-                hover.Setters.Add(new Setter(Border.BackgroundProperty, (Brush)FindResource("NotchPanelHover")));
-                style.Triggers.Add(hover);
-                _rowHoverStyle = style;
-            }
-            return _rowHoverStyle;
-        }
+            Title = title,
+            Width = 380,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = DialogUi.Panel,
+            CanResize = false,
+        };
+        var result = false;
+        var stack = new StackPanel { Margin = new Thickness(20) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = message, FontSize = 12.5, Foreground = DialogUi.Text,
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16),
+        });
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        var cancel = DialogUi.Button("Cancel");
+        cancel.Click += (_, _) => { result = false; dialog.Close(); };
+        var ok = DialogUi.Button("OK", primary: true);
+        ok.Margin = new Thickness(8, 0, 0, 0);
+        ok.Click += (_, _) => { result = true; dialog.Close(); };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        stack.Children.Add(buttons);
+        dialog.Content = stack;
+        await dialog.ShowDialog(parent);
+        return result;
     }
 }
 
@@ -1260,6 +1285,4 @@ internal static class ColHexExtensions
 {
     public static string ToHex(this Col color) =>
         $"#{color.R:X2}{color.G:X2}{color.B:X2}";
-
-    public static Color ToWpf(this Col color) => Color.FromArgb(color.A, color.R, color.G, color.B);
 }

@@ -2,34 +2,41 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Winotch</AssemblyName>
     <RootNamespace>Winotch</RootNamespace>
     <Version>2.1.10</Version>
     <Product>Winotch</Product>
-    <ApplicationIcon>Resources\WinotchTray.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Resources\WinotchTray.ico" />
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.Views.Desktop.Common" Version="2.88.8" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <PackageReference Include="Tmds.DBus" Version="0.18.*" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="2.88.8" />
-    <PackageReference Include="SkiaSharp.Views.WPF" Version="2.88.8" />
+    <AvaloniaResource Include="Resources\**" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- WPF and WinForms are used side by side; drop the auto-global usings
-         WinForms injects so common names (Application, Brush, CheckBox, …)
-         resolve to the WPF types each file imports explicitly. -->
-    <Using Remove="System.Windows.Forms" />
-    <Using Remove="System.Drawing" />
+  <!-- Exclude Windows-specific files on non-Windows platforms -->
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <Compile Remove="Platform/Windows/**/*.cs" />
+    <Compile Remove="MediaService.cs" />
   </ItemGroup>
 
 </Project>

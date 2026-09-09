@@ -1,5 +1,8 @@
+using System.Drawing;
 using System.Runtime.InteropServices;
+#if WINDOWS
 using FormsScreen = System.Windows.Forms.Screen;
+#endif
 
 namespace Winotch;
 
@@ -14,11 +17,19 @@ public readonly record struct MonitorSnapshot(
     public double WorkAreaBottomDip => WorkingArea.Bottom / DpiScaleY;
     public double WorkAreaRightDip => WorkingArea.Right / DpiScaleX;
 
-    public bool Contains(System.Drawing.Point point) =>
+    public bool Contains(Point point) =>
         point.X >= Bounds.Left && point.X < Bounds.Right &&
         point.Y >= Bounds.Top && point.Y < Bounds.Bottom;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct NativeRect(int Left, int Top, int Right, int Bottom)
+{
+    public int Width => Right - Left;
+    public int Height => Bottom - Top;
+}
+
+#if WINDOWS
 /// <summary>Multi-monitor targeting: pick the monitor that should own the
 /// notch — the one holding the foreground window's center, else the cursor
 /// monitor when on the desktop, else the last-known monitor, else primary.</summary>
@@ -30,21 +41,17 @@ public static class MonitorTargeting
     public static IReadOnlyList<MonitorSnapshot> CaptureScreens() =>
         FormsScreen.AllScreens.Select(FromScreen).ToArray();
 
-    public static System.Drawing.Point GetCursorPosition() =>
-        GetCursorPos(out var point) ? new System.Drawing.Point(point.X, point.Y) : System.Drawing.Point.Empty;
+    public static Point GetCursorPosition() =>
+        GetCursorPos(out var point) ? new Point(point.X, point.Y) : Point.Empty;
 
-    /// <summary>The foreground window's screen rect, or null when none (the
-    /// shell/desktop has no foreground window). Used by Follow-active.</summary>
-    public static System.Drawing.Rectangle? GetForegroundWindowRect()
+    public static Rectangle? GetForegroundWindowRect()
     {
         var hwnd = GetForegroundWindow();
         if (hwnd == IntPtr.Zero) return null;
         if (!GetWindowRect(hwnd, out var rect)) return null;
-        return new System.Drawing.Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
+        return new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
     }
 
-    /// <summary>The monitors the notch should own for a display mode. All
-    /// returns every monitor (one island per screen); the rest pick one.</summary>
     public static IReadOnlyList<MonitorSnapshot> SelectTargets(
         IReadOnlyList<MonitorSnapshot> monitors, DisplayMode mode, string? deviceName)
     {
@@ -54,7 +61,6 @@ public static class MonitorTargeting
         }
         if (mode == DisplayMode.FollowActive)
         {
-            // Resolved by the manager's layout poll; fall back to primary here.
             return new[] { PrimaryOrFirst(monitors) };
         }
         var single = SelectSingle(monitors, mode, deviceName);
@@ -76,8 +82,8 @@ public static class MonitorTargeting
 
     public static MonitorSnapshot SelectMonitor(
         IReadOnlyList<MonitorSnapshot> monitors,
-        System.Drawing.Rectangle? foregroundRect,
-        System.Drawing.Point cursorPosition,
+        Rectangle? foregroundRect,
+        Point cursorPosition,
         bool useCursorMonitor,
         string? lastMonitorDeviceName)
     {
@@ -88,7 +94,7 @@ public static class MonitorTargeting
 
         if (foregroundRect is { } rect)
         {
-            var center = new System.Drawing.Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
+            var center = new Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
             if (FirstContaining(monitors, center) is { } byCenter) return byCenter;
             if (LargestOverlap(monitors, rect) is { } byOverlap) return byOverlap;
         }
@@ -115,7 +121,7 @@ public static class MonitorTargeting
             screen.Primary, dx, dy);
     }
 
-    private static MonitorSnapshot? FirstContaining(IReadOnlyList<MonitorSnapshot> monitors, System.Drawing.Point point)
+    private static MonitorSnapshot? FirstContaining(IReadOnlyList<MonitorSnapshot> monitors, Point point)
     {
         foreach (var monitor in monitors)
         {
@@ -124,7 +130,7 @@ public static class MonitorTargeting
         return null;
     }
 
-    private static MonitorSnapshot? LargestOverlap(IReadOnlyList<MonitorSnapshot> monitors, System.Drawing.Rectangle rect)
+    private static MonitorSnapshot? LargestOverlap(IReadOnlyList<MonitorSnapshot> monitors, Rectangle rect)
     {
         MonitorSnapshot? selected = null;
         long selectedArea = 0;
@@ -172,7 +178,7 @@ public static class MonitorTargeting
         return (long)(right - left) * (bottom - top);
     }
 
-    private static NativeRect ToNativeRect(System.Drawing.Rectangle rect) =>
+    private static NativeRect ToNativeRect(Rectangle rect) =>
         new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 
     private static (double X, double Y) GetDpiScale(IntPtr monitor)
@@ -204,10 +210,58 @@ public static class MonitorTargeting
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct NativePoint(int X, int Y);
 }
+#endif
 
-[StructLayout(LayoutKind.Sequential)]
-public readonly record struct NativeRect(int Left, int Top, int Right, int Bottom)
+#if !WINDOWS
+/// <summary>Linux stub for MonitorTargeting. Uses LinuxMonitorService for screen capture.</summary>
+public static class MonitorTargeting
 {
-    public int Width => Right - Left;
-    public int Height => Bottom - Top;
+    public static IReadOnlyList<MonitorSnapshot> CaptureScreens()
+    {
+        var service = new Winotch.Platform.Linux.LinuxMonitorService();
+        return service.GetAllMonitors();
+    }
+
+    public static System.Drawing.Point GetCursorPosition()
+    {
+        var service = new Winotch.Platform.Linux.LinuxMonitorService();
+        var (x, y) = service.GetCursorPosition();
+        return new System.Drawing.Point(x, y);
+    }
+
+    public static System.Drawing.Rectangle? GetForegroundWindowRect()
+    {
+        var service = new Winotch.Platform.Linux.LinuxMonitorService();
+        var rect = service.GetForegroundWindowRect();
+        if (rect == null) return null;
+        var (x, y, w, h) = rect.Value;
+        return new System.Drawing.Rectangle(x, y, w, h);
+    }
+
+    public static IReadOnlyList<MonitorSnapshot> SelectTargets(
+        IReadOnlyList<MonitorSnapshot> monitors, DisplayMode mode, string? deviceName)
+    {
+        if (mode == DisplayMode.All) return monitors;
+        if (monitors.Count == 0) return Array.Empty<MonitorSnapshot>();
+        return new[] { monitors[0] };
+    }
+
+    public static MonitorSnapshot? SelectSingle(
+        IReadOnlyList<MonitorSnapshot> monitors, DisplayMode mode, string? deviceName)
+    {
+        if (monitors.Count == 0) return null;
+        return monitors[0];
+    }
+
+    public static MonitorSnapshot SelectMonitor(
+        IReadOnlyList<MonitorSnapshot> monitors,
+        System.Drawing.Rectangle? foregroundRect,
+        System.Drawing.Point cursorPosition,
+        bool useCursorMonitor,
+        string? lastMonitorDeviceName)
+    {
+        if (monitors.Count == 0) throw new ArgumentException("At least one monitor is required.", nameof(monitors));
+        return monitors[0];
+    }
 }
+#endif

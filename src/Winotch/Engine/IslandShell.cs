@@ -1,4 +1,5 @@
 using SkiaSharp;
+using Winotch.Platform;
 
 namespace Winotch.Engine;
 
@@ -745,6 +746,31 @@ public sealed class IslandShell
             }
         }
         return false;
+    }
+
+    public IReadOnlyList<SKRect> GetInteractiveRegions()
+    {
+        var regions = new List<SKRect>();
+        if (_paused) return regions;
+
+        var expanded = _blend > 0.5;
+        var m = expanded ? 6 : 10;
+        regions.Add(new SKRect((float)(_x - m), (float)(_y - m),
+            (float)(_x + _w + m), (float)(_y + _h + m)));
+
+        if (_toasts.Count > 0)
+        {
+            var (tx, ty, tw) = ToastAnchor();
+            regions.Add(new SKRect(tx - 8, ty - 4, tx + tw + 8, ty + 160));
+        }
+
+        if (_contextMenuOpen)
+        {
+            regions.Add(new SKRect((float)_contextMenuX, (float)_contextMenuY,
+                (float)(_contextMenuX + 168), (float)(_contextMenuY + 120)));
+        }
+
+        return regions;
     }
 
     public void Click(double xDip, double yDip)

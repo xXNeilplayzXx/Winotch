@@ -19,3 +19,10 @@ Thumbs.db
 
 # Release scratch
 *.tmp
+
+# Build output directories
+dist/
+dist-win/
+
+# Release artifacts (uploaded to GitHub Releases, not committed)
+*.tar.gz

@@ -1,32 +1,38 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using System.IO;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Winotch.Engine;
 
 namespace Winotch;
 
 /// <summary>Shared styling for the small widget-edit dialogs. The palette is
 /// resolved from the current shell theme at dialog-open time so the light
-/// theme (and custom accents) reach every surface, like the legacy app.</summary>
+/// theme (and custom accents) reach every surface.</summary>
 internal static class DialogUi
 {
     /// <summary>The theme new dialogs should be built with; set by the host
     /// whenever the theme changes.</summary>
     public static ShellTheme Current { get; set; } = ShellTheme.Dark;
 
-    public static SolidColorBrush Panel => Brush(Current.PanelTop);
-    public static SolidColorBrush Card => Brush(Current.Card);
-    public static SolidColorBrush CardHover => Brush(Current.CardHover);
-    public static SolidColorBrush Stroke => Brush(Current.Stroke);
-    public static SolidColorBrush Text => Brush(Current.Text);
-    public static SolidColorBrush Muted => Brush(Current.Muted);
-    public static SolidColorBrush Accent => Brush(Current.Accent);
-    public static SolidColorBrush Danger => Brush(Current.Danger);
-    public static SolidColorBrush OnAccent => Brush(Current.IsLight ? Col.White : new Col(0x06, 0x13, 0x1A));
+    public static IBrush Panel => Brush(Current.PanelTop);
+    public static IBrush Card => Brush(Current.Card);
+    public static IBrush CardHover => Brush(Current.CardHover);
+    public static IBrush Stroke => Brush(Current.Stroke);
+    public static IBrush Text => Brush(Current.Text);
+    public static IBrush Muted => Brush(Current.Muted);
+    public static IBrush Accent => Brush(Current.Accent);
+    public static IBrush Danger => Brush(Current.Danger);
+    public static IBrush OnAccent => Brush(Current.IsLight ? Col.White : new Col(0x06, 0x13, 0x1A));
 
-    private static SolidColorBrush Brush(Col c) => new(Color.FromArgb(c.A, c.R, c.G, c.B));
+    private static IBrush Brush(Col c) => new SolidColorBrush(c.ToAvalonia());
 
-    public static SolidColorBrush B(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
+    public static IBrush B(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
 
     public static TextBox TextBox(string text = "", bool multiline = false, string placeholder = "")
     {
@@ -46,29 +52,12 @@ internal static class DialogUi
         {
             box.AcceptsReturn = true;
             box.TextWrapping = TextWrapping.Wrap;
-            box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
             box.MinHeight = 120;
         }
         if (placeholder.Length > 0)
         {
-            var watermarked = new WatermarkTextBox
-            {
-                Text = box.Text,
-                Background = box.Background,
-                Foreground = box.Foreground,
-                BorderBrush = box.BorderBrush,
-                BorderThickness = box.BorderThickness,
-                Padding = box.Padding,
-                FontSize = box.FontSize,
-                CaretBrush = box.CaretBrush,
-                SelectionBrush = box.SelectionBrush,
-                AcceptsReturn = box.AcceptsReturn,
-                TextWrapping = box.TextWrapping,
-                VerticalScrollBarVisibility = box.VerticalScrollBarVisibility,
-                MinHeight = box.MinHeight,
-                Placeholder = placeholder,
-            };
-            return watermarked;
+            box.Watermark = placeholder;
         }
         return box;
     }
@@ -84,8 +73,8 @@ internal static class DialogUi
             BorderThickness = new Thickness(1),
             Padding = new Thickness(14, 6, 14, 6),
             FontSize = 12,
-            FontWeight = primary || danger ? FontWeights.SemiBold : FontWeights.Normal,
-            Cursor = System.Windows.Input.Cursors.Hand,
+            FontWeight = primary || danger ? FontWeight.SemiBold : FontWeight.Normal,
+            Cursor = new Cursor(StandardCursorType.Hand),
         };
         if (danger) b.Foreground = Danger;
         return b;
@@ -106,8 +95,7 @@ internal static class DialogUi
     }
 
     /// <summary>Compact / Standard / Large segmented picker for one widget's
-    /// card size. The selected segment stays accent-highlighted and the new
-    /// choice is reported through <paramref name="changed"/> as it's made.</summary>
+    /// card size.</summary>
     public static StackPanel SizeRow(WidgetScale current, Action<WidgetScale> changed)
     {
         var options = new[] { WidgetScale.Compact, WidgetScale.Standard, WidgetScale.Large };
@@ -156,34 +144,26 @@ internal static class DialogUi
         window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         window.Topmost = true;
         window.SizeToContent = SizeToContent.WidthAndHeight;
-        window.ResizeMode = ResizeMode.NoResize;
+        window.CanResize = false;
         window.ShowInTaskbar = false;
         window.Icon = AppIcon.Load();
-        // Follow the Appearance font choice; fall back to Segoe UI when the
-        // shared resource has not been populated yet.
-        window.FontFamily = (Application.Current.Resources["NotchUiFont"] as FontFamily)
-            ?? new FontFamily("Segoe UI");
+        // Follow the Appearance font choice; fall back to system default.
+        window.FontFamily = new FontFamily("Inter, Segoe UI Variable Text, Segoe UI, Noto Sans, sans-serif");
     }
 }
 
-/// <summary>Loads the Winotch tray icon as a window/taskbar icon. The icon
-/// file ships with multi-size PNG frames, so the title bar gets a crisp
-/// small frame while Alt-Tab gets the large one (item: the logo looked
-/// broken because the old .ico only had 16/24 px frames).</summary>
+/// <summary>Loads the Winotch tray icon as a window/taskbar icon.</summary>
 public static class AppIcon
 {
-    public static System.Windows.Media.ImageSource? Load()
+    public static WindowIcon? Load()
     {
         try
         {
-            var resource = Application.GetResourceStream(
-                new Uri("pack://application:,,,/Winotch;component/Resources/WinotchTray.ico"));
-            if (resource?.Stream is null) return null;
-            using var stream = resource.Stream;
-            var decoder = new System.Windows.Media.Imaging.IconBitmapDecoder(stream,
-                System.Windows.Media.Imaging.BitmapCreateOptions.None,
-                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-            return decoder.Frames.Count > 0 ? decoder.Frames[0] : null;
+            var assembly = typeof(AppIcon).Assembly;
+            using var stream = assembly.GetManifestResourceStream("Winotch.Resources.WinotchTray.ico");
+            if (stream is null) return null;
+            // WindowIcon takes a stream
+            return new WindowIcon(stream);
         }
         catch
         {
@@ -192,56 +172,10 @@ public static class AppIcon
     }
 }
 
-/// <summary>A TextBox that actually draws its placeholder while empty, in the
-/// muted foreground so it reads as a hint (the old attached property only
-/// recolored the foreground and never showed the hint text).</summary>
-public sealed class WatermarkTextBox : TextBox
-{
-    public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
-        nameof(Placeholder), typeof(string), typeof(WatermarkTextBox),
-        new PropertyMetadata(string.Empty, OnPlaceholderChanged));
-
-    public string Placeholder
-    {
-        get => (string)GetValue(PlaceholderProperty);
-        set => SetValue(PlaceholderProperty, value);
-    }
-
-    private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-    {
-        if (d is WatermarkTextBox box) box.InvalidateVisual();
-    }
-
-    protected override void OnTextChanged(TextChangedEventArgs e)
-    {
-        base.OnTextChanged(e);
-        InvalidateVisual();
-    }
-
-    protected override void OnRender(DrawingContext dc)
-    {
-        base.OnRender(dc);
-        if (Text.Length != 0 || string.IsNullOrEmpty(Placeholder)) return;
-        var formatted = new FormattedText(
-            Placeholder,
-            System.Globalization.CultureInfo.CurrentUICulture,
-            FlowDirection.LeftToRight,
-            new Typeface(FontFamily, FontStyle, FontWeight, FontStretch),
-            FontSize,
-            DialogUi.Muted,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        var x = Padding.Left + BorderThickness.Left + 1;
-        var y = Padding.Top + BorderThickness.Top + 1;
-        dc.DrawText(formatted, new Point(x, y));
-    }
-}
-
 /// <summary>Multiline notes editor with a live character count.</summary>
 public sealed class NotesEditWindow : Window
 {
     public string? Result { get; private set; }
-
-    /// <summary>The card size chosen in this dialog.</summary>
     public WidgetScale Scale { get; private set; }
 
     public NotesEditWindow(string current, WidgetScale scale)
@@ -253,10 +187,10 @@ public sealed class NotesEditWindow : Window
 
         var ok = DialogUi.Button("Save", primary: true);
         var cancel = DialogUi.Button("Cancel");
-        ok.Click += (_, _) => { Result = box.Text; DialogResult = true; };
-        cancel.Click += (_, _) => DialogResult = false;
+        ok.Click += (_, _) => { Result = box.Text; Close(true); };
+        cancel.Click += (_, _) => Close(false);
         box.TextChanged += (_, _) => count.Text = $"{box.Text.Length} chars";
-        box.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text.Length; };
+        box.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text?.Length ?? 0; };
 
         var panel = new StackPanel { Margin = new Thickness(16), Width = 340 };
         panel.Children.Add(DialogUi.Label("Jot something down…", 12, muted: true));
@@ -270,20 +204,18 @@ public sealed class NotesEditWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }
 }
 
-/// <summary>City entry plus "Use Windows location"; geocoding + fetch happen
+/// <summary>City entry plus "Use system location"; geocoding + fetch happen
 /// after the dialog closes so it stays snappy.</summary>
 public sealed class WeatherEditWindow : Window
 {
     public string? City { get; private set; }
-    public bool UseWindowsLocation { get; private set; }
-
-    /// <summary>The card size chosen in this dialog.</summary>
+    public bool UseSystemLocation { get; private set; }
     public WidgetScale Scale { get; private set; }
 
     public WeatherEditWindow(WeatherWidgetConfig config, WidgetScale scale)
@@ -294,27 +226,27 @@ public sealed class WeatherEditWindow : Window
 
         var ok = DialogUi.Button("Save", primary: true);
         var cancel = DialogUi.Button("Cancel");
-        var useLocation = DialogUi.Button("Use Windows location");
+        var useLocation = DialogUi.Button("Use system location");
         ok.Click += (_, _) =>
         {
-            var city = box.Text.Trim();
+            var city = box.Text?.Trim() ?? "";
             if (city.Length == 0)
             {
                 box.Focus();
                 return;
             }
             City = city;
-            DialogResult = true;
+            Close(true);
         };
-        cancel.Click += (_, _) => DialogResult = false;
+        cancel.Click += (_, _) => Close(false);
         useLocation.Click += (_, _) =>
         {
-            UseWindowsLocation = true;
-            DialogResult = true;
+            UseSystemLocation = true;
+            Close(true);
         };
         box.KeyDown += (_, e) =>
         {
-            if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (e.Key == Key.Return) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         };
         box.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
 
@@ -335,7 +267,7 @@ public sealed class WeatherEditWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }
@@ -346,21 +278,19 @@ public sealed class WeatherEditWindow : Window
 public sealed class LauncherEditWindow : Window
 {
     public List<LauncherApp>? Result { get; private set; }
-
-    /// <summary>The card size chosen in this dialog.</summary>
     public WidgetScale Scale { get; private set; }
 
     private static readonly (string Label, string Path)[] QuickApps =
     {
-        ("Chrome", "chrome.exe"),
-        ("Edge", "msedge.exe"),
-        ("Terminal", "wt.exe"),
-        ("VS Code", "code.exe"),
-        ("Notepad", "notepad.exe"),
-        ("Calculator", "calc.exe"),
-        ("Paint", "mspaint.exe"),
-        ("Spotify", "%APPDATA%\\Spotify\\Spotify.exe"),
-        ("Steam", "C:\\Program Files (x86)\\Steam\\steam.exe"),
+        ("Chrome", "google-chrome"),
+        ("Firefox", "firefox"),
+        ("Terminal", "xterm"),
+        ("VS Code", "code"),
+        ("Files", "nautilus"),
+        ("Calculator", "gnome-calculator"),
+        ("Settings", "gnome-control-center"),
+        ("Spotify", "spotify"),
+        ("Steam", "steam"),
     };
 
     public LauncherEditWindow(IReadOnlyList<LauncherApp> current, WidgetScale scale)
@@ -372,8 +302,8 @@ public sealed class LauncherEditWindow : Window
 
         var ok = DialogUi.Button("Done", primary: true);
         var cancel = DialogUi.Button("Cancel");
-        ok.Click += (_, _) => { Result = apps; DialogResult = true; };
-        cancel.Click += (_, _) => DialogResult = false;
+        ok.Click += (_, _) => { Result = apps; Close(true); };
+        cancel.Click += (_, _) => Close(false);
 
         var list = new StackPanel();
         void Repaint()
@@ -384,7 +314,7 @@ public sealed class LauncherEditWindow : Window
                 var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var label = DialogUi.Label(app.Label, 12, weight: FontWeights.SemiBold);
+                var label = DialogUi.Label(app.Label, 12, weight: FontWeight.SemiBold);
                 var path = DialogUi.Label(app.Path, 10.5, muted: true);
                 var stack = new StackPanel { Children = { label, path } };
                 Grid.SetColumn(stack, 0);
@@ -405,14 +335,14 @@ public sealed class LauncherEditWindow : Window
 
         var nameBox = DialogUi.TextBox(placeholder: "Name (optional)");
         nameBox.Width = 100;
-        var pathBox = DialogUi.TextBox(placeholder: "File path or name, e.g. chrome.exe");
+        var pathBox = DialogUi.TextBox(placeholder: "Command or path, e.g. firefox");
         var add = DialogUi.Button("Add", primary: true);
         void DoAdd()
         {
-            var path = pathBox.Text.Trim();
+            var path = pathBox.Text?.Trim() ?? "";
             if (path.Length == 0) return;
-            var name = nameBox.Text.Trim();
-            if (name.Length == 0) name = path.Split('\\', '/')[^1];
+            var name = nameBox.Text?.Trim() ?? "";
+            if (name.Length == 0) name = Path.GetFileName(path);
             if (!apps.Any(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase)))
             {
                 apps.Add(new LauncherApp(name, path));
@@ -425,7 +355,7 @@ public sealed class LauncherEditWindow : Window
         add.Click += (_, _) => DoAdd();
         pathBox.KeyDown += (_, e) =>
         {
-            if (e.Key == System.Windows.Input.Key.Enter) DoAdd();
+            if (e.Key == Key.Return) DoAdd();
         };
 
         var addRow = new StackPanel
@@ -434,8 +364,8 @@ public sealed class LauncherEditWindow : Window
             Margin = new Thickness(0, 8, 0, 0),
             Children = { nameBox, pathBox, add },
         };
-        ((FrameworkElement)addRow.Children[0]).Margin = new Thickness(0, 0, 6, 0);
-        ((FrameworkElement)addRow.Children[1]).Margin = new Thickness(0, 0, 6, 0);
+        ((Control)addRow.Children[0]).Margin = new Thickness(0, 0, 6, 0);
+        ((Control)addRow.Children[1]).Margin = new Thickness(0, 0, 6, 0);
 
         var quick = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         foreach (var (label, path) in QuickApps)
@@ -474,7 +404,7 @@ public sealed class LauncherEditWindow : Window
             Margin = new Thickness(0, 12, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }
@@ -484,8 +414,6 @@ public sealed class LauncherEditWindow : Window
 public sealed class MetricsEditWindow : Window
 {
     public SystemMetricsConfig? Result { get; private set; }
-
-    /// <summary>The card size chosen in this dialog.</summary>
     public WidgetScale Scale { get; private set; }
 
     public MetricsEditWindow(SystemMetricsConfig current, WidgetScale scale)
@@ -493,10 +421,10 @@ public sealed class MetricsEditWindow : Window
         DialogUi.ApplyFrame(this, "System metrics");
         Scale = scale;
 
-        var cpu = new CheckBox { Content = "CPU load", IsChecked = current.Cpu, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
-        var mem = new CheckBox { Content = "Memory", IsChecked = current.Memory, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
-        var bat = new CheckBox { Content = "Battery", IsChecked = current.Battery, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
-        var net = new CheckBox { Content = "Network", IsChecked = current.Network, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
+        var cpu = new CheckBox { Content = new TextBlock { Text = "CPU load" }, IsChecked = current.Cpu, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
+        var mem = new CheckBox { Content = new TextBlock { Text = "Memory" }, IsChecked = current.Memory, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
+        var bat = new CheckBox { Content = new TextBlock { Text = "Battery" }, IsChecked = current.Battery, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
+        var net = new CheckBox { Content = new TextBlock { Text = "Network" }, IsChecked = current.Network, Foreground = DialogUi.Text, Margin = new Thickness(0, 6, 0, 0) };
 
         var ok = DialogUi.Button("Save", primary: true);
         var cancel = DialogUi.Button("Cancel");
@@ -509,9 +437,9 @@ public sealed class MetricsEditWindow : Window
                 Battery = bat.IsChecked == true,
                 Network = net.IsChecked == true,
             };
-            DialogResult = true;
+            Close(true);
         };
-        cancel.Click += (_, _) => DialogResult = false;
+        cancel.Click += (_, _) => Close(false);
 
         var panel = new StackPanel { Margin = new Thickness(16), Width = 260 };
         panel.Children.Add(DialogUi.Label("Which metrics to show", 12, muted: true));
@@ -527,18 +455,17 @@ public sealed class MetricsEditWindow : Window
             Margin = new Thickness(0, 12, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }
 }
+
 /// <summary>Custom focus-timer durations: focus and break minutes plus the
-/// auto-cycle toggle (item: let users add their own ratios / timers).</summary>
+/// auto-cycle toggle.</summary>
 public sealed class FocusEditWindow : Window
 {
     public (int FocusMinutes, int BreakMinutes, bool AutoCycle)? Result { get; private set; }
-
-    /// <summary>The card size chosen in this dialog.</summary>
     public WidgetScale Scale { get; private set; }
 
     public FocusEditWindow(int focusMinutes, int breakMinutes, bool autoCycle, WidgetScale scale)
@@ -553,7 +480,7 @@ public sealed class FocusEditWindow : Window
 
         var loop = new CheckBox
         {
-            Content = "Auto-cycle (focus → break → focus…)",
+            Content = new TextBlock { Text = "Auto-cycle (focus → break → focus…)" },
             IsChecked = autoCycle,
             Foreground = DialogUi.Text,
             Margin = new Thickness(0, 8, 0, 0),
@@ -563,23 +490,23 @@ public sealed class FocusEditWindow : Window
         var cancel = DialogUi.Button("Cancel");
         ok.Click += (_, _) =>
         {
-            if (!int.TryParse(focusBox.Text.Trim(), out var focus) ||
-                !int.TryParse(breakBox.Text.Trim(), out var breakMin))
+            if (!int.TryParse(focusBox.Text?.Trim(), out var focus) ||
+                !int.TryParse(breakBox.Text?.Trim(), out var breakMin))
             {
                 focusBox.Focus();
                 return;
             }
             Result = (Math.Clamp(focus, 1, 180), Math.Clamp(breakMin, 1, 60), loop.IsChecked == true);
-            DialogResult = true;
+            Close(true);
         };
-        cancel.Click += (_, _) => DialogResult = false;
+        cancel.Click += (_, _) => Close(false);
         focusBox.KeyDown += (_, e) =>
         {
-            if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (e.Key == Key.Return) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         };
         breakBox.KeyDown += (_, e) =>
         {
-            if (e.Key == System.Windows.Input.Key.Enter) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (e.Key == Key.Return) ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         };
         focusBox.Loaded += (_, _) => { focusBox.Focus(); focusBox.SelectAll(); };
 
@@ -607,7 +534,7 @@ public sealed class FocusEditWindow : Window
             Margin = new Thickness(0, 14, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }
@@ -617,7 +544,6 @@ public sealed class FocusEditWindow : Window
 /// now playing, clipboard): just the card size picker.</summary>
 public sealed class CardSizeWindow : Window
 {
-    /// <summary>The card size chosen in this dialog.</summary>
     public WidgetScale Scale { get; private set; }
 
     public CardSizeWindow(string title, WidgetScale current)
@@ -627,8 +553,8 @@ public sealed class CardSizeWindow : Window
 
         var ok = DialogUi.Button("Done", primary: true);
         var cancel = DialogUi.Button("Cancel");
-        ok.Click += (_, _) => DialogResult = true;
-        cancel.Click += (_, _) => DialogResult = false;
+        ok.Click += (_, _) => Close(true);
+        cancel.Click += (_, _) => Close(false);
 
         var panel = new StackPanel { Margin = new Thickness(16), Width = 290 };
         panel.Children.Add(DialogUi.SizeSection(current, s => Scale = s));
@@ -639,7 +565,7 @@ public sealed class CardSizeWindow : Window
             Margin = new Thickness(0, 14, 0, 0),
             Children = { cancel, ok },
         });
-        ((StackPanel)panel.Children[^1]).Children[1].SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
+        ((StackPanel)panel.Children[^1]).Children[1].Margin = new Thickness(8, 0, 0, 0);
 
         Content = panel;
     }

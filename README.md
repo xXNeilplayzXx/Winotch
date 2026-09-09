@@ -1,6 +1,6 @@
 # Winotch
 
-**A Dynamic Island–style notch for Windows 10/11.** A slim pill hangs at the top of your screen showing the essentials — then springs open on hover into a full panel of widgets: media controls, weather, a focus timer, clipboard history, app shortcuts and more.
+**A Dynamic Island–style notch for Windows and Linux.** A slim pill hangs at the top of your screen showing the essentials — then springs open on hover into a full panel of widgets: media controls, weather, a focus timer, clipboard history, app shortcuts and more.
 
 <!-- HERO: screenshots/collapsed.png — clean capture of the pill on a desktop -->
 
@@ -32,11 +32,21 @@ Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and ever
 
 ## Getting started
 
-1. Grab the latest **Winotch-vX.Y.Z-x64.zip** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
-2. Unzip it anywhere — it's a portable exe, nothing to install.
-3. Run **`Winotch.exe`**. A first-run wizard sets up your theme and widgets; Windows may show a SmartScreen prompt because the build isn't code-signed — click **More info → Run anyway**.
+### Windows
+```powershell
+irm https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/linux/install.ps1 | iex
+```
+Or grab **Winotch-win-x64.tar.gz** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page and extract it anywhere.
 
-Works on **Windows 10 (2004+)** and **Windows 11**.
+### Linux
+```bash
+curl -sL https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/linux/install.sh | sudo bash
+```
+Or grab **Winotch-linux-x64.tar.gz** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
+
+Run **`Winotch`** (or `winotch` on Linux). A first-run wizard sets up your theme and widgets.
+
+Works on **Windows 10 (2004+)**, **Windows 11**, and **Linux** (X11/Wayland).
 
 ## Features
 
@@ -92,15 +102,25 @@ Each card sizes itself independently — hit **⚙** on a card and pick **Compac
 
 ## Building from source
 
-Requires the **.NET 8 SDK** on Windows (10 2004+ / 11).
+Requires the **.NET 8 SDK**.
 
-```powershell
+```bash
 dotnet restore Winotch.slnx
 dotnet build Winotch.slnx -c Release
 dotnet test  Winotch.slnx -c Release
 ```
 
 Run it with `dotnet run --project src/Winotch`, or launch the built exe.
+
+### Building release binaries
+
+```bash
+# Linux
+dotnet publish src/Winotch -c Release -r linux-x64 --self-contained -o dist
+
+# Windows
+dotnet publish src/Winotch -c Release -r win-x64 --self-contained -o dist-win
+```
 
 Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release.
 

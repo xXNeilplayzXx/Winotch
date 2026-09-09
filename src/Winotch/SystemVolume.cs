@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Runtime.InteropServices;
 
 namespace Winotch;
@@ -130,3 +131,4 @@ public static class SystemVolume
         int GetVolumeRange(out float minDb, out float maxDb, out float incrementDb);
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if WINDOWS
 using Windows.Devices.Geolocation;
 
 namespace Winotch;
@@ -24,4 +25,6 @@ public static class WindowsLocation
             return null;
         }
     }
+    }
 }
+#endif

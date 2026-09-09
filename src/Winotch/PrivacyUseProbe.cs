@@ -1,17 +1,19 @@
-using Microsoft.Win32;
-
 namespace Winotch;
 
-/// <summary>Live microphone / camera use, read from Windows' privacy consent
-/// store — the same source the legacy app polled. An app is "in use" while
+/// <summary>Live microphone / camera use. An app is "in use" while
 /// LastUsedTimeStart > 0 and LastUsedTimeStop == 0 (the app is currently
-/// capturing). Walks each per-app subkey recursively, like the reference.</summary>
+/// capturing).</summary>
 public interface IPrivacyConsentStore
 {
     bool IsMicrophoneActive();
     bool IsCameraActive();
 }
 
+#if WINDOWS
+using Microsoft.Win32;
+
+/// <summary>Reads from Windows' privacy consent store — the same source the
+/// legacy app polled. Walks each per-app subkey recursively.</summary>
 public sealed class RegistryPrivacyConsentStore : IPrivacyConsentStore
 {
     private const string ConsentRoot = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore";
@@ -61,7 +63,6 @@ public sealed class RegistryPrivacyConsentStore : IPrivacyConsentStore
         }
         catch
         {
-            // A locked subkey must not break the whole scan.
         }
         return false;
     }
@@ -83,6 +84,7 @@ public sealed class RegistryPrivacyConsentStore : IPrivacyConsentStore
         }
     }
 }
+#endif
 
 /// <summary>In-memory fake for tests.</summary>
 public sealed class FakePrivacyConsentStore : IPrivacyConsentStore
