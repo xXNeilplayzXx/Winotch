@@ -1,14 +1,14 @@
 using System.Globalization;
 using System.IO;
-using System.Windows.Media;
-using Microsoft.Win32;
+using Avalonia.Media;
 using Winotch.Engine;
+using Winotch.Platform;
 
 namespace Winotch;
 
 /// <summary>A fully-resolved island palette for one render. Resolved from the
 /// settings each poll by <see cref="ThemeService"/>, so the shell's visual
-/// tokens (panel, text, accent, …) re-skin live when the user or Windows
+/// tokens (panel, text, accent, …) re-skin live when the user or OS
 /// changes the theme.</summary>
 public sealed record ShellTheme(
     Col PanelTop, Col PanelBottom, Col Card, Col CardHover, Col Stroke,
@@ -45,42 +45,29 @@ public sealed record ShellTheme(
         Hairline = Col.Lerp(Hairline, accent, 0.10),
     };
 
-    public Color WpfPanelTop => FromCol(PanelTop);
-    public Color WpfPanelBottom => FromCol(PanelBottom);
-    public Color WpfCard => FromCol(Card);
-    public Color WpfCardHover => FromCol(CardHover);
-    public Color WpfStroke => FromCol(Stroke);
-    public Color WpfText => FromCol(Text);
-    public Color WpfMuted => FromCol(Muted);
-    public Color WpfAccent => FromCol(Accent);
-    public Color WpfOk => FromCol(Ok);
-    public Color WpfWarn => FromCol(Warn);
-    public Color WpfDanger => FromCol(Danger);
-    public Color WpfHairline => FromCol(Hairline);
+    public Color AvaloniaPanelTop => FromCol(PanelTop);
+    public Color AvaloniaPanelBottom => FromCol(PanelBottom);
+    public Color AvaloniaCard => FromCol(Card);
+    public Color AvaloniaCardHover => FromCol(CardHover);
+    public Color AvaloniaStroke => FromCol(Stroke);
+    public Color AvaloniaText => FromCol(Text);
+    public Color AvaloniaMuted => FromCol(Muted);
+    public Color AvaloniaAccent => FromCol(Accent);
+    public Color AvaloniaOk => FromCol(Ok);
+    public Color AvaloniaWarn => FromCol(Warn);
+    public Color AvaloniaDanger => FromCol(Danger);
+    public Color AvaloniaHairline => FromCol(Hairline);
 
-    private static Color FromCol(Col c) => Color.FromArgb(c.A, c.R, c.G, c.B);
+    private static Color FromCol(Col c) => c.ToAvalonia();
 }
 
-/// <summary>Reads the two Windows theme sources the legacy app used: the app
-/// light/dark preference (Personalize\AppsUseLightTheme) and the DWM accent
-/// (ColorizationColor). Pure registry reads, cheap enough to poll.</summary>
-public interface IWindowsThemeSource
+#if WINDOWS
+/// <summary>Reads the two Windows theme sources: the app light/dark preference
+/// (Personalize\AppsUseLightTheme) and the DWM accent (ColorizationColor).
+/// Pure registry reads, cheap enough to poll.</summary>
+public sealed class WindowsThemeSource : IThemeService
 {
-    /// <summary>True when Windows uses light app theme; null when unreadable.</summary>
-    bool? AppsUseLightTheme();
-
-    /// <summary>The Windows accent color (DWM ColorizationColor), alpha-stripped.</summary>
-    System.Windows.Media.Color? OsAccent();
-
-    /// <summary>True when the desktop wallpaper is predominantly light
-    /// (luminance >= 0.5); null when it cannot be read. Powers the
-    /// Background theme.</summary>
-    bool? WallpaperIsLight();
-}
-
-public sealed class WindowsTheme : IWindowsThemeSource
-{
-    public static readonly WindowsTheme Instance = new();
+    public static readonly WindowsThemeSource Instance = new();
 
     private const string PersonalizePath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     private const string DwmPath = @"Software\Microsoft\Windows\DWM";
@@ -89,39 +76,31 @@ public sealed class WindowsTheme : IWindowsThemeSource
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(PersonalizePath);
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(PersonalizePath);
             var value = key?.GetValue("AppsUseLightTheme");
             return value is int number ? number != 0 : null;
         }
-        catch
-        {
-            return null;
-        }
+        catch { return null; }
     }
 
-    public System.Windows.Media.Color? OsAccent()
+    public Col? OsAccent()
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(DwmPath);
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(DwmPath);
             var value = key?.GetValue("ColorizationColor");
             if (value is not int raw) return null;
             var argb = unchecked((uint)raw);
-            return System.Windows.Media.Color.FromArgb(255, (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
+            return Col.Rgba((byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
         }
-        catch
-        {
-            return null;
-        }
+        catch { return null; }
     }
 
-    /// <summary>Wallpaper luminance via a 32×32 downscale sample of the
-    /// current wallpaper image (registry path, per-user desktop).</summary>
     public bool? WallpaperIsLight()
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
             var path = key?.GetValue("WallPaper") as string;
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
 
@@ -133,7 +112,7 @@ public sealed class WindowsTheme : IWindowsThemeSource
             if (frame.PixelWidth == 0 || frame.PixelHeight == 0) return null;
 
             const int sample = 32;
-            var scaled = new System.Windows.Media.Imaging.TransformedBitmap(frame, new ScaleTransform(
+            var scaled = new System.Windows.Media.Imaging.TransformedBitmap(frame, new System.Windows.Media.ScaleTransform(
                 sample / (double)frame.PixelWidth, sample / (double)frame.PixelHeight));
             var pixels = new byte[sample * sample * 4];
             scaled.CopyPixels(pixels, sample * 4, 0);
@@ -142,34 +121,32 @@ public sealed class WindowsTheme : IWindowsThemeSource
             double count = 0;
             for (var i = 0; i + 3 < pixels.Length; i += 4)
             {
-                if (pixels[i + 3] < 64) continue; // skip transparent pixels
+                if (pixels[i + 3] < 64) continue;
                 luminance += 0.2126 * pixels[i + 2] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i];
                 count++;
             }
             return count == 0 ? null : luminance / count / 255.0 >= 0.5;
         }
-        catch
-        {
-            return null;
-        }
+        catch { return null; }
     }
 }
+#endif
 
-/// <summary>A fake <see cref="IWindowsThemeSource"/> for tests.</summary>
-public sealed class FakeWindowsThemeSource : IWindowsThemeSource
+/// <summary>A fake <see cref="IThemeService"/> for tests.</summary>
+public sealed class FakeThemeSource : IThemeService
 {
     public bool? Light { get; set; }
-    public System.Windows.Media.Color? Accent { get; set; }
+    public Col? Accent { get; set; }
     public bool? Wallpaper { get; set; }
 
     public bool? AppsUseLightTheme() => Light;
-    public System.Windows.Media.Color? OsAccent() => Accent;
+    public Col? OsAccent() => Accent;
     public bool? WallpaperIsLight() => Wallpaper;
 }
 
-/// <summary>Resolves <see cref="ShellTheme"/> from settings plus live Windows
+/// <summary>Resolves <see cref="ShellTheme"/> from settings plus live OS
 /// state. Call <see cref="Refresh"/> whenever settings change and on a slow
-/// timer so System/Folow-Os themes track Windows live.</summary>
+/// timer so System/Follow-Os themes track the OS live.</summary>
 public sealed class ThemeService
 {
     public const string DefaultAccentHex = "#50D6FF";
@@ -180,11 +157,23 @@ public sealed class ThemeService
         DefaultAccentHex, "#0078D4", "#32D74B", "#FFB04A", "#FF6B6B", "#FF4FB2", "#A78BFA", "#8A8FA3",
     };
 
-    private readonly IWindowsThemeSource _os;
+    private readonly IThemeService _os;
 
-    public ThemeService(IWindowsThemeSource? os = null)
+    public ThemeService() : this(CreatePlatformProvider()) { }
+
+    public ThemeService(IThemeService os)
     {
-        _os = os ?? WindowsTheme.Instance;
+        _os = os;
+    }
+
+    /// <summary>Create the platform-appropriate theme data provider.</summary>
+    public static IThemeService CreatePlatformProvider()
+    {
+#if WINDOWS
+        return WindowsThemeSource.Instance;
+#else
+        return new LinuxThemeSource();
+#endif
     }
 
     public static IReadOnlyList<string> AccentSwatches => Swatches;
@@ -226,7 +215,7 @@ public sealed class ThemeService
         var fallback = ParseHex(light ? LightDefaultAccentHex : DefaultAccentHex);
         return appearance.Accent switch
         {
-            AccentMode.FollowOs => (_os.OsAccent() is { } os ? (Col?)ParseWpf(os) : null) ?? fallback,
+            AccentMode.FollowOs => _os.OsAccent() ?? fallback,
             AccentMode.Custom => ParseHex(appearance.AccentHex),
             _ => fallback,
         };
@@ -258,6 +247,14 @@ public sealed class ThemeService
         uint.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value);
         return Col.Rgba((byte)(value >> 16), (byte)(value >> 8), (byte)value);
     }
+}
 
-    private static Col ParseWpf(Color color) => Col.Rgba(color.R, color.G, color.B);
+/// <summary>Linux theme source: returns defaults (dark theme, blue accent).
+/// The actual detection is done by LinuxThemeService (Phase 2) for the
+/// platform layer; this adapter provides the minimal data ThemeService needs.</summary>
+internal sealed class LinuxThemeSource : IThemeService
+{
+    public bool? AppsUseLightTheme() => false;
+    public Col? OsAccent() => null; // Use default accent
+    public bool? WallpaperIsLight() => null;
 }

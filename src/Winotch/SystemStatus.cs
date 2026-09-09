@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Windows.Forms;
 
 namespace Winotch;
@@ -13,3 +14,4 @@ public static class SystemStatus
         return new BatteryInfo(percent, charging);
     }
 }
+#endif

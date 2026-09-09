@@ -24,4 +24,8 @@ public readonly record struct Col(byte R, byte G, byte B, byte A = 255)
     }
 
     public SKColor ToSk() => new(R, G, B, A);
+
+    public Avalonia.Media.Color ToAvalonia() => new(A, R, G, B);
+
+    public static Col FromAvalonia(Avalonia.Media.Color c) => new(c.R, c.G, c.B, c.A);
 }

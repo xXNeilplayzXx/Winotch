@@ -1,16 +1,9 @@
 using SkiaSharp;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
+using Winotch.Platform;
 
 namespace Winotch;
-
-public sealed record MediaSnapshot(
-    string Title, string Artist, bool Playing,
-    double PositionSeconds = 0, double DurationSeconds = 0,
-    string? ArtBase64 = null, bool CanSeek = false)
-{
-    public string Key => $"{Title}|{Artist}";
-}
 
 /// <summary>Watches the current Windows media session (SMTC). A background
 /// loop polls every second and raises Changed only when the track identity or
@@ -27,7 +20,7 @@ public sealed record MediaSnapshot(
 ///   manager hiccup).
 /// Every failure degrades to "no media" — the notch must survive apps locking
 /// their sessions.</summary>
-public sealed class MediaService : IDisposable
+public sealed class MediaService : IMediaService, IDisposable
 {
     public event EventHandler<MediaSnapshot?>? Changed;
 
@@ -114,20 +107,23 @@ public sealed class MediaService : IDisposable
         _cts = null;
     }
 
-    public async Task PlayPauseAsync()
+    public async Task PlayAsync()
     {
-        if (BestSession(_manager) is not { } session) return;
-        try
+        if (BestSession(_manager) is { } session)
         {
-            var info = session.GetPlaybackInfo();
-            var playing = info?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-            if (playing) await session.TryPauseAsync();
-            else await session.TryPlayAsync();
+            try { await session.TryPlayAsync(); } catch { }
         }
-        catch { }
     }
 
-    public async Task NextAsync()
+    public async Task PauseAsync()
+    {
+        if (BestSession(_manager) is { } session)
+        {
+            try { await session.TryPauseAsync(); } catch { }
+        }
+    }
+
+    public async Task SkipNextAsync()
     {
         if (BestSession(_manager) is { } session)
         {
@@ -135,7 +131,7 @@ public sealed class MediaService : IDisposable
         }
     }
 
-    public async Task PreviousAsync()
+    public async Task SkipPreviousAsync()
     {
         if (BestSession(_manager) is { } session)
         {

@@ -3,12 +3,17 @@ using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Threading;
+using System.Threading;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Winotch.Engine;
-using Forms = System.Windows.Forms;
+using Winotch.Platform;
+#if WINDOWS
+using Winotch.Platform.Windows;
+#else
+using Winotch.Platform.Linux;
+#endif
 
 namespace Winotch;
 
@@ -38,16 +43,23 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private readonly SettingsService _settings;
     private readonly StartupService _startup;
     private readonly ThemeService _theme = new();
-    private readonly MediaService _media = new();
+    private readonly IMediaService _media;
     private readonly PriorityStatusTracker _status = new();
-    private readonly IPrivacyConsentStore _privacy = new RegistryPrivacyConsentStore();
+    private readonly IPrivacyConsentStore _privacy;
     private readonly ClipboardHistoryStore _clipboardStore = new();
     private readonly WeatherService _weather = new();
-    private readonly SystemStatsSampler _statsSampler = new();
+    private readonly IBatteryService _batteryService;
+    private readonly ISystemVolumeService _volumeService;
+    private readonly ISystemStatsService _statsService;
+    private readonly IClipboardService _clipboardService;
+    private readonly ILocationService _locationService;
+    private readonly IMonitorService _monitorService;
+    private readonly IScreenCapture _screenCapture;
     private readonly List<OverlayWindow> _windows = new();
     private readonly UpdateService _updateService = new();
 
-    private readonly DispatcherTimer _clipboardTimer;
+    private readonly Timer _clipboardTimer;
+    private readonly List<Timer> _timers = new();
     private SettingsWindow? _settingsWindow;
     private TrayIconService? _tray;
     private CancellationTokenSource? _wifiCts;
@@ -56,6 +68,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private bool _lastMic, _lastCam;
     private string? _lastCallApp;
     private string? _lastToastKey = "";
+    private MediaSnapshot? _currentMedia;
     private string _lastMonitorLayout = "";
     private DisplayMode _lastDisplayMode;
     private string _lastDisplayDevice = "";
@@ -67,6 +80,29 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _settings = settings;
         _startup = startup;
 
+        // Initialize platform-specific services
+#if WINDOWS
+        _privacy = new RegistryPrivacyConsentStore();
+        _batteryService = new WindowsBatteryService();
+        _volumeService = new WindowsSystemVolumeService();
+        _statsService = new WindowsSystemStatsService();
+        _clipboardService = new WindowsClipboardService();
+        _locationService = new WindowsLocationService();
+        _monitorService = new WindowsMonitorService();
+        _screenCapture = new WindowsScreenCapture();
+        _media = new MediaService();
+#else
+        _privacy = new LinuxPrivacyConsentStore();
+        _batteryService = new LinuxBatteryService();
+        _volumeService = new LinuxSystemVolumeService();
+        _statsService = new LinuxSystemStatsService();
+        _clipboardService = new LinuxClipboardService();
+        _locationService = new LinuxLocationService();
+        _monitorService = new LinuxMonitorService();
+        _screenCapture = new LinuxScreenCapture();
+        _media = new LinuxMediaService();
+#endif
+
         _theme.Refresh(settings.Current);
         DialogUi.Current = _theme.Current;
         _lastDisplayMode = settings.Current.Appearance.Display;
@@ -76,41 +112,39 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
         _media.Changed += OnMediaChanged;
 
-        _clipboardTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(2000),
-        };
-        _clipboardTimer.Tick += (_, _) => PollClipboard();
+        _clipboardTimer = new Timer(_ => PollClipboard(), null, TimeSpan.FromMilliseconds(2000), TimeSpan.FromMilliseconds(2000));
     }
 
     // ------------------------------------------------------------- startup
 
-    /// <summary>Push the Appearance font choice into the Skia text engine and
-    /// the WPF dynamic resource every window's text inherits. Families absent
-    /// from the machine fall back to the OS defaults inside TextKit.</summary>
+    /// <summary>Push the Appearance font choice into the Skia text engine.</summary>
     private void ApplyUiFont()
     {
         var fontId = _settings.Current.Appearance.Font;
         var family = FontChoice.FamilyOf(fontId);
         var customFile = FontChoice.CustomFile(fontId);
         TextKit.SetUiFamily(family, customFile);
-        Application.Current.Resources["NotchUiFont"] = WpfFontFamily(fontId, family);
+#if WINDOWS
+        Application.Current!.Resources["NotchUiFont"] = WpfFontFamily(fontId, family);
+#endif
     }
 
+#if WINDOWS
     /// <summary>The WPF font for a font id: a plain family for curated /
     /// system fonts, or a file-relative FontFamily for an imported .ttf/.otf
     /// (the family name embedded in the file drives the WPF face).</summary>
-    private static FontFamily WpfFontFamily(string fontId, string family)
+    private static System.Windows.Media.FontFamily WpfFontFamily(string fontId, string family)
     {
         var customFile = FontChoice.CustomFile(fontId);
         if (customFile is null)
         {
-            return new FontFamily(family);
+            return new System.Windows.Media.FontFamily(family);
         }
         var directory = Path.GetDirectoryName(customFile) ?? "";
-        return new FontFamily(new Uri(directory + Path.DirectorySeparatorChar, UriKind.Absolute),
+        return new System.Windows.Media.FontFamily(new Uri(directory + Path.DirectorySeparatorChar, UriKind.Absolute),
             $"./{Path.GetFileName(customFile)}#{family}");
     }
+#endif
 
     public void Start()
     {
@@ -127,21 +161,21 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         if (_settings.Current.General.AutoCheckUpdates)
         {
             // Let the shell settle and the release hit the network after a beat.
-            var check = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(6) };
-            check.Tick += (_, _) =>
+            Timer? check = null;
+            check = new Timer(_ =>
             {
-                check.Stop();
-                CheckForUpdates(manual: false);
-            };
-            check.Start();
+                check?.Dispose();
+                Dispatcher.UIThread.Post(() => CheckForUpdates(manual: false));
+            }, null, TimeSpan.FromSeconds(6), Timeout.InfiniteTimeSpan);
         }
     }
 
     private void StartTimers()
     {
-        var status = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
-        status.Tick += (_, _) => PollBattery();
-        status.Start();
+        void UICallback(Action action) => Dispatcher.UIThread.Post(action);
+
+        var status = new Timer(_ => UICallback(PollBattery), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _timers.Add(status);
 
         _wifiCts = new CancellationTokenSource();
         var token = _wifiCts.Token;
@@ -155,37 +189,32 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             }
         }, token);
 
-        var privacy = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
-        privacy.Tick += (_, _) => PollPrivacy();
-        privacy.Start();
+        var privacy = new Timer(_ => UICallback(PollPrivacy), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _timers.Add(privacy);
 
-        var layout = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
-        layout.Tick += (_, _) => RebuildIfLayoutChanged();
-        layout.Start();
+        var layout = new Timer(_ => UICallback(RebuildIfLayoutChanged), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _timers.Add(layout);
 
-        var theme = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
-        theme.Tick += (_, _) => _theme.Refresh(_settings.Current);
-        theme.Start();
+        var theme = new Timer(_ => UICallback(() => _theme.Refresh(_settings.Current)), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _timers.Add(theme);
 
-        var weather = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(15) };
-        weather.Tick += async (_, _) => await FetchWeatherAsync();
-        weather.Start();
+        var weather = new Timer(_ => UICallback(async () => await FetchWeatherAsync()), null, TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15));
+        _timers.Add(weather);
 
         // Rain watch: probe precipitation every 5 minutes; the evaluator only
         // fires when rain *starts* within 30 minutes, so the 5-minute cadence
         // can't miss the beginning of an episode.
-        var rain = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(5) };
-        rain.Tick += async (_, _) => await CheckRainAlertAsync();
-        rain.Start();
-
-        _clipboardTimer.Start();
+        var rain = new Timer(_ => UICallback(async () => await CheckRainAlertAsync()), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        _timers.Add(rain);
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _clipboardTimer.Stop();
+        _clipboardTimer.Dispose();
+        foreach (var timer in _timers) timer.Dispose();
+        _timers.Clear();
         _wifiCts?.Cancel();
         foreach (var window in _windows.ToArray()) window.Dispose();
         _windows.Clear();
@@ -202,12 +231,33 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     private void BuildWindows()
     {
-        var monitors = MonitorTargeting.CaptureScreens();
+        var monitors = _monitorService.GetAllMonitors();
         var appearance = _settings.Current.Appearance;
-        var targets = appearance.Display == DisplayMode.FollowActive
-            ? new[] { MonitorTargeting.SelectMonitor(monitors, MonitorTargeting.GetForegroundWindowRect(),
-                MonitorTargeting.GetCursorPosition(), useCursorMonitor: true, null) }
-            : MonitorTargeting.SelectTargets(monitors, appearance.Display, appearance.DisplayDeviceName);
+        IReadOnlyList<MonitorSnapshot> targets;
+
+        if (appearance.Display == DisplayMode.FollowActive)
+        {
+            var monitor = SelectActiveMonitor(monitors);
+            targets = new[] { monitor };
+        }
+        else if (appearance.Display == DisplayMode.All)
+        {
+            targets = monitors;
+        }
+        else if (appearance.Display == DisplayMode.Named)
+        {
+            var primary = monitors.FirstOrDefault(m => m.IsPrimary);
+            var named = monitors.FirstOrDefault(m => string.Equals(m.DeviceName, appearance.DisplayDeviceName, StringComparison.OrdinalIgnoreCase));
+            var monitor = !string.IsNullOrEmpty(appearance.DisplayDeviceName) && named.DeviceName != null
+                ? named
+                : primary.DeviceName != null ? primary : monitors[0];
+            targets = new[] { monitor };
+        }
+        else
+        {
+            var primary = monitors.FirstOrDefault(m => m.IsPrimary);
+            targets = new[] { primary.DeviceName != null ? primary : monitors[0] };
+        }
 
         var desired = targets.Select(t => t.DeviceName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -240,12 +290,35 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         RecreateTray();
     }
 
+    /// <summary>Select the monitor for FollowActive mode: foreground window center,
+    /// else cursor monitor, else primary.</summary>
+    private MonitorSnapshot SelectActiveMonitor(IReadOnlyList<MonitorSnapshot> monitors)
+    {
+        if (monitors.Count == 0) throw new ArgumentException("No monitors available");
+
+        var fgRect = _monitorService.GetForegroundWindowRect();
+        if (fgRect is { } rect)
+        {
+            var centerX = rect.X + rect.Width / 2;
+            var centerY = rect.Y + rect.Height / 2;
+            var containing = _monitorService.GetMonitorContainingPoint(centerX, centerY);
+            if (containing.HasValue) return containing.Value;
+        }
+
+        var cursor = _monitorService.GetCursorPosition();
+        var cursorMonitor = _monitorService.GetMonitorContainingPoint(cursor.X, cursor.Y);
+        if (cursorMonitor.HasValue) return cursorMonitor.Value;
+
+        var primary = monitors.FirstOrDefault(m => m.IsPrimary);
+        return primary.DeviceName != null ? primary : monitors[0];
+    }
+
     /// <summary>Follow-active tracks the monitor under the foreground window
     /// (falling back to the cursor monitor). Called from the layout poll so
     /// the single island hops between screens live.</summary>
     private void RebuildIfLayoutChanged()
     {
-        var monitors = MonitorTargeting.CaptureScreens();
+        var monitors = _monitorService.GetAllMonitors();
         var layoutKey = string.Join(",", monitors.Select(m => $"{m.DeviceName}:{m.Bounds.Left},{m.Bounds.Top},{m.Bounds.Width},{m.Bounds.Height}"));
         if (layoutKey != _lastMonitorLayout)
         {
@@ -257,8 +330,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         // Follow-active: keep the single window on the active monitor.
         if (_settings.Current.Appearance.Display == DisplayMode.FollowActive && _windows.Count == 1)
         {
-            var monitor = MonitorTargeting.SelectMonitor(monitors, MonitorTargeting.GetForegroundWindowRect(),
-                MonitorTargeting.GetCursorPosition(), useCursorMonitor: true, null);
+            var monitor = SelectActiveMonitor(monitors);
             if (!string.Equals(_windows[0].Monitor.DeviceName, monitor.DeviceName, StringComparison.OrdinalIgnoreCase))
             {
                 _windows[0].AssignMonitor(monitor);
@@ -365,12 +437,12 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             if (!manual && _settings.Current.General.LastPromptedUpdate == info.Tag) return;
 
             var window = new UpdateWindow(info);
-            var accepted = window.ShowDialog() == true;
+            window.ShowDialog(null!).GetAwaiter().GetResult();
             _settings.Update(x => x with
             {
                 General = x.General with { LastPromptedUpdate = info.Tag },
             });
-            if (accepted && window.StagedExe is { } staged)
+            if (window.StagedExe is { } staged)
             {
                 UpdateService.ApplyAndRestart(staged, window.DownloadPath);
                 QuitApplication();
@@ -398,13 +470,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     public void OpenSetupWizard()
     {
         var window = new SetupWindow(_settings);
-        window.ShowDialog();
+        window.ShowDialog(null!);
     }
 
     public void QuitApplication()
     {
         Dispose();
-        Application.Current.Shutdown();
+        Environment.Exit(0);
     }
 
     /// <summary>Wipe every setting back to defaults, delete the settings file
@@ -440,9 +512,10 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     private void OnMediaChanged(object? sender, MediaSnapshot? snapshot)
     {
+        _currentMedia = snapshot;
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 foreach (var window in _windows) window.Shell.SetMedia(snapshot);
                 if (snapshot is { Playing: true } media && media.Title.Length > 0 &&
@@ -461,23 +534,43 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         }
     }
 
-    public async Task MediaPlayPauseAsync() => await _media.PlayPauseAsync();
-    public async Task MediaNextAsync() => await _media.NextAsync();
-    public async Task MediaPreviousAsync() => await _media.PreviousAsync();
+    public async Task MediaPlayPauseAsync()
+    {
+        // Toggle based on current playback state
+        var currentMedia = _currentMedia;
+        if (currentMedia?.Playing == true)
+            await _media.PauseAsync();
+        else
+            await _media.PlayAsync();
+    }
+    public async Task MediaNextAsync() => await _media.SkipNextAsync();
+    public async Task MediaPreviousAsync() => await _media.SkipPreviousAsync();
     public async Task MediaSeekAsync(double seconds) => await _media.SeekAsync(seconds);
 
-    public void MediaVolumeChanged(float level01) => SystemVolume.SetLevel(level01);
-    public void MediaVolumeMuteToggled() => SystemVolume.SetMuted(!SystemVolume.Muted);
+    public void MediaVolumeChanged(float level01) => _volumeService.SetLevel(level01);
+    public void MediaVolumeMuteToggled() => _volumeService.SetMuted(!_volumeService.IsMuted);
 
     private void PollBattery()
     {
-        _battery = SystemStatus.GetBattery();
-        var stats = _statsSampler.Sample();
+        var batterySnapshot = _batteryService.GetSnapshot();
+        _battery = batterySnapshot is not null
+            ? new BatteryInfo((int)batterySnapshot.ChargePercent, batterySnapshot.IsCharging)
+            : new BatteryInfo(100, false);
+
+        var resourceSnapshot = _statsService.GetSnapshot();
+        var stats = new SystemStatsSnapshot(
+            CpuPercent: resourceSnapshot.CpuUsagePercent,
+            MemoryPercent: resourceSnapshot.MemoryTotalBytes > 0
+                ? (double)resourceSnapshot.MemoryUsedBytes / resourceSnapshot.MemoryTotalBytes * 100
+                : 0,
+            NetDownKbps: 0, // Would need to calculate from deltas
+            NetUpKbps: 0);
+
         // System volume is pushed alongside battery so the Now playing card's
         // slider reflects keyboard/mixer changes within ~2s.
-        var volumeLevel = SystemVolume.Level01;
-        var volumeMuted = SystemVolume.Muted;
-        var volumeAvailable = SystemVolume.Available;
+        var volumeLevel = _volumeService.Level01;
+        var volumeMuted = _volumeService.IsMuted;
+        var volumeAvailable = _volumeService.IsAvailable;
         foreach (var window in _windows)
         {
             window.Shell.SetBattery(_battery);
@@ -521,34 +614,35 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         if (!_settings.Current.Features.ClipboardHistoryEnabled) return;
         try
         {
-            if (Forms.Clipboard.ContainsText())
+            if (_clipboardService.ContainsText())
             {
-                var text = Forms.Clipboard.GetText();
-                if (_clipboardStore.TryAdd("text", text, null, null, text, DateTimeOffset.Now))
+                var text = _clipboardService.GetText();
+                if (text is not null && _clipboardStore.TryAdd("text", text, null, null, text, DateTimeOffset.Now))
                 {
                     PushClipboard();
                 }
                 return;
             }
 
-            if (Forms.Clipboard.ContainsFileDropList())
+            if (_clipboardService.ContainsFiles())
             {
-                var files = Forms.Clipboard.GetFileDropList();
-                var names = files.Cast<string>().ToArray();
-                var fingerprint = string.Join('\n', names);
-                if (_clipboardStore.TryAdd("files", null, names, null, fingerprint, DateTimeOffset.Now))
+                var files = _clipboardService.GetFiles();
+                if (files is { Length: > 0 })
                 {
-                    PushClipboard();
+                    var fingerprint = string.Join('\n', files);
+                    if (_clipboardStore.TryAdd("files", null, files, null, fingerprint, DateTimeOffset.Now))
+                    {
+                        PushClipboard();
+                    }
                 }
                 return;
             }
 
-            if (Forms.Clipboard.ContainsImage())
+            if (_clipboardService.ContainsImage())
             {
-                using var image = Forms.Clipboard.GetImage();
-                if (image is not null)
+                var thumb = _clipboardService.GetImageAsPngBase64(out var bytes);
+                if (thumb is not null)
                 {
-                    var thumb = ClipboardPng.ToPngBase64(image, out var bytes);
                     var fingerprint = Convert.ToHexString(
                         System.Security.Cryptography.SHA256.HashData(bytes));
                     if (_clipboardStore.TryAdd("image", null, null, thumb, fingerprint, DateTimeOffset.Now))
@@ -576,19 +670,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             switch (entry.Kind)
             {
                 case "text":
-                    Forms.Clipboard.SetText(entry.Text ?? "");
+                    _clipboardService.SetText(entry.Text ?? "");
                     break;
                 case "files" when entry.Files is { Length: > 0 }:
-                    var drop = new System.Collections.Specialized.StringCollection();
-                    foreach (var file in entry.Files) drop.Add(file);
-                    Forms.Clipboard.SetFileDropList(drop);
+                    _clipboardService.SetFiles(entry.Files);
                     break;
                 case "image" when entry.ThumbBase64 is { } b64:
-                    using (var stream = new MemoryStream(Convert.FromBase64String(b64)))
-                    using (var image = System.Drawing.Image.FromStream(stream))
-                    {
-                        Forms.Clipboard.SetImage(image);
-                    }
+                    _clipboardService.SetImage(Convert.FromBase64String(b64));
                     break;
             }
         }
@@ -614,7 +702,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new NotesEditWindow(widgets.Notes, widgets.SizeFor("notes"));
-        if (window.ShowDialog() == true && window.Result is { } text)
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } text)
         {
             var scale = window.Scale;
             _settings.Update(s => s with
@@ -628,7 +716,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new WeatherEditWindow(widgets.Weather, widgets.SizeFor("weather"));
-        if (window.ShowDialog() != true) return;
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true) return;
         // Both outcome paths below update settings themselves, so the card
         // size choice is saved here first.
         _settings.Update(s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
@@ -636,7 +724,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         {
             _ = ResolveAndFetchWeatherAsync(city);
         }
-        else if (window.UseWindowsLocation)
+        else if (window.UseSystemLocation)
         {
             _ = ResolveWindowsLocationAsync();
         }
@@ -646,7 +734,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new LauncherEditWindow(widgets.LauncherApps, widgets.SizeFor("launcher"));
-        if (window.ShowDialog() == true && window.Result is { } apps)
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } apps)
         {
             var scale = window.Scale;
             _settings.Update(s => s with
@@ -661,7 +749,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var widgets = _settings.Current.Widgets;
         var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes,
             widgets.FocusAutoCycle, widgets.SizeFor("focus"));
-        if (window.ShowDialog() != true || window.Result is not { } result) return;
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true || window.Result is not { } result) return;
         var scale = window.Scale;
         _settings.Update(s => s with
         {
@@ -678,7 +766,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new MetricsEditWindow(widgets.SystemMetrics, widgets.SizeFor("system"));
-        if (window.ShowDialog() == true && window.Result is { } result)
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } result)
         {
             var scale = window.Scale;
             _settings.Update(s => s with
@@ -694,7 +782,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new CardSizeWindow(WidgetSettings.Labels[id], widgets.SizeFor(id));
-        if (window.ShowDialog() != true) return;
+        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true) return;
         _settings.Update(s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
     }
 
@@ -743,26 +831,28 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         }
     }
 
-    /// <summary>Resolve the user's Windows location (WinRT geolocation) into a
-    /// saved weather location, like the legacy "Use Windows location".</summary>
+    /// <summary>Resolve the user's location (via platform geolocation service)
+    /// into a saved weather location, like the legacy "Use Windows location".</summary>
     private async Task ResolveWindowsLocationAsync()
     {
         try
         {
-            var location = await WindowsLocation.ResolveAsync();
+            var location = await _locationService.GetLocationAsync();
             if (location is not { } loc)
             {
-                ShowToast(new ToastSpec("", "Weather",
-                    "Windows location is unavailable — allow location in Settings → Privacy → Location, then retry.", 6));
+                var message = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    ? "Windows location is unavailable — allow location in Settings → Privacy → Location, then retry."
+                    : "Location is unavailable — check your system location settings and permissions, then retry.";
+                ShowToast(new ToastSpec("", "Weather", message, 6));
                 return;
             }
-            var hit = await _weather.SearchByCoordinatesAsync(loc.Lat, loc.Lon);
-            var city = hit?.Name ?? $"({loc.Lat:0.##}, {loc.Lon:0.##})";
+            var hit = await _weather.SearchByCoordinatesAsync(loc.Latitude, loc.Longitude);
+            var city = hit?.Name ?? $"({loc.Latitude:0.##}, {loc.Longitude:0.##})";
             _settings.Update(s => s with
             {
                 Widgets = s.Widgets with
                 {
-                    Weather = new WeatherWidgetConfig { City = city, Lat = loc.Lat, Lon = loc.Lon },
+                    Weather = new WeatherWidgetConfig { City = city, Lat = loc.Latitude, Lon = loc.Longitude },
                 },
             });
             await FetchWeatherAsync();

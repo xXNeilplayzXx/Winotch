@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Design tokens -->
+    <Color x:Key="NotchBlackColor">#050505</Color>
+    <Color x:Key="NotchPanelColor">#15171C</Color>
+    <Color x:Key="NotchPanelRaisedColor">#1E2127</Color>
+    <Color x:Key="NotchPanelHoverColor">#262A32</Color>
+    <Color x:Key="NotchStrokeColor">#2E333C</Color>
+    <Color x:Key="NotchAccentColor">#50D6FF</Color>
+    <Color x:Key="NotchOkColor">#32D74B</Color>
+    <Color x:Key="NotchDangerColor">#FF6B6B</Color>
+    <Color x:Key="NotchTextColor">#F4F6FA</Color>
+    <Color x:Key="NotchMutedTextColor">#9AA3B2</Color>
+    <Color x:Key="NotchHairlineColor">#23272F</Color>
+
+    <SolidColorBrush x:Key="NotchBlack" Color="{StaticResource NotchBlackColor}" />
+    <SolidColorBrush x:Key="NotchPanel" Color="{StaticResource NotchPanelColor}" />
+    <SolidColorBrush x:Key="NotchPanelRaised" Color="{StaticResource NotchPanelRaisedColor}" />
+    <SolidColorBrush x:Key="NotchPanelHover" Color="{StaticResource NotchPanelHoverColor}" />
+    <SolidColorBrush x:Key="NotchStroke" Color="{StaticResource NotchStrokeColor}" />
+    <SolidColorBrush x:Key="NotchAccent" Color="{StaticResource NotchAccentColor}" />
+    <SolidColorBrush x:Key="NotchOk" Color="{StaticResource NotchOkColor}" />
+    <SolidColorBrush x:Key="NotchDanger" Color="{StaticResource NotchDangerColor}" />
+    <SolidColorBrush x:Key="NotchText" Color="{StaticResource NotchTextColor}" />
+    <SolidColorBrush x:Key="NotchMutedText" Color="{StaticResource NotchMutedTextColor}" />
+    <SolidColorBrush x:Key="NotchHairline" Color="{StaticResource NotchHairlineColor}" />
+
+    <!-- UI typeface: Inter on Linux, Segoe UI Variable on Windows -->
+    <FontFamily x:Key="NotchUiFont">Inter, Segoe UI Variable Text, Segoe UI, Noto Sans, sans-serif</FontFamily>
+</ResourceDictionary>

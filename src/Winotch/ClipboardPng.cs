@@ -1,19 +1,18 @@
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.IO;
+using SkiaSharp;
 
 namespace Winotch;
 
 /// <summary>Downscales clipboard bitmaps to a small PNG for in-memory history.
 /// Following the app's privacy stance, only this small thumbnail is kept —
-/// never the original bitmap, and nothing ever touches disk.</summary>
+/// never the original bitmap, and nothing ever touches disk.
+/// Uses SkiaSharp for cross-platform support.</summary>
 public static class ClipboardPng
 {
     // Rendered at ~24px in the panel, so 160 keeps quality while cutting
     // each stored thumbnail's memory ~4x vs 320.
     private const int MaxEdge = 160;
 
-    public static string? ToPngBase64(System.Drawing.Image source, out byte[] bytes)
+    public static string? ToPngBase64(SKBitmap source, out byte[] bytes)
     {
         bytes = Array.Empty<byte>();
         if (source is null) return null;
@@ -22,18 +21,16 @@ public static class ClipboardPng
         var width = Math.Max(1, (int)Math.Round(source.Width * scale));
         var height = Math.Max(1, (int)Math.Round(source.Height * scale));
 
-        using var bitmap = new System.Drawing.Bitmap(width, height);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        using var resized = new SKBitmap(width, height);
+        using (var canvas = new SKCanvas(resized))
+        using (var paint = new SKPaint { FilterQuality = SKFilterQuality.High })
         {
-            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            graphics.SmoothingMode = SmoothingMode.HighQuality;
-            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            graphics.DrawImage(source, 0, 0, width, height);
+            canvas.DrawBitmap(source, new SKRect(0, 0, width, height), paint);
         }
 
-        using var stream = new MemoryStream();
-        bitmap.Save(stream, ImageFormat.Png);
-        bytes = stream.ToArray();
+        using var image = SKImage.FromBitmap(resized);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        bytes = data.ToArray();
         return Convert.ToBase64String(bytes);
     }
 }

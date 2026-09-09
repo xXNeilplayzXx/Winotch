@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 
@@ -100,3 +101,4 @@ public sealed class SystemStatsSampler
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern bool GlobalMemoryStatusEx([In, Out] MemoryStatusEx buffer);
 }
+#endif

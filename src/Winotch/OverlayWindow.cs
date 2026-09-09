@@ -1,38 +1,21 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Windows;
-using System.Windows.Input;
-using System.Windows.Interop;
 using SkiaSharp;
-using SkiaSharp.Views.Desktop;
-using SkiaSharp.Views.WPF;
 using Winotch.Engine;
 
 namespace Winotch;
 
 /// <summary>The notch host: a borderless transparent window covering one
 /// monitor's full bounds, painting the island with SkiaSharp and letting all
-/// clicks pass through except where the island actually is. Pure surface —
-/// services (media, clipboard, weather, status, tray) live in the manager.</summary>
-public sealed class OverlayWindow : Window, IDisposable
+/// clicks pass through except where the island actually is. The native
+/// windowing is platform-specific (Win32 on Windows, X11/Wayland on Linux).</summary>
+public sealed partial class OverlayWindow : IDisposable
 {
-    private const int GwlExStyle = -20;
-    private const int WsExToolWindow = 0x00000080;
-    private const int WsExNoActivate = 0x08000000;
-    private const int WsExAppWindow = 0x00040000;
-    private const int WmNcHitTest = 0x0084;
-    private const int WmMouseActivate = 0x0021;
-    private const int HtTransparent = -1;
-    private const int MaNoActivate = 3;
-
     private readonly SettingsService _settings;
     private readonly ThemeService _themeService;
     private readonly OverlayWindowManager _manager;
     private readonly IslandShell _shell;
-    private readonly SKElement _surface;
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
 
-    private HwndSource? _source;
     private bool _cursorHand;
     private double _lastSecond = -1;
     private double _cursorX = double.NaN, _cursorY = double.NaN;
@@ -44,7 +27,7 @@ public sealed class OverlayWindow : Window, IDisposable
     private bool _dragging;
     private bool _seekDrag;
     private bool _volumeDrag;
-    private System.Windows.Point _dragStart;
+    private (double X, double Y) _dragStart;
     private double _offsetDragStartX, _offsetDragStartY;
 
     // Widget drag-to-reorder state.
@@ -60,42 +43,28 @@ public sealed class OverlayWindow : Window, IDisposable
 
         _shell = new IslandShell(settings, themeService);
         WireShell();
-
-        WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = System.Windows.Media.Brushes.Transparent;
-        Topmost = true;
-        ShowInTaskbar = false;
-        ResizeMode = ResizeMode.NoResize;
-        Focusable = false;
-        Title = "Winotch";
-
-        _surface = new SKElement();
-        _surface.PaintSurface += OnPaintSurface;
-        Content = _surface;
+        NativeInit();
     }
 
     public IslandShell Shell => _shell;
-
     public MonitorSnapshot Monitor { get; private set; }
-
-    public HwndSource? Source => _source;
-
     public bool IsPaused => _shell.Paused;
+    public bool IsHidden { get; private set; }
 
     public void SetPaused(bool paused) => _shell.Paused = paused;
 
-    public bool IsHidden => !IsVisible;
-
-    public void HideNotch() => Hide();
+    public void HideNotch()
+    {
+        IsHidden = true;
+        NativeHide();
+    }
 
     public void ShowNotch()
     {
-        Show();
+        IsHidden = false;
         _shell.ApplyTheme();
+        NativeShow();
     }
-
-    // ------------------------------------------------------------ lifecycle
 
     /// <summary>Target this window at a monitor: position the full-screen
     /// overlay over its bounds and keep the monitor for hit-testing math.</summary>
@@ -103,47 +72,23 @@ public sealed class OverlayWindow : Window, IDisposable
     {
         Monitor = monitor;
         var scale = monitor.DpiScaleX;
-        Left = monitor.LeftDip;
-        Top = monitor.TopDip;
-        Width = monitor.WidthDip;
-        Height = monitor.Bounds.Height / scale;
+        NativeSetBounds(monitor.LeftDip, monitor.TopDip, monitor.WidthDip, monitor.Bounds.Height / scale);
         _shell.ApplyTheme();
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-        if (PresentationSource.FromVisual(this) is HwndSource source)
-        {
-            _source = source;
-            source.AddHook(WndProc);
-        }
-
-        var handle = new WindowInteropHelper(this).Handle;
-        var style = (int)GetWindowLongPtr(handle, GwlExStyle);
-        style |= WsExToolWindow | WsExNoActivate;
-        style &= ~WsExAppWindow;
-        SetWindowLongPtr(handle, GwlExStyle, (IntPtr)style);
-
-        _shell.ApplyTheme();
-        StartFrameLoop();
-    }
-
-    protected override void OnClosed(EventArgs e)
-    {
-        Dispose();
-        base.OnClosed(e);
     }
 
     public void Dispose()
     {
-        if (_source is not null)
-        {
-            _source.RemoveHook(WndProc);
-            _source = null;
-        }
-        _surface.PaintSurface -= OnPaintSurface;
-        StopFrameLoop();
+        NativeCleanup();
+    }
+
+    public void Close()
+    {
+        Dispose();
+    }
+
+    public void Show()
+    {
+        ShowNotch();
     }
 
     // --------------------------------------------------------------- shell
@@ -174,20 +119,9 @@ public sealed class OverlayWindow : Window, IDisposable
 
     // ----------------------------------------------------------- frame loop
 
-    private void StartFrameLoop()
+    private void OnFrameTick()
     {
-        System.Windows.Media.CompositionTarget.Rendering += OnFrame;
-        _lastSecond = -1;
-    }
-
-    private void StopFrameLoop()
-    {
-        System.Windows.Media.CompositionTarget.Rendering -= OnFrame;
-    }
-
-    private void OnFrame(object? sender, EventArgs e)
-    {
-        if (IsVisible is false) return;
+        if (IsHidden) return;
 
         var now = _stopwatch.Elapsed.TotalSeconds;
         var delta = Math.Clamp(now - _lastSecond, 0, 0.1);
@@ -205,15 +139,10 @@ public sealed class OverlayWindow : Window, IDisposable
         if (wantHand != _cursorHand)
         {
             _cursorHand = wantHand;
-            Cursor = wantHand ? Cursors.Hand : Cursors.Arrow;
+            NativeSetCursor(wantHand);
         }
 
-        // Idle repaint suppression: repaint only when something visible
-        // changed. A collapsed idle notch therefore costs ~0% CPU instead of
-        // a full Skia redraw (gradient + shadow + text) every compositor
-        // frame. Animations and live toasts keep full-rate repaints; hover,
-        // data events, the per-second countdown/timeline, and the once-a-
-        // minute pill clock drive the rest.
+        // Idle repaint suppression
         var wholeSecond = (int)now;
         var secondChanged = wholeSecond != _lastWholeSecond;
         _lastWholeSecond = wholeSecond;
@@ -226,81 +155,64 @@ public sealed class OverlayWindow : Window, IDisposable
             _shell.Animating || _shell.ToastsActive || _shell.ConsumeDataDirty() ||
             (cursorMoved && (_shell.IsExpanded || _shell.NearCursor(cursorDipX, cursorDipY))) ||
             (_shell.IsExpanded && minuteChanged) ||
-            // Per-second repaints only while something on screen is actually
-            // live; an idle expanded panel (clock-only) repaints once a minute.
             (_shell.IsExpanded && secondChanged && _shell.NeedsLiveUpdates) ||
             (!_shell.IsExpanded && _shell.Focus.IsActive && secondChanged) ||
             (!_shell.IsExpanded && _shell.Call is { OnCall: true } && secondChanged) ||
             (!_shell.IsExpanded && minuteChanged);
 
-        if (dirty) _surface.InvalidateVisual();
+        if (dirty) NativeInvalidate();
     }
 
-    // ----------------------------------------------------------- mouse
+    // ----------------------------------------------------------- input
 
-    protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
+    private void HandleMouseDown(double x, double y)
     {
-        base.OnPreviewMouseLeftButtonDown(e);
-        var point = e.GetPosition(_surface);
-        if (_shell.DragToMoveEnabled && _shell.IsCollapsedPillAt(point.X, point.Y))
+        if (_shell.DragToMoveEnabled && _shell.IsCollapsedPillAt(x, y))
         {
             _dragActive = true;
             _dragging = false;
-            _dragStart = point;
+            _dragStart = (x, y);
             _offsetDragStartX = _shell.OffsetX;
             _offsetDragStartY = _shell.OffsetY;
             _shell.Dragging = true;
-            _surface.CaptureMouse();
+            NativeCaptureMouse();
             return;
         }
 
-        // Drag-to-seek / volume on the Now playing card — checked before
-        // drag-to-reorder so those strips act as controls, not card handles.
-        if (_shell.MediaSeekHit(point.X, point.Y))
+        if (_shell.MediaSeekHit(x, y))
         {
             _seekDrag = true;
-            _shell.BeginSeek(point.X, point.Y);
-            _surface.CaptureMouse();
+            _shell.BeginSeek(x, y);
+            NativeCaptureMouse();
             return;
         }
-        if (_shell.MediaVolumeHit(point.X, point.Y))
+        if (_shell.MediaVolumeHit(x, y))
         {
             _volumeDrag = true;
-            _shell.BeginVolumeDrag(point.X, point.Y);
-            _surface.CaptureMouse();
+            _shell.BeginVolumeDrag(x, y);
+            NativeCaptureMouse();
             return;
         }
 
-        // Drag-to-reorder: grabbing a widget card (expanded panel).
-        var widgetId = _shell.WidgetCardAt(point.X, point.Y);
+        var widgetId = _shell.WidgetCardAt(x, y);
         if (widgetId is not null)
         {
             _dragWidgetId = widgetId;
             _dragActive = true;
             _dragging = false;
-            _dragStart = point;
+            _dragStart = (x, y);
             _lastWidgetIndex = -1;
-            _surface.CaptureMouse();
+            NativeCaptureMouse();
         }
     }
 
-    protected override void OnPreviewMouseMove(MouseEventArgs e)
+    private void HandleMouseMove(double x, double y)
     {
-        base.OnPreviewMouseMove(e);
-        var point = e.GetPosition(_surface);
-        if (_seekDrag)
-        {
-            _shell.UpdateSeek(point.X, point.Y);
-            return;
-        }
-        if (_volumeDrag)
-        {
-            _shell.UpdateVolumeDrag(point.X, point.Y);
-            return;
-        }
+        if (_seekDrag) { _shell.UpdateSeek(x, y); return; }
+        if (_volumeDrag) { _shell.UpdateVolumeDrag(x, y); return; }
         if (!_dragActive) return;
         if (!_dragging &&
-            (Math.Abs(point.X - _dragStart.X) > 4 || Math.Abs(point.Y - _dragStart.Y) > 4))
+            (Math.Abs(x - _dragStart.X) > 4 || Math.Abs(y - _dragStart.Y) > 4))
         {
             _dragging = true;
         }
@@ -308,7 +220,7 @@ public sealed class OverlayWindow : Window, IDisposable
 
         if (_dragWidgetId is not null)
         {
-            var target = _shell.WidgetIndexAt(point.X, point.Y);
+            var target = _shell.WidgetIndexAt(x, y);
             if (target >= 0 && target != _lastWidgetIndex)
             {
                 _lastWidgetIndex = target;
@@ -318,21 +230,19 @@ public sealed class OverlayWindow : Window, IDisposable
         }
 
         _shell.SetOffset(
-            _offsetDragStartX + point.X - _dragStart.X,
-            _offsetDragStartY + point.Y - _dragStart.Y);
+            _offsetDragStartX + x - _dragStart.X,
+            _offsetDragStartY + y - _dragStart.Y);
     }
 
-    protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
+    private void HandleMouseUp(double x, double y)
     {
-        base.OnPreviewMouseLeftButtonUp(e);
-        var point = e.GetPosition(_surface);
         if (_seekDrag || _volumeDrag)
         {
             if (_seekDrag) _shell.EndSeek();
             else _shell.EndVolumeDrag();
             _seekDrag = false;
             _volumeDrag = false;
-            _surface.ReleaseMouseCapture();
+            NativeReleaseMouse();
             return;
         }
         if (_dragActive)
@@ -343,12 +253,11 @@ public sealed class OverlayWindow : Window, IDisposable
             _dragging = false;
             _dragWidgetId = null;
             _shell.Dragging = false;
-            _surface.ReleaseMouseCapture();
+            NativeReleaseMouse();
             if (wasDragging)
             {
                 if (widgetId is null)
                 {
-                    // Pill drag: persist the resting position (already live).
                     _settings.Update(s => s with
                     {
                         Appearance = s.Appearance with
@@ -358,99 +267,29 @@ public sealed class OverlayWindow : Window, IDisposable
                         },
                     });
                 }
-                // Widget drag already persisted each move via MoveWidgetTo.
                 return;
             }
         }
-        _shell.Click(point.X, point.Y);
+        _shell.Click(x, y);
     }
 
-    protected override void OnPreviewMouseRightButtonUp(MouseButtonEventArgs e)
+    private void HandleRightClick(double x, double y)
     {
-        base.OnPreviewMouseRightButtonUp(e);
-        var point = e.GetPosition(_surface);
         if (_shell.IsExpanded)
         {
-            _shell.OpenContextMenu(point.X, point.Y);
+            _shell.OpenContextMenu(x, y);
         }
     }
 
-    private (double X, double Y) CursorInLocalDip()
+    // ----------------------------------------------------------- canvas
+
+    private void OnPaintSurface(SKCanvas canvas, float scale, double actualWidth, double actualHeight)
     {
-        var scale = CurrentDpi();
-        var rect = WindowScreenRect();
-        GetCursorPos(out var pt);
-        return ((pt.X - rect.Left) / scale, (pt.Y - rect.Top) / scale);
-    }
-
-    private double CurrentDpi() =>
-        PresentationSource.FromVisual(this)?.CompositionTarget.TransformToDevice.M11 ?? 1.0;
-
-    private (int Left, int Top, int Right, int Bottom) WindowScreenRect()
-    {
-        GetWindowRect(new WindowInteropHelper(this).Handle, out var rect);
-        return (rect.Left, rect.Top, rect.Right, rect.Bottom);
-    }
-
-    // -------------------------------------------------------- window proc
-
-    private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (message == WmNcHitTest)
-        {
-            var scale = CurrentDpi();
-            var rect = WindowScreenRect();
-            var xScreen = (short)((long)lParam & 0xFFFF);
-            var yScreen = (short)(((long)lParam >> 16) & 0xFFFF);
-            var dipX = (xScreen - rect.Left) / scale;
-            var dipY = (yScreen - rect.Top) / scale;
-            if (!_shell.IsInteractiveAt(dipX, dipY))
-            {
-                handled = true;
-                return (IntPtr)HtTransparent;
-            }
-        }
-        else if (message == WmMouseActivate)
-        {
-            handled = true;
-            return (IntPtr)MaNoActivate;
-        }
-        return IntPtr.Zero;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint { public int X; public int Y; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetCursorPos(out NativePoint point);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-    // -------------------------------------------------------------- canvas
-
-    private void OnPaintSurface(object? sender, SKPaintSurfaceEventArgs e)
-    {
-        var canvas = e.Surface.Canvas;
         canvas.Clear(SKColors.Transparent);
-
-        var scale = (float)CurrentDpi();
-        var (left, top, _, _) = WindowScreenRect();
-        _shell.SetScreenContext(left, top, scale);
+        var (screenLeft, screenTop) = NativeScreenOrigin();
+        _shell.SetScreenContext((int)screenLeft, (int)screenTop, scale);
         canvas.Scale(scale, scale);
-
-        _shell.SetCanvas(ActualWidth, ActualHeight);
+        _shell.SetCanvas(actualWidth, actualHeight);
         _shell.Draw(canvas);
     }
 }
