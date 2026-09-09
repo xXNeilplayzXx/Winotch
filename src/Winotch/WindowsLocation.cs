@@ -25,6 +25,5 @@ public static class WindowsLocation
             return null;
         }
     }
-    }
 }
 #endif

@@ -1,3 +1,7 @@
+#if WINDOWS
+using Microsoft.Win32;
+#endif
+
 namespace Winotch;
 
 /// <summary>Live microphone / camera use. An app is "in use" while
@@ -10,7 +14,6 @@ public interface IPrivacyConsentStore
 }
 
 #if WINDOWS
-using Microsoft.Win32;
 
 /// <summary>Reads from Windows' privacy consent store — the same source the
 /// legacy app polled. Walks each per-app subkey recursively.</summary>
