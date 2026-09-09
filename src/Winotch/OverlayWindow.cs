@@ -72,7 +72,8 @@ public sealed partial class OverlayWindow : IDisposable
     {
         Monitor = monitor;
         var scale = monitor.DpiScaleX;
-        NativeSetBounds(monitor.LeftDip, monitor.TopDip, monitor.WidthDip, monitor.Bounds.Height / scale);
+        NativeSetBounds(monitor.LeftDip, monitor.TopDip, monitor.WidthDip,
+            scale > 0.001 ? monitor.Bounds.Height / scale : monitor.Bounds.Height);
         _shell.ApplyTheme();
     }
 

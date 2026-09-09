@@ -26,6 +26,7 @@ public sealed class MediaService : IMediaService, IDisposable
 
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private CancellationTokenSource? _cts;
+    private readonly object _ctsGate = new();
     private string _lastKey = "";
     private bool _lastPlaying;
     private bool _hasLast;
@@ -79,9 +80,10 @@ public sealed class MediaService : IMediaService, IDisposable
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Transient failure — clear state and retry the manager.
+                    System.Diagnostics.Debug.WriteLine($"[Winotch] MediaService loop failed: {ex.Message}");
                     _manager = null;
                     if (_hasLast)
                     {
@@ -102,16 +104,21 @@ public sealed class MediaService : IMediaService, IDisposable
 
     public void Stop()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = null;
+        CancellationTokenSource? cts;
+        lock (_ctsGate) { cts = _cts; _cts = null; }
+        if (cts is not null)
+        {
+            try { cts.Cancel(); } catch { }
+            try { cts.Dispose(); } catch { }
+        }
     }
 
     public async Task PlayAsync()
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TryPlayAsync(); } catch { }
+            try { await session.TryPlayAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Play failed: {ex.Message}"); }
         }
     }
 
@@ -119,7 +126,8 @@ public sealed class MediaService : IMediaService, IDisposable
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TryPauseAsync(); } catch { }
+            try { await session.TryPauseAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Pause failed: {ex.Message}"); }
         }
     }
 
@@ -127,7 +135,8 @@ public sealed class MediaService : IMediaService, IDisposable
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TrySkipNextAsync(); } catch { }
+            try { await session.TrySkipNextAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Next failed: {ex.Message}"); }
         }
     }
 
@@ -135,7 +144,8 @@ public sealed class MediaService : IMediaService, IDisposable
     {
         if (BestSession(_manager) is { } session)
         {
-            try { await session.TrySkipPreviousAsync(); } catch { }
+            try { await session.TrySkipPreviousAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Previous failed: {ex.Message}"); }
         }
     }
 
@@ -150,7 +160,7 @@ public sealed class MediaService : IMediaService, IDisposable
                 await session.TryChangePlaybackPositionAsync(
                     (long)(seconds * TimeSpan.TicksPerSecond));
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Seek failed: {ex.Message}"); }
         }
     }
 
@@ -166,9 +176,9 @@ public sealed class MediaService : IMediaService, IDisposable
                 .FirstOrDefault(s => IsPlaying(s));
             if (playing is not null) return playing;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] BestSession GetSessions failed: {ex.Message}"); }
         try { return manager.GetCurrentSession(); }
-        catch { return null; }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] BestSession GetCurrentSession failed: {ex.Message}"); return null; }
     }
 
     private static bool IsPlaying(GlobalSystemMediaTransportControlsSession session)
@@ -178,7 +188,7 @@ public sealed class MediaService : IMediaService, IDisposable
             return session.GetPlaybackInfo()?.PlaybackStatus ==
                    GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         }
-        catch { return false; }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] IsPlaying failed: {ex.Message}"); return false; }
     }
 
     private async Task<MediaSnapshot?> ReadAsync(GlobalSystemMediaTransportControlsSessionManager manager)
@@ -206,7 +216,7 @@ public sealed class MediaService : IMediaService, IDisposable
                 position = timeline.Position.TotalSeconds;
                 duration = timeline.EndTime.TotalSeconds;
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] GetTimelineProperties failed: {ex.Message}"); }
 
             // Album art is re-derivable on every 1s poll; decode it only once
             // per track identity (the base64 is byte-identical across polls).
@@ -225,8 +235,9 @@ public sealed class MediaService : IMediaService, IDisposable
             var canSeek = info?.Controls?.IsPlaybackPositionEnabled ?? false;
             return new MediaSnapshot(title, artist, playing, position, duration, art, canSeek);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[Winotch] ReadAsync failed: {ex.Message}");
             return null;
         }
     }
@@ -271,8 +282,9 @@ public sealed class MediaService : IMediaService, IDisposable
             using var png2 = image2.Encode(SKEncodedImageFormat.Png, 80);
             return Convert.ToBase64String(png2.ToArray());
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[Winotch] DecodeArtworkAsync failed: {ex.Message}");
             return null;
         }
     }
@@ -280,7 +292,7 @@ public sealed class MediaService : IMediaService, IDisposable
     private static string Safe(Func<string> getter)
     {
         try { return getter() ?? ""; }
-        catch { return ""; }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch] Safe getter failed: {ex.Message}"); return ""; }
     }
 
     /// <summary>"Microsoft.MSEdge" → "Microsoft Edge", "chrome.exe" → "Chrome".</summary>
