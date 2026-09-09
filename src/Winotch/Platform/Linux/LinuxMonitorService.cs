@@ -95,6 +95,10 @@ public sealed class LinuxMonitorService : IMonitorService
         return null;
     }
 
+    /// <summary>Linux has no Win32 window classes; fullscreen detection
+    /// falls back to coverage alone (null is never a shell class).</summary>
+    public string? GetForegroundWindowClassName() => null;
+
     public MonitorSnapshot? GetMonitorContainingPoint(int x, int y)
     {
         var monitors = GetAllMonitors();

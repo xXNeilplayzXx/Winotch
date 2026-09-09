@@ -519,6 +519,11 @@ public sealed record FeatureSettings
     public bool PriorityAlertsEnabled { get; init; } = true;
     public bool FollowActiveMonitor { get; init; } = true;
 
+    /// <summary>Opt out of the automatic hide when a foreground window
+    /// covers a monitor (F11 video, borderless games). Off by default:
+    /// the notch disappears in fullscreen and comes back on its own.</summary>
+    public bool KeepNotchVisibleInFullscreen { get; init; } = false;
+
     // Which live states may appear as chips on the collapsed pill.
     public bool ShowCallsOnPill { get; init; } = true;
     public bool ShowMediaOnPill { get; init; } = true;

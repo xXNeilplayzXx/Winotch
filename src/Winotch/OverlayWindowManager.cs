@@ -72,6 +72,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private string _lastMonitorLayout = "";
     private DisplayMode _lastDisplayMode;
     private string _lastDisplayDevice = "";
+    /// <summary>Devices whose island was hidden by fullscreen auto-hide, so
+    /// only those are auto-shown again (a manual tray Hide stays user-owned).</summary>
+    private readonly HashSet<string> _fullscreenHiddenDevices = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
     private bool _updateCheckInFlight;
 
@@ -324,18 +327,54 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         {
             _lastMonitorLayout = layoutKey;
             BuildWindows();
-            return;
         }
-
-        // Follow-active: keep the single window on the active monitor.
-        if (_settings.Current.Appearance.Display == DisplayMode.FollowActive && _windows.Count == 1)
+        else if (_settings.Current.Appearance.Display == DisplayMode.FollowActive && _windows.Count == 1)
         {
+            // Follow-active: keep the single window on the active monitor.
             var monitor = SelectActiveMonitor(monitors);
             if (!string.Equals(_windows[0].Monitor.DeviceName, monitor.DeviceName, StringComparison.OrdinalIgnoreCase))
             {
                 _windows[0].AssignMonitor(monitor);
             }
         }
+
+        UpdateFullscreenHiding();
+    }
+
+    /// <summary>Hide each island whose monitor is covered ≥98% by the
+    /// foreground app (F11 video, borderless games) and restore it when the
+    /// app leaves fullscreen. Only islands hidden here are auto-shown again,
+    /// so a manual tray Hide/Show stays authoritative. The overlay itself
+    /// never becomes the foreground window (WS_EX_NOACTIVATE), so no
+    /// self-exclusion is needed. Opt-out: KeepNotchVisibleInFullscreen.</summary>
+    private void UpdateFullscreenHiding()
+    {
+        (int X, int Y, int Width, int Height)? foregroundRect = null;
+        string? foregroundClass = null;
+        if (!_settings.Current.Features.KeepNotchVisibleInFullscreen)
+        {
+            foregroundRect = _monitorService.GetForegroundWindowRect();
+            foregroundClass = _monitorService.GetForegroundWindowClassName();
+        }
+
+        foreach (var window in _windows)
+        {
+            var device = window.Monitor.DeviceName;
+            var shouldHide = FullscreenDetector.ShouldHide(foregroundRect, foregroundClass, window.Monitor.Bounds);
+            if (shouldHide && !window.IsHidden)
+            {
+                window.HideNotch();
+                _fullscreenHiddenDevices.Add(device);
+            }
+            else if (!shouldHide && window.IsHidden && _fullscreenHiddenDevices.Contains(device))
+            {
+                window.ShowNotch();
+                _fullscreenHiddenDevices.Remove(device);
+            }
+        }
+
+        // Islands destroyed by a layout rebuild leave stale device names.
+        _fullscreenHiddenDevices.IntersectWith(_windows.Select(w => w.Monitor.DeviceName));
     }
 
     private void OnSettingsChanged(object? sender, WinotchSettings settings)
@@ -390,11 +429,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     public void HideNotch()
     {
+        // Manual hide/show wins over the fullscreen auto-hide bookkeeping.
+        _fullscreenHiddenDevices.Clear();
         foreach (var window in _windows) window.HideNotch();
     }
 
     public void ShowNotch()
     {
+        _fullscreenHiddenDevices.Clear();
         foreach (var window in _windows) window.ShowNotch();
     }
 

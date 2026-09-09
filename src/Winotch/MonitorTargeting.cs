@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 #if WINDOWS
 using FormsScreen = System.Windows.Forms.Screen;
 #endif
@@ -50,6 +51,17 @@ public static class MonitorTargeting
         if (hwnd == IntPtr.Zero) return null;
         if (!GetWindowRect(hwnd, out var rect)) return null;
         return new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
+    }
+
+    /// <summary>Win32 window class of the foreground window, used to exclude
+    /// shell surfaces (desktop/taskbar) from fullscreen detection. Null when
+    /// there is no foreground window or the class can't be read.</summary>
+    public static string? GetForegroundWindowClassName()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return null;
+        var buffer = new StringBuilder(256);
+        return GetClassName(hwnd, buffer, buffer.Capacity) > 0 ? buffer.ToString() : null;
     }
 
     public static IReadOnlyList<MonitorSnapshot> SelectTargets(
@@ -200,6 +212,9 @@ public static class MonitorTargeting
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);

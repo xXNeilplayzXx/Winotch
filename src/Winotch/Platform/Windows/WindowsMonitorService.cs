@@ -23,6 +23,8 @@ public sealed class WindowsMonitorService : IMonitorService
         return (rect.Value.X, rect.Value.Y, rect.Value.Width, rect.Value.Height);
     }
 
+    public string? GetForegroundWindowClassName() => MonitorTargeting.GetForegroundWindowClassName();
+
     public MonitorSnapshot? GetMonitorContainingPoint(int x, int y)
     {
         var monitors = GetAllMonitors();

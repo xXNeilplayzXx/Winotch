@@ -364,6 +364,9 @@ public partial class SettingsWindow : Avalonia.Controls.Window
         pillRows.Add(MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
             s.Features.ShowBatteryOnPill,
             v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
+        pillRows.Add(MakeToggleRow("Keep notch visible in fullscreen", "Don't hide the island when an app goes fullscreen",
+            s.Features.KeepNotchVisibleInFullscreen,
+            v => _settings.Update(x => x with { Features = x.Features with { KeepNotchVisibleInFullscreen = v } })));
         AddSection("Pill", pillRows.ToArray());
 
         AddSection("Alerts",
