@@ -57,7 +57,7 @@ public sealed class TrayIconService : IDisposable
         var exitItem = new Forms.ToolStripMenuItem("Exit");
         settingsItem.Click += (_, _) => Dispatch(_host.OpenSettingsWindow);
         setupItem.Click += (_, _) => Dispatch(_host.OpenSetupWizard);
-        updateItem.Click += (_, _) => Dispatch(() => _host.CheckForUpdates());
+        updateItem.Click += (_, _) => Dispatch(() => { _ = _host.CheckForUpdatesAsync(); });
         _pauseItem.Click += (_, _) => Dispatch(() => _host.SetPaused(!_host.IsPaused));
         _visibilityItem.Click += (_, _) => Dispatch(() =>
         {
@@ -265,7 +265,7 @@ public sealed class TrayIconService : IDisposable
 
     private void OnOpenSettings(IntPtr item, IntPtr userData) => _host.OpenSettingsWindow();
     private void OnRerunSetup(IntPtr item, IntPtr userData) => _host.OpenSetupWizard();
-    private void OnCheckUpdates(IntPtr item, IntPtr userData) => _host.CheckForUpdates();
+    private void OnCheckUpdates(IntPtr item, IntPtr userData) => _ = _host.CheckForUpdatesAsync();
 
     private void OnTogglePause(IntPtr item, IntPtr userData)
     {

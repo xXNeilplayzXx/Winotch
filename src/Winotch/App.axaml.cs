@@ -26,32 +26,42 @@ public partial class App : Application
                 return;
             }
 
-            var settings = new SettingsService();
-            var startup = new StartupService();
-
-            // Repair stale startup paths and enforce the stored setting at boot.
-            var executable = StartupService.CurrentExecutablePath();
-            var state = startup.GetState(executable);
-            if (state.CanAccess && settings.Current.General.StartWithWindows && !state.IsEnabled)
+            try
             {
-                startup.SetEnabled(true, executable);
+                var settings = new SettingsService();
+                var startup = new StartupService();
+
+                // Repair stale startup paths and enforce the stored setting at boot.
+                var executable = StartupService.CurrentExecutablePath();
+                var state = startup.GetState(executable);
+                if (state.CanAccess && settings.Current.General.StartWithWindows && !state.IsEnabled)
+                {
+                    startup.SetEnabled(true, executable);
+                }
+
+                _manager = new OverlayWindowManager(settings, startup);
+                _manager.Start();
+
+                // First run: greet the user with the setup wizard.
+                if (settings.WasCreated)
+                {
+                    _manager.OpenSetupWizard();
+                }
+
+                desktop.ShutdownRequested += (_, _) =>
+                {
+                    _manager?.Dispose();
+                    _singleInstanceMutex?.ReleaseMutex();
+                    _singleInstanceMutex?.Dispose();
+                };
             }
-
-            _manager = new OverlayWindowManager(settings, startup);
-            _manager.Start();
-
-            // First run: greet the user with the setup wizard.
-            if (settings.WasCreated)
+            catch
             {
-                _manager.OpenSetupWizard();
-            }
-
-            desktop.ShutdownRequested += (_, _) =>
-            {
-                _manager?.Dispose();
                 _singleInstanceMutex?.ReleaseMutex();
                 _singleInstanceMutex?.Dispose();
-            };
+                _singleInstanceMutex = null;
+                throw;
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

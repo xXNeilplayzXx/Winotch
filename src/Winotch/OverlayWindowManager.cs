@@ -28,7 +28,7 @@ public interface INotchHost
     void ShowNotch();
     void OpenSettingsWindow();
     void OpenSetupWizard();
-    void CheckForUpdates(bool manual = false);
+    Task CheckForUpdatesAsync(bool manual = false);
     void RestartApplication();
     void FactoryReset();
     void QuitApplication();
@@ -165,7 +165,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             check = new Timer(_ =>
             {
                 check?.Dispose();
-                Dispatcher.UIThread.Post(() => CheckForUpdates(manual: false));
+                Dispatcher.UIThread.Post(() => _ = CheckForUpdatesAsync(manual: false));
             }, null, TimeSpan.FromSeconds(6), Timeout.InfiniteTimeSpan);
         }
     }
@@ -409,7 +409,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     /// <summary>Check GitHub for a newer release. Automatic checks stay
     /// silent unless an update is found; manual checks always report the
     /// outcome as a toast.</summary>
-    public async void CheckForUpdates(bool manual = false)
+    public async Task CheckForUpdatesAsync(bool manual = false)
     {
         if (_updateCheckInFlight) return;
         _updateCheckInFlight = true;
@@ -459,7 +459,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         if (_settingsWindow is null)
         {
             _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode,
-                () => CheckForUpdates(manual: true));
+                () => { _ = CheckForUpdatesAsync(manual: true); });
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
