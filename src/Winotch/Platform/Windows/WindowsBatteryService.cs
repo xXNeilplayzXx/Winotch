@@ -1,3 +1,4 @@
+#if WINDOWS
 namespace Winotch.Platform.Windows;
 
 /// <summary>Windows battery service using WinForms PowerStatus.</summary>
@@ -11,3 +12,5 @@ public sealed class WindowsBatteryService : IBatteryService
         return new BatterySnapshot(percent, charging);
     }
 }
+
+#endif

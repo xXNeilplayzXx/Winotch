@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using SkiaSharp;
@@ -39,7 +40,10 @@ public sealed class WindowsClipboardService : IClipboardService
         using var image = Clipboard.GetImage();
         if (image is null) return null;
 
-        return ClipboardPng.ToPngBase64(SKBitmap.FromImage(image), out bytes);
+        using var stream = new MemoryStream();
+        image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+        bytes = stream.ToArray();
+        return Convert.ToBase64String(bytes);
     }
 
     public void SetImage(byte[] pngData)
@@ -49,3 +53,5 @@ public sealed class WindowsClipboardService : IClipboardService
         Clipboard.SetImage(image);
     }
 }
+
+#endif

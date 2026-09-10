@@ -107,15 +107,15 @@ public sealed class TrayIconService : IDisposable
 
     private void Dispatch(Action action)
     {
-        if (_window.Dispatcher.CheckAccess()) action();
-        else _window.Dispatcher.Invoke(action);
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) action();
+        else Avalonia.Threading.Dispatcher.UIThread.Invoke(action);
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
     {
         try
         {
-            var resource = Application.GetResourceStream(
+            var resource = System.Windows.Application.GetResourceStream(
                 new Uri("pack://application:,,,/Winotch;component/Resources/WinotchTray.ico"));
             if (resource?.Stream is null) return (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
             using var stream = resource.Stream;

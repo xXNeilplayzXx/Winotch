@@ -1,3 +1,4 @@
+#if WINDOWS
 using System.Drawing;
 
 namespace Winotch.Platform.Windows;
@@ -36,3 +37,5 @@ public sealed class WindowsMonitorService : IMonitorService
         return null;
     }
 }
+
+#endif

@@ -1,3 +1,4 @@
+#if WINDOWS
 namespace Winotch.Platform.Windows;
 
 /// <summary>Windows system stats service using Win32 P/Invoke.</summary>
@@ -9,8 +10,8 @@ public sealed class WindowsSystemStatsService : ISystemStatsService
     {
         var stats = _sampler.Sample();
         return new SystemResourceSnapshot(
-            CpuUsagePercent: stats.CpuUsage,
-            MemoryUsedBytes: (long)(stats.MemoryUsedPercent / 100.0 * GetTotalMemory()),
+            CpuUsagePercent: stats.CpuPercent,
+            MemoryUsedBytes: (long)(stats.MemoryPercent / 100.0 * GetTotalMemory()),
             MemoryTotalBytes: GetTotalMemory(),
             NetworkReceivedBytes: 0, // Would need to track deltas
             NetworkSentBytes: 0);
@@ -22,3 +23,5 @@ public sealed class WindowsSystemStatsService : ISystemStatsService
         return GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
     }
 }
+
+#endif

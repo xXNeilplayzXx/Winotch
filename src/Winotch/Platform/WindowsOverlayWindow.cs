@@ -4,9 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Platform;
-using Avalonia.Rendering.SceneGraph;
-using Avalonia.Skia;
 using Avalonia.Threading;
 using SkiaSharp;
 
@@ -23,10 +20,9 @@ public sealed partial class OverlayWindow
     private const int WsExNoActivate = 0x08000000;
     private const int WsExAppWindow = 0x00040000;
     private const int WmNcHitTest = 0x0084;
-    private const int WmMouseActivate = 0x0021;
+
     private const int HtTransparent = -1;
     private const int HtClient = 1;
-    private const int MaNoActivate = 3;
 
     private Window? _window;
     private OverlaySkiaControl? _surface;
@@ -39,12 +35,11 @@ public sealed partial class OverlayWindow
         _window = new Window
         {
             SystemDecorations = SystemDecorations.None,
-            TransparencyLevelHint = WindowTransparencyLevel.Transparent,
+            TransparencyLevelHint = new[] { WindowTransparencyLevel.Mica, WindowTransparencyLevel.Transparent },
             Background = Avalonia.Media.Brushes.Transparent,
             Topmost = true,
             ShowInTaskbar = false,
             CanResize = false,
-            IsActive = false,
             Title = "Winotch",
         };
 
@@ -61,7 +56,6 @@ public sealed partial class OverlayWindow
                 style &= ~WsExAppWindow;
                 SetWindowLongPtr(_hwnd, GwlExStyle, (IntPtr)style);
 
-                // Subclass window procedure for click-through
                 _wndProcDelegate = new WndProcDelegate(WndProc);
                 _oldWndProc = GetWindowLongPtr(_hwnd, GwlWndProc);
                 SetWindowLongPtr(_hwnd, GwlWndProc, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
@@ -80,17 +74,14 @@ public sealed partial class OverlayWindow
     {
         if (msg == WmNcHitTest)
         {
-            // Extract screen coordinates from lParam
             int xPos = (short)(lParam.ToInt32() & 0xFFFF);
             int yPos = (short)((lParam.ToInt32() >> 16) & 0xFFFF);
 
-            // Convert to local DIP coordinates
             var scale = CurrentDpi();
             var rect = WindowScreenRect();
             var localX = (xPos - rect.Left) / scale;
             var localY = (yPos - rect.Top) / scale;
 
-            // Check if this point is interactive
             if (!_shell.IsInteractiveAt(localX, localY))
             {
                 return (IntPtr)HtTransparent;
@@ -135,7 +126,7 @@ public sealed partial class OverlayWindow
         Dispatcher.UIThread.Post(() =>
         {
             if (_window is null) return;
-            _window.Position = new PixelPosition((int)left, (int)top);
+            _window.Position = new PixelPoint((int)left, (int)top);
             _window.Width = width;
             _window.Height = height;
         });
@@ -157,12 +148,16 @@ public sealed partial class OverlayWindow
 
     private void NativeCaptureMouse()
     {
-        Dispatcher.UIThread.Post(() => _surface?.CaptureMouse());
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_surface is not null)
+                _surface.Focus();
+        });
     }
 
     private void NativeReleaseMouse()
     {
-        Dispatcher.UIThread.Post(() => _surface?.ReleaseMouseCapture());
+        Dispatcher.UIThread.Post(() => { });
     }
 
     private (double X, double Y) CursorInLocalDip()
@@ -176,8 +171,7 @@ public sealed partial class OverlayWindow
     private double CurrentDpi()
     {
         if (_window is null) return 1.0;
-        var scaling = _window.RenderScaling;
-        return scaling;
+        return _window.RenderScaling;
     }
 
     private (int Left, int Top, int Right, int Bottom) WindowScreenRect()
@@ -195,7 +189,6 @@ public sealed partial class OverlayWindow
 
     private void NativeCleanup()
     {
-        // Restore old window procedure before cleanup
         if (_hwnd != IntPtr.Zero && _oldWndProc != IntPtr.Zero)
         {
             SetWindowLongPtr(_hwnd, GwlWndProc, _oldWndProc);
@@ -247,26 +240,23 @@ internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
     public OverlaySkiaControl(OverlayWindow owner)
     {
         _owner = owner;
-        Avalonia.Rendering.RendererBase.IsHitTestVisibleProperty.OverrideDefaultValue(typeof(OverlaySkiaControl), true);
     }
 
     public override void Render(Avalonia.Media.DrawingContext context)
     {
-        var scale = (float)(_owner.TryGetVisualRoot()?.RenderScaling ?? 1.0);
+        var scale = (float)(1.0);
         var width = Bounds.Width;
         var height = Bounds.Height;
 
-        // Create a temporary SKSurface for this frame
         using var surface = SKSurface.Create(new SKImageInfo(
             (int)(width * scale), (int)(height * scale),
             SKColorType.Bgra8888, SKAlphaType.Premul));
         var canvas = surface.Canvas;
         _owner.OnRender(canvas, scale, width, height);
 
-        // Push the SKSurface as an image into Avalonia's drawing context
         using var image = surface.Snapshot();
-        using var pixmap = image.ToPixmap();
-        using var data = pixmap.Encode(SKEncodedImageFormat.Png, 100);
+        var info = new SKImageInfo(image.Width, image.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
         using var stream = new MemoryStream(data.ToArray());
         using var bitmap = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, (int)(width * scale));
         if (bitmap is not null)

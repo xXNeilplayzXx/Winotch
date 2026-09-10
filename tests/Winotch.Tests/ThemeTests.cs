@@ -3,6 +3,7 @@ using Winotch.Engine;
 
 namespace Winotch.Tests;
 
+#if WINDOWS
 public class ThemeTests
 {
     private static FakeWindowsThemeSource Os(bool? light = null, string? accentHex = null) =>
@@ -205,3 +206,4 @@ public class ThemeTests
         }
     }
 }
+#endif

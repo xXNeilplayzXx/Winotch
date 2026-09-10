@@ -1,3 +1,4 @@
+#if WINDOWS
 namespace Winotch.Platform.Windows;
 
 /// <summary>Windows system volume service using CoreAudio COM API.</summary>
@@ -28,3 +29,5 @@ public sealed class WindowsSystemVolumeService : ISystemVolumeService
         SystemVolume.SetMuted(muted);
     }
 }
+
+#endif

@@ -1,3 +1,4 @@
+#if WINDOWS
 namespace Winotch.Platform.Windows;
 
 /// <summary>Windows location service using WinRT Geolocator.</summary>
@@ -7,6 +8,9 @@ public sealed class WindowsLocationService : ILocationService
     {
         var result = await WindowsLocation.ResolveAsync();
         if (result is null) return null;
-        return new LocationSnapshot(result.Lat, result.Lon);
+        var (lat, lon) = result.Value;
+        return new LocationSnapshot(lat, lon);
     }
 }
+
+#endif
