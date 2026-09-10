@@ -6,18 +6,15 @@ namespace Winotch.Tests;
 #if WINDOWS
 public class ThemeTests
 {
-    private static FakeWindowsThemeSource Os(bool? light = null, string? accentHex = null) =>
-        new()
-        {
-            Light = light,
-            Accent = accentHex is null
-                ? null
-                : System.Windows.Media.ColorConverter.ConvertFromString(accentHex) is System.Windows.Media.Color c
-                    ? c
-                    : null,
-        };
+    private static FakeThemeSource Os(bool? light = null, string? accentHex = null)
+    {
+        Col? accent = null;
+        if (accentHex is not null && Avalonia.Media.Color.TryParse(accentHex, out var c))
+            accent = Col.FromAvalonia(c);
+        return new() { Light = light, Accent = accent };
+    }
 
-    private static ThemeService Service(FakeWindowsThemeSource os) => new(os);
+    private static ThemeService Service(FakeThemeSource os) => new(os);
 
     [Theory]
     [InlineData(ThemeMode.Dark, false)]
