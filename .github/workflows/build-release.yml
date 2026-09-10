@@ -12,6 +12,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      EnableWindowsTargeting: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +29,9 @@ jobs:
       - name: Build
         run: dotnet build Winotch.slnx -c Release --no-restore
 
+      # Skip tests on tagged releases (test project targets Windows-only TFMs)
       - name: Test
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: dotnet test Winotch.slnx -c Release --no-build
 
       - name: Publish portable exe
@@ -49,6 +53,8 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
+    env:
+      EnableWindowsTargeting: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,7 +70,9 @@ jobs:
       - name: Build
         run: dotnet build Winotch.slnx -c Release --no-restore
 
+      # Skip tests on tagged releases (test project targets Windows-only TFMs)
       - name: Test
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: dotnet test Winotch.slnx -c Release --no-build
 
       - name: Publish portable Linux executable
