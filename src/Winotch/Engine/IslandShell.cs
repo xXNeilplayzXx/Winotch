@@ -856,9 +856,11 @@ public sealed class IslandShell
                 // be told apart from its stale self mid-transition).
                 var animating = _blend is > 0.001 and < 0.999 ||
                                 _sizeAnimating;
+#if WINDOWS
                 BackdropBlur.Draw(canvas, rect, _originXPx, _originYPx, _dpiScale,
                     blurRadius, (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255),
                     allowStale: animating);
+#endif
             }
 
             using (var body = ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha))

@@ -1,3 +1,4 @@
+#if WINDOWS
 using SkiaSharp;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
@@ -303,3 +304,4 @@ public sealed class MediaService : IMediaService, IDisposable
         return name;
     }
 }
+#endif

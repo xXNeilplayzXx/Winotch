@@ -5,6 +5,7 @@ using SkiaSharp;
 
 namespace Winotch.Engine;
 
+#if WINDOWS
 /// <summary>Real backdrop blur for glass islands. The overlay window is a
 /// full-screen transparent surface, so true backdrop-filter-style blur is not
 /// available — instead we capture the composited screen region behind the
@@ -157,3 +158,4 @@ public static class BackdropBlur
         }
     }
 }
+#endif
