@@ -49,10 +49,13 @@ public partial class App : Application
                 _manager = new OverlayWindowManager(settings, startup);
                 _manager.Start();
 
-                // First run: greet the user with the setup wizard.
+                // First run: greet the user with the setup wizard. Posted rather
+                // than called here so the modal dialog is not opened inside
+                // Avalonia's own start-up sequence, and so the island it is owned
+                // by already exists.
                 if (settings.WasCreated)
                 {
-                    _manager.OpenSetupWizard();
+                    Avalonia.Threading.Dispatcher.UIThread.Post(_manager.OpenSetupWizard);
                 }
 
                 desktop.ShutdownRequested += (_, _) =>

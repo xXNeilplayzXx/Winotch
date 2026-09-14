@@ -55,6 +55,7 @@ public sealed partial class OverlayWindow
 
         _surface = new OverlaySkiaControl(this);
         _window.Content = _surface;
+        HostWindow = _window;
 
         _window.Opened += (_, _) =>
         {
@@ -292,6 +293,7 @@ public sealed partial class OverlayWindow
             _window.PointerReleased -= OnPointerReleased;
             _window.Close();
             _window = null;
+            HostWindow = null;
         }
     }
 

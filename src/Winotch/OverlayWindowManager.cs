@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Winotch.Engine;
@@ -467,16 +468,20 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             if (!manual && _settings.Current.General.LastPromptedUpdate == info.Tag) return;
 
             var window = new UpdateWindow(info);
-            window.ShowDialog(null!).GetAwaiter().GetResult();
+            // Claim the prompt before showing it so a second check while the
+            // dialog is open cannot prompt twice.
             _settings.Update(x => x with
             {
                 General = x.General with { LastPromptedUpdate = info.Tag },
             });
-            if (window.StagedExe is { } staged)
+            ShowEditor<bool?>(window, _ =>
             {
-                UpdateService.ApplyAndRestart(staged, window.DownloadPath);
-                QuitApplication();
-            }
+                if (window.StagedExe is { } staged)
+                {
+                    UpdateService.ApplyAndRestart(staged, window.DownloadPath);
+                    QuitApplication();
+                }
+            });
         }
         finally
         {
@@ -499,8 +504,8 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     public void OpenSetupWizard()
     {
-        var window = new SetupWindow(_settings);
-        window.ShowDialog(null!);
+        // The wizard writes its own settings, so there is nothing to apply.
+        ShowEditor<bool?>(new SetupWindow(_settings), _ => { });
     }
 
     public void QuitApplication()
@@ -726,52 +731,125 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         PushClipboard();
     }
 
+    // -------------------------------------------------------------- dialogs
+
+    /// <summary>The Avalonia window modal editors should be owned by: the primary
+    /// island's host window, else any that has one. Null when the platform
+    /// overlay has no Avalonia window at all (Linux paints straight to X11).</summary>
+    private Window? DialogOwner()
+    {
+        foreach (var window in _windows)
+        {
+            if (window.Monitor.IsPrimary && window.HostWindow is { } primary) return primary;
+        }
+        foreach (var window in _windows)
+        {
+            if (window.HostWindow is { } host) return host;
+        }
+        return null;
+    }
+
+    /// <summary>Show an editor and hand its dialog result to
+    /// <paramref name="apply"/> (null when it was dismissed, or when there was no
+    /// host window to own it).
+    ///
+    /// Two things the ported code got wrong: Avalonia's <c>ShowDialog</c> demands
+    /// a real owner — it was passed null, which threw the instant any editor was
+    /// opened and killed the app on its very first run — and the task it returns
+    /// completes only once the dialog closes, so blocking the UI thread on it
+    /// could never unblock (the dialog would have frozen with it).</summary>
+    private async void ShowEditor<TResult>(Window editor, Action<TResult?> apply)
+    {
+        TResult? result = default;
+        try
+        {
+            var owner = DialogOwner();
+            result = owner is not null
+                ? await editor.ShowDialog<TResult>(owner)
+                : await ShowStandaloneAsync<TResult>(editor);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Report("editor dialog", ex);
+        }
+
+        try
+        {
+            apply(result);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Report("editor apply", ex);
+        }
+    }
+
+    /// <summary>Show a dialog with nothing to be modal against: it opens
+    /// stand-alone and the caller's own result check runs when it closes.</summary>
+    private static Task<TResult?> ShowStandaloneAsync<TResult>(Window editor)
+    {
+        var closed = new TaskCompletionSource<TResult?>();
+        void OnClosed(object? sender, EventArgs e)
+        {
+            editor.Closed -= OnClosed;
+            closed.TrySetResult(default);
+        }
+        editor.Closed += OnClosed;
+        editor.Show();
+        return closed.Task;
+    }
+
     // ----------------------------------------------------- widget editors
 
     public void OpenNotesEditor()
     {
         var widgets = _settings.Current.Widgets;
         var window = new NotesEditWindow(widgets.Notes, widgets.SizeFor("notes"));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } text)
+        ShowEditor<bool?>(window, _ =>
         {
+            if (window.Result is not { } text) return;
             var scale = window.Scale;
             _settings.Update(s => s with
             {
                 Widgets = s.Widgets.WithSize("notes", scale) with { Notes = text },
             });
-        }
+        });
     }
 
     public void OpenWeatherEditor()
     {
         var widgets = _settings.Current.Widgets;
         var window = new WeatherEditWindow(widgets.Weather, widgets.SizeFor("weather"));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true) return;
-        // Both outcome paths below update settings themselves, so the card
-        // size choice is saved here first.
-        _settings.Update(s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
-        if (window.City is { } city)
+        ShowEditor<bool?>(window, accepted =>
         {
-            _ = ResolveAndFetchWeatherAsync(city);
-        }
-        else if (window.UseSystemLocation)
-        {
-            _ = ResolveWindowsLocationAsync();
-        }
+            // Nothing to apply when the editor was dismissed without a choice.
+            if (accepted != true && window.City is null && !window.UseSystemLocation) return;
+            // Both outcome paths below update settings themselves, so the card
+            // size choice is saved here first.
+            _settings.Update(s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
+            if (window.City is { } city)
+            {
+                _ = ResolveAndFetchWeatherAsync(city);
+            }
+            else if (window.UseSystemLocation)
+            {
+                _ = ResolveWindowsLocationAsync();
+            }
+        });
     }
 
     public void OpenLauncherEditor()
     {
         var widgets = _settings.Current.Widgets;
         var window = new LauncherEditWindow(widgets.LauncherApps, widgets.SizeFor("launcher"));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } apps)
+        ShowEditor<bool?>(window, _ =>
         {
+            if (window.Result is not { } apps) return;
             var scale = window.Scale;
             _settings.Update(s => s with
             {
                 Widgets = s.Widgets.WithSize("launcher", scale) with { LauncherApps = apps },
             });
-        }
+        });
     }
 
     public void OpenFocusEditor()
@@ -779,16 +857,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var widgets = _settings.Current.Widgets;
         var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes,
             widgets.FocusAutoCycle, widgets.SizeFor("focus"));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true || window.Result is not { } result) return;
-        var scale = window.Scale;
-        _settings.Update(s => s with
+        ShowEditor<bool?>(window, _ =>
         {
-            Widgets = s.Widgets.WithSize("focus", scale) with
+            if (window.Result is not { } result) return;
+            var scale = window.Scale;
+            _settings.Update(s => s with
             {
-                FocusMinutes = result.FocusMinutes,
-                BreakMinutes = result.BreakMinutes,
-                FocusAutoCycle = result.AutoCycle,
-            },
+                Widgets = s.Widgets.WithSize("focus", scale) with
+                {
+                    FocusMinutes = result.FocusMinutes,
+                    BreakMinutes = result.BreakMinutes,
+                    FocusAutoCycle = result.AutoCycle,
+                },
+            });
         });
     }
 
@@ -796,14 +877,15 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         var widgets = _settings.Current.Widgets;
         var window = new MetricsEditWindow(widgets.SystemMetrics, widgets.SizeFor("system"));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() == true && window.Result is { } result)
+        ShowEditor<bool?>(window, _ =>
         {
+            if (window.Result is not { } result) return;
             var scale = window.Scale;
             _settings.Update(s => s with
             {
                 Widgets = s.Widgets.WithSize("system", scale) with { SystemMetrics = result },
             });
-        }
+        });
     }
 
     /// <summary>Size-only editor for cards without their own settings (clock,
@@ -811,9 +893,15 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     public void OpenCardSizeEditor(string id)
     {
         var widgets = _settings.Current.Widgets;
-        var window = new CardSizeWindow(WidgetSettings.Labels[id], widgets.SizeFor(id));
-        if (window.ShowDialog<bool?>(null!).GetAwaiter().GetResult() != true) return;
-        _settings.Update(s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
+        var current = widgets.SizeFor(id);
+        var window = new CardSizeWindow(WidgetSettings.Labels[id], current);
+        ShowEditor<bool?>(window, accepted =>
+        {
+            // This editor carries no payload, so acceptance is the dialog result
+            // — or, when there was nothing to own the dialog, a changed choice.
+            if (accepted != true && window.Scale == current) return;
+            _settings.Update(s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
+        });
     }
 
     public void LaunchApp(LauncherApp app)

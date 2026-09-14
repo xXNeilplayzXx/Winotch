@@ -47,6 +47,11 @@ public sealed partial class OverlayWindow : IDisposable
     }
 
     public IslandShell Shell => _shell;
+
+    /// <summary>The Avalonia window backing this overlay, on platforms that use
+    /// one (Windows). Modal editors are owned by it; the Linux overlay paints
+    /// straight to X11 and has no Avalonia window to own a dialog.</summary>
+    internal Avalonia.Controls.Window? HostWindow { get; private set; }
     public MonitorSnapshot Monitor { get; private set; }
     public bool IsPaused => _shell.Paused;
     public bool IsHidden { get; private set; }
