@@ -116,6 +116,7 @@ public sealed partial class OverlayWindow
             }
         };
         _frameTimer.Start();
+        AppLog.Write("overlay frame loop started (16 ms cadence)");
     }
 
     private void StopFrameLoop()
@@ -410,6 +411,9 @@ internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
                 AlphaFormat.Premul);
             _pixelWidth = pixelWidth;
             _pixelHeight = pixelHeight;
+            // Proof that the overlay reached the renderer at a usable size; the
+            // island draws into this buffer from now on.
+            AppLog.Write($"overlay frame buffer {pixelWidth}x{pixelHeight} px");
         }
         catch (Exception ex)
         {

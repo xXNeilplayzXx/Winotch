@@ -1,0 +1,79 @@
+name: windows-smoke
+
+# Compiling and unit-testing the app does not prove it starts: the overlay is a
+# windowless app, so a crash before the island is drawn is invisible here and on
+# the user's desktop. This job launches the real executable on a real Windows
+# machine, waits, and fails if it died, logged a fatal start-up error, or never
+# rendered a frame.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      EnableWindowsTargeting: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build src/Winotch/Winotch.csproj -c Release -p:TargetFramework=net8.0-windows10.0.19041.0
+
+      - name: Launch and observe
+        shell: pwsh
+        run: |
+          $exe = "src/Winotch/bin/Release/net8.0-windows10.0.19041.0/Winotch.exe"
+          if (-not (Test-Path $exe)) { throw "build output missing: $exe" }
+
+          $log = Join-Path $env:LOCALAPPDATA "Winotch\logs\winotch.log"
+          if (Test-Path $log) { Remove-Item $log -Force }
+
+          Write-Host "launching $exe"
+          $proc = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 12
+          $proc.Refresh()
+          $alive = -not $proc.HasExited
+
+          Write-Host "===== startup log ====="
+          $text = ""
+          if (Test-Path $log) {
+            $text = Get-Content $log -Raw
+            Get-Content $log
+            Copy-Item $log startup.log
+          } else {
+            Write-Host "(no log written)"
+          }
+
+          if ($alive) {
+            Write-Host "still running after 12s (pid $($proc.Id))"
+            Stop-Process -Id $proc.Id -Force
+          } else {
+            Write-Host "exited during startup with code $($proc.ExitCode)"
+          }
+
+          if (-not $alive) { throw "Winotch exited during start-up" }
+          if ($text -match "FATAL") { throw "start-up logged a FATAL error" }
+          if ($text -notmatch "overlay frame loop started") { throw "the overlay frame loop never started" }
+          if ($text -notmatch "overlay frame buffer") { throw "the overlay never rendered a frame" }
+          Write-Host "smoke check passed"
+
+      - name: Upload startup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-log
+          path: startup.log
+          if-no-files-found: warn
