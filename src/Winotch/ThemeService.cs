@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using SkiaSharp;
 using Avalonia.Media;
 using Winotch.Engine;
 using Winotch.Platform;
@@ -105,25 +106,26 @@ public sealed class WindowsThemeSource : IThemeService
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
 
             using var stream = File.OpenRead(path);
-            var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream,
-                System.Windows.Media.Imaging.BitmapCreateOptions.None,
-                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-            var frame = decoder.Frames[0];
-            if (frame.PixelWidth == 0 || frame.PixelHeight == 0) return null;
+            // Decode with Skia: the WPF imaging stack is not available in an
+            // Avalonia-hosted process.
+            using var bitmap = SKBitmap.Decode(stream);
+            if (bitmap is null || bitmap.Width <= 0 || bitmap.Height <= 0) return null;
 
-            const int sample = 32;
-            var scaled = new System.Windows.Media.Imaging.TransformedBitmap(frame, new System.Windows.Media.ScaleTransform(
-                sample / (double)frame.PixelWidth, sample / (double)frame.PixelHeight));
-            var pixels = new byte[sample * sample * 4];
-            scaled.CopyPixels(pixels, sample * 4, 0);
-
+            // Sample a coarse grid: the average luminance is all this decides.
+            const int grid = 32;
+            var stepX = Math.Max(1, bitmap.Width / grid);
+            var stepY = Math.Max(1, bitmap.Height / grid);
             double luminance = 0;
             double count = 0;
-            for (var i = 0; i + 3 < pixels.Length; i += 4)
+            for (var y = 0; y < bitmap.Height; y += stepY)
             {
-                if (pixels[i + 3] < 64) continue;
-                luminance += 0.2126 * pixels[i + 2] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i];
-                count++;
+                for (var x = 0; x < bitmap.Width; x += stepX)
+                {
+                    var pixel = bitmap.GetPixel(x, y);
+                    if (pixel.Alpha < 64) continue;
+                    luminance += 0.2126 * pixel.Red + 0.7152 * pixel.Green + 0.0722 * pixel.Blue;
+                    count++;
+                }
             }
             return count == 0 ? null : luminance / count / 255.0 >= 0.5;
         }

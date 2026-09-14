@@ -22,6 +22,13 @@ public partial class App : Application
         {
             if (!TryAcquireSingleInstance(SingleInstanceMutexName, out _singleInstanceMutex))
             {
+                // Exiting silently here reads as "the app does not launch" when
+                // the running copy is invisible (hidden notch, unloaded tray
+                // icon, or a process left behind by an earlier crash).
+                AppLog.Write("Another instance is already running; exiting.");
+                AppLog.Show("Winotch is already running.\n\nLook for its notch at the top of the " +
+                            "screen, or use the tray icon.\n\nIf you see neither, end Winotch in " +
+                            "Task Manager and start it again.");
                 desktop.Shutdown(0);
                 return;
             }

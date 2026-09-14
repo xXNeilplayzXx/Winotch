@@ -126,28 +126,16 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var fontId = _settings.Current.Appearance.Font;
         var family = FontChoice.FamilyOf(fontId);
         var customFile = FontChoice.CustomFile(fontId);
-        TextKit.SetUiFamily(family, customFile);
-#if WINDOWS
-        Application.Current!.Resources["NotchUiFont"] = WpfFontFamily(fontId, family);
-#endif
-    }
 
-#if WINDOWS
-    /// <summary>The WPF font for a font id: a plain family for curated /
-    /// system fonts, or a file-relative FontFamily for an imported .ttf/.otf
-    /// (the family name embedded in the file drives the WPF face).</summary>
-    private static System.Windows.Media.FontFamily WpfFontFamily(string fontId, string family)
-    {
-        var customFile = FontChoice.CustomFile(fontId);
-        if (customFile is null)
-        {
-            return new System.Windows.Media.FontFamily(family);
-        }
-        var directory = Path.GetDirectoryName(customFile) ?? "";
-        return new System.Windows.Media.FontFamily(new Uri(directory + Path.DirectorySeparatorChar, UriKind.Absolute),
-            $"./{Path.GetFileName(customFile)}#{family}");
+        // The island text goes through the Skia engine; an imported .ttf/.otf is
+        // used directly from its file there.
+        TextKit.SetUiFamily(family, customFile);
+
+        // The resource feeds Avalonia FontFamily setters on the Settings and
+        // Setup windows, so it has to be an Avalonia FontFamily. A Windows-only
+        // (WPF) type here cannot be converted when those styles are applied.
+        Application.Current!.Resources["NotchUiFont"] = new Avalonia.Media.FontFamily(family);
     }
-#endif
 
     public void Start()
     {

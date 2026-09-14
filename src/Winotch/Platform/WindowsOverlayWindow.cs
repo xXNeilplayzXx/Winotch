@@ -1,9 +1,12 @@
 #if WINDOWS
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using SkiaSharp;
 
@@ -20,12 +23,19 @@ public sealed partial class OverlayWindow
     private const int WsExNoActivate = 0x08000000;
     private const int WsExAppWindow = 0x00040000;
     private const int WmNcHitTest = 0x0084;
+    private const int WmNcDestroy = 0x0082;
 
     private const int HtTransparent = -1;
     private const int HtClient = 1;
 
+    /// <summary>Frame cadence for the shell tick (about 60 fps), matching the
+    /// Linux host. Without this the island never animates, never repaints and
+    /// never reacts to the cursor.</summary>
+    private static readonly TimeSpan FrameInterval = TimeSpan.FromMilliseconds(16);
+
     private Window? _window;
     private OverlaySkiaControl? _surface;
+    private DispatcherTimer? _frameTimer;
     private IntPtr _hwnd;
     private IntPtr _oldWndProc;
     private WndProcDelegate? _wndProcDelegate;
@@ -56,10 +66,23 @@ public sealed partial class OverlayWindow
                 style &= ~WsExAppWindow;
                 SetWindowLongPtr(_hwnd, GwlExStyle, (IntPtr)style);
 
-                _wndProcDelegate = new WndProcDelegate(WndProc);
-                _oldWndProc = GetWindowLongPtr(_hwnd, GwlWndProc);
-                SetWindowLongPtr(_hwnd, GwlWndProc, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+                // Subclass only when the window's current procedure is known:
+                // chaining to a null pointer is an access violation, and an
+                // access violation kills the process with nothing on screen.
+                var previous = GetWindowLongPtr(_hwnd, GwlWndProc);
+                if (previous != IntPtr.Zero)
+                {
+                    _wndProcDelegate = new WndProcDelegate(WndProc);
+                    _oldWndProc = previous;
+                    SetWindowLongPtr(_hwnd, GwlWndProc, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+                }
+                else
+                {
+                    AppLog.Write("Overlay click-through unavailable: could not read the window procedure.");
+                }
             }
+
+            NativeInvalidate();
         };
 
         _window.PointerPressed += OnPointerPressed;
@@ -67,28 +90,92 @@ public sealed partial class OverlayWindow
         _window.PointerReleased += OnPointerReleased;
 
         _window.Show();
+        StartFrameLoop();
         _shell.ApplyTheme();
+    }
+
+    /// <summary>Drive the shell from the Avalonia dispatcher: a tick updates
+    /// cursor/hover/animation state and requests a repaint when anything
+    /// changed. Runs on the UI thread so the shell is never mutated while a
+    /// frame is being built.</summary>
+    private void StartFrameLoop()
+    {
+        if (_frameTimer is not null) return;
+
+        _frameTimer = new DispatcherTimer { Interval = FrameInterval };
+        _frameTimer.Tick += (_, _) =>
+        {
+            try
+            {
+                OnFrameTick();
+            }
+            catch (Exception ex)
+            {
+                // A bad frame must never take the whole app down.
+                AppLog.Report("overlay frame", ex);
+            }
+        };
+        _frameTimer.Start();
+    }
+
+    private void StopFrameLoop()
+    {
+        _frameTimer?.Stop();
+        _frameTimer = null;
     }
 
     private IntPtr WndProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam)
     {
         if (msg == WmNcHitTest)
         {
-            int xPos = (short)(lParam.ToInt32() & 0xFFFF);
-            int yPos = (short)((lParam.ToInt32() >> 16) & 0xFFFF);
-
-            var scale = CurrentDpi();
-            var rect = WindowScreenRect();
-            var localX = (xPos - rect.Left) / scale;
-            var localY = (yPos - rect.Top) / scale;
-
-            if (!_shell.IsInteractiveAt(localX, localY))
+            try
             {
+                int xPos = (short)(lParam.ToInt32() & 0xFFFF);
+                int yPos = (short)((lParam.ToInt32() >> 16) & 0xFFFF);
+
+                var scale = CurrentDpi();
+                var rect = WindowScreenRect();
+                var localX = (xPos - rect.Left) / scale;
+                var localY = (yPos - rect.Top) / scale;
+
+                return _shell.IsInteractiveAt(localX, localY) ? (IntPtr)HtClient : (IntPtr)HtTransparent;
+            }
+            catch (Exception ex)
+            {
+                // Never let a hit-test failure escape into the native message
+                // pump: the window defaults to the desktop behaviour instead.
+                AppLog.Report("overlay hit test", ex);
                 return (IntPtr)HtTransparent;
             }
-            return (IntPtr)HtClient;
         }
-        return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+
+        if (msg == WmNcDestroy)
+        {
+            var original = UnhookWndProc(hWnd);
+            return original != IntPtr.Zero
+                ? CallWindowProc(original, hWnd, msg, wParam, lParam)
+                : DefWindowProc(hWnd, msg, wParam, lParam);
+        }
+
+        return _oldWndProc != IntPtr.Zero
+            ? CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam)
+            : DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+
+    /// <summary>Put the window's original procedure back, so no later message can
+    /// jump into our delegate once the window is going away, and return it so
+    /// the current message can still be chained on.</summary>
+    private IntPtr UnhookWndProc(IntPtr hWnd)
+    {
+        var original = _oldWndProc;
+        if (original == IntPtr.Zero) return IntPtr.Zero;
+
+        _oldWndProc = IntPtr.Zero;
+        if (hWnd != IntPtr.Zero && IsWindow(hWnd))
+        {
+            SetWindowLongPtr(hWnd, GwlWndProc, original);
+        }
+        return original;
     }
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -129,6 +216,7 @@ public sealed partial class OverlayWindow
             _window.Position = new PixelPoint((int)left, (int)top);
             _window.Width = width;
             _window.Height = height;
+            _surface?.InvalidateVisual();
         });
     }
 
@@ -143,7 +231,8 @@ public sealed partial class OverlayWindow
 
     private void NativeInvalidate()
     {
-        Dispatcher.UIThread.Post(() => _surface?.InvalidateVisual());
+        if (Dispatcher.UIThread.CheckAccess()) _surface?.InvalidateVisual();
+        else Dispatcher.UIThread.Post(() => _surface?.InvalidateVisual());
     }
 
     private void NativeCaptureMouse()
@@ -168,10 +257,11 @@ public sealed partial class OverlayWindow
         return ((pt.X - rect.Left) / scale, (pt.Y - rect.Top) / scale);
     }
 
-    private double CurrentDpi()
+    internal double CurrentDpi()
     {
         if (_window is null) return 1.0;
-        return _window.RenderScaling;
+        var scaling = _window.RenderScaling;
+        return scaling > 0.001 ? scaling : 1.0;
     }
 
     private (int Left, int Top, int Right, int Bottom) WindowScreenRect()
@@ -189,11 +279,10 @@ public sealed partial class OverlayWindow
 
     private void NativeCleanup()
     {
-        if (_hwnd != IntPtr.Zero && _oldWndProc != IntPtr.Zero)
-        {
-            SetWindowLongPtr(_hwnd, GwlWndProc, _oldWndProc);
-            _oldWndProc = IntPtr.Zero;
-        }
+        StopFrameLoop();
+
+        UnhookWndProc(_hwnd);
+        _hwnd = IntPtr.Zero;
 
         if (_window is not null)
         {
@@ -230,12 +319,26 @@ public sealed partial class OverlayWindow
 
     [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
     private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(IntPtr hWnd);
 }
 
-/// <summary>Custom Avalonia control that renders via SkiaSharp.</summary>
+/// <summary>Custom Avalonia control that renders the island with SkiaSharp into a
+/// reusable writeable bitmap. The Skia surface is installed directly on the
+/// bitmap's framebuffer, so a frame costs one draw pass — no per-frame bitmap
+/// allocation, copy or PNG round-trip.</summary>
 internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
 {
     private readonly OverlayWindow _owner;
+
+    private WriteableBitmap? _frame;
+    private int _pixelWidth;
+    private int _pixelHeight;
 
     public OverlaySkiaControl(OverlayWindow owner)
     {
@@ -244,26 +347,77 @@ internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
 
     public override void Render(Avalonia.Media.DrawingContext context)
     {
-        var scale = (float)(1.0);
+        // Before the first layout pass (and for a collapsed or zero-size window)
+        // there is nothing valid to paint into: a zero-sized Skia surface cannot
+        // be created, and that used to take the process down with it.
         var width = Bounds.Width;
         var height = Bounds.Height;
+        if (width < 1 || height < 1) return;
 
-        using var surface = SKSurface.Create(new SKImageInfo(
-            (int)(width * scale), (int)(height * scale),
-            SKColorType.Bgra8888, SKAlphaType.Premul));
-        var canvas = surface.Canvas;
-        _owner.OnRender(canvas, scale, width, height);
+        var scale = _owner.CurrentDpi();
+        var pixelWidth = (int)Math.Ceiling(width * scale);
+        var pixelHeight = (int)Math.Ceiling(height * scale);
+        if (pixelWidth < 1 || pixelHeight < 1) return;
 
-        using var image = surface.Snapshot();
-        var info = new SKImageInfo(image.Width, image.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-        using var stream = new MemoryStream(data.ToArray());
-        using var bitmap = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, (int)(width * scale));
-        if (bitmap is not null)
+        var frame = EnsureFrame(pixelWidth, pixelHeight);
+        if (frame is null) return;
+
+        try
         {
-            context.DrawImage(bitmap, new Rect(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height),
-                new Rect(0, 0, width, height));
+            using (var locked = frame.Lock())
+            {
+                var info = new SKImageInfo(pixelWidth, pixelHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+                using var surface = SKSurface.Create(info, locked.Address, locked.RowBytes);
+                if (surface is null) return;
+
+                var canvas = surface.Canvas;
+                _owner.OnRender(canvas, (float)scale, width, height);
+                canvas.Flush();
+            }
         }
+        catch (Exception ex)
+        {
+            // Keep the app alive and the previous frame on screen; the island is
+            // repainted on the next tick.
+            AppLog.Report("overlay paint", ex);
+            return;
+        }
+
+        context.DrawImage(frame, new Rect(0, 0, pixelWidth, pixelHeight), new Rect(0, 0, width, height));
+    }
+
+    /// <summary>The frame buffer is only recreated when the pixel size actually
+    /// changes (monitor move / DPI change / expand animation on Linux), not once
+    /// per frame.</summary>
+    private WriteableBitmap? EnsureFrame(int pixelWidth, int pixelHeight)
+    {
+        if (_frame is not null && _pixelWidth == pixelWidth && _pixelHeight == pixelHeight)
+        {
+            return _frame;
+        }
+
+        _frame?.Dispose();
+        _frame = null;
+        _pixelWidth = 0;
+        _pixelHeight = 0;
+
+        try
+        {
+            _frame = new WriteableBitmap(
+                new PixelSize(pixelWidth, pixelHeight),
+                new Vector(96, 96),
+                PixelFormat.Bgra8888,
+                AlphaFormat.Premul);
+            _pixelWidth = pixelWidth;
+            _pixelHeight = pixelHeight;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Winotch] Overlay buffer {pixelWidth}x{pixelHeight} unavailable: {ex.Message}");
+            _frame = null;
+        }
+
+        return _frame;
     }
 }
 #endif

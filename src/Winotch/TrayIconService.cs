@@ -111,20 +111,23 @@ public sealed class TrayIconService : IDisposable
         else Avalonia.Threading.Dispatcher.UIThread.Invoke(action);
     }
 
-    private static System.Drawing.Icon LoadTrayIcon()
+    /// <summary>Load the tray icon from the embedded resource. The WPF pack URI
+    /// this used to read cannot resolve in an Avalonia-hosted app, so the icon
+    /// (and with it the only way to reach Settings when the notch is hidden)
+    /// silently fell back to a blank slot.</summary>
+    private static System.Drawing.Icon? LoadTrayIcon()
     {
         try
         {
-            var resource = System.Windows.Application.GetResourceStream(
-                new Uri("pack://application:,,,/Winotch;component/Resources/WinotchTray.ico"));
-            if (resource?.Stream is null) return (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
-            using var stream = resource.Stream;
+            using var stream = typeof(TrayIconService).Assembly
+                .GetManifestResourceStream("Winotch.Resources.WinotchTray.ico");
+            if (stream is null) return null;
             using var icon = new System.Drawing.Icon(stream);
             return (System.Drawing.Icon)icon.Clone();
         }
         catch
         {
-            return (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
+            return null;
         }
     }
 

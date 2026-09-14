@@ -7,8 +7,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Winotch</AssemblyName>
     <RootNamespace>Winotch</RootNamespace>
-    <Version>2.1.10</Version>
+    <Version>2.3.2</Version>
     <Product>Winotch</Product>
+    <ApplicationIcon>Resources/WinotchTray.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
@@ -24,9 +25,11 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
+  <!-- Windows needs WinForms (tray icon, clipboard, power status, screens).
+       WPF is deliberately absent: this is an Avalonia app, and mixing the two
+       UI stacks in one process breaks Avalonia font/asset lookups. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.19041.0'">
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,11 +38,16 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
-    <PackageReference Include="SkiaSharp.Views.Desktop.Common" Version="2.88.8" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <PackageReference Include="Tmds.DBus" Version="0.18.*" />
+  </ItemGroup>
+
+  <!-- The tray/window icon is read back by logical name from DialogUi and the
+       tray service, so it must be embedded under that exact name. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/WinotchTray.ico" LogicalName="Winotch.Resources.WinotchTray.ico" />
   </ItemGroup>
 
   <!-- Exclude Windows-only files on non-Windows platforms -->
