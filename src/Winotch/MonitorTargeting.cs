@@ -14,6 +14,7 @@ public readonly record struct MonitorSnapshot(
     public double LeftDip => Bounds.Left / DpiScaleX;
     public double TopDip => Bounds.Top / DpiScaleY;
     public double WidthDip => Bounds.Width / DpiScaleX;
+    public double HeightDip => Bounds.Height / DpiScaleY;
     public double WorkAreaTopDip => WorkingArea.Top / DpiScaleY;
     public double WorkAreaBottomDip => WorkingArea.Bottom / DpiScaleY;
     public double WorkAreaRightDip => WorkingArea.Right / DpiScaleX;

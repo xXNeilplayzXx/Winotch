@@ -3,8 +3,9 @@ name: windows-smoke
 # Compiling and unit-testing the app does not prove it starts: the overlay is a
 # windowless app, so a crash before the island is drawn is invisible here and on
 # the user's desktop. This job launches the real executable on a real Windows
-# machine, waits, and fails if it died, logged a fatal start-up error, or never
-# rendered a frame.
+# machine, waits, and fails if it died, logged a fatal start-up error, never
+# rendered a frame, or rendered a window that covers the whole screen instead of
+# just the notch.
 
 on:
   push:
@@ -68,6 +69,21 @@ jobs:
           if ($text -match "FATAL") { throw "start-up logged a FATAL error" }
           if ($text -notmatch "overlay frame loop started") { throw "the overlay frame loop never started" }
           if ($text -notmatch "overlay frame buffer") { throw "the overlay never rendered a frame" }
+
+          # The overlay is a monitor-sized window that must be invisible except
+          # where the island is. Two regressions make it cover the whole screen
+          # instead, and both are invisible to a build or a unit test: a window
+          # backdrop material (Mica) painting the full client area, and the
+          # frame itself being opaque away from the island.
+          if ($text -notmatch "overlay transparency: Transparent") {
+            throw "the overlay window is not per-pixel transparent — it will paint over the whole screen"
+          }
+          if ($text -match "may paint over the whole screen") {
+            throw "the overlay resolved to a backdrop material instead of a transparent window"
+          }
+          if ($text -notmatch "overlay frame is transparent outside the island") {
+            throw "the rendered frame is opaque away from the island — the overlay is covering the screen"
+          }
           Write-Host "smoke check passed"
 
       - name: Upload startup log

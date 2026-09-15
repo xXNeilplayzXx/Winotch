@@ -45,7 +45,17 @@ public sealed partial class OverlayWindow
         _window = new Window
         {
             SystemDecorations = SystemDecorations.None,
-            TransparencyLevelHint = new[] { WindowTransparencyLevel.Mica, WindowTransparencyLevel.Transparent },
+            // Per-pixel transparency ONLY. The window covers a whole monitor
+            // and the island is drawn on a small part of it, so a backdrop
+            // material (Mica/Acrylic) is never an option: it fills the entire
+            // window, turning a small notch into a screen-sized panel. The WPF
+            // app this replaces used AllowsTransparency for exactly this
+            // reason.
+            TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent },
+            // Painted under the window when transparency is unavailable. The
+            // Avalonia default is opaque black, which would black out the
+            // whole screen rather than failing quietly.
+            TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent,
             Background = Avalonia.Media.Brushes.Transparent,
             Topmost = true,
             ShowInTaskbar = false,
@@ -82,6 +92,14 @@ public sealed partial class OverlayWindow
                     AppLog.Write("Overlay click-through unavailable: could not read the window procedure.");
                 }
             }
+
+            // Recorded so a wrong window material can never again be mistaken
+            // for a rendering bug: anything but Transparent means the desktop
+            // behind the island can be covered by the window.
+            var material = _window.ActualTransparencyLevel;
+            AppLog.Write(material == WindowTransparencyLevel.Transparent
+                ? "overlay transparency: Transparent (per-pixel, desktop stays visible)"
+                : $"overlay transparency: {material} — expected Transparent, the overlay may paint over the whole screen");
 
             NativeInvalidate();
         };
@@ -215,9 +233,14 @@ public sealed partial class OverlayWindow
         Dispatcher.UIThread.Post(() =>
         {
             if (_window is null) return;
-            _window.Position = new PixelPoint((int)left, (int)top);
+            // Position is in PHYSICAL screen pixels while Width/Height are in
+            // DIP. Getting this wrong shifts the whole overlay on scaled or
+            // multi-monitor desktops, taking the hit-testing with it.
+            _window.Position = new PixelPoint((int)Math.Round(left), (int)Math.Round(top));
             _window.Width = width;
             _window.Height = height;
+            AppLog.Write($"overlay placed at ({_window.Position.X},{_window.Position.Y}) px " +
+                $"{width:0}x{height:0} dip, at {CurrentDpi():0.##}x scale");
             _surface?.InvalidateVisual();
         });
     }
@@ -342,6 +365,7 @@ internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
     private WriteableBitmap? _frame;
     private int _pixelWidth;
     private int _pixelHeight;
+    private bool _loggedFootprint;
 
     public OverlaySkiaControl(OverlayWindow owner)
     {
@@ -376,6 +400,20 @@ internal sealed class OverlaySkiaControl : Avalonia.Controls.Control
                 var canvas = surface.Canvas;
                 _owner.OnRender(canvas, (float)scale, width, height);
                 canvas.Flush();
+
+                // Once per buffer: prove the frame is transparent away from the
+                // island. The overlay is monitor-sized, so a frame that is
+                // opaque at its far corner means the window is painting over
+                // the whole desktop instead of just the notch.
+                if (!_loggedFootprint)
+                {
+                    _loggedFootprint = true;
+                    var cornerAlpha = (int)Marshal.ReadByte(
+                        locked.Address, (pixelHeight - 1) * locked.RowBytes + 3);
+                    AppLog.Write(cornerAlpha == 0
+                        ? "overlay frame is transparent outside the island (desktop stays visible)"
+                        : $"overlay frame is opaque outside the island (alpha {cornerAlpha}) — the overlay is covering the screen");
+                }
             }
         }
         catch (Exception ex)

@@ -76,9 +76,11 @@ public sealed partial class OverlayWindow : IDisposable
     public void AssignMonitor(MonitorSnapshot monitor)
     {
         Monitor = monitor;
-        var scale = monitor.DpiScaleX;
-        NativeSetBounds(monitor.LeftDip, monitor.TopDip, monitor.WidthDip,
-            scale > 0.001 ? monitor.Bounds.Height / scale : monitor.Bounds.Height);
+        // Origin is the monitor's PHYSICAL screen position (both Avalonia's
+        // Window.Position and X11 take physical pixels); the size is the
+        // window's logical width/height, which the host converts as needed.
+        NativeSetBounds(monitor.Bounds.Left, monitor.Bounds.Top,
+            monitor.WidthDip, monitor.HeightDip);
         _shell.ApplyTheme();
     }
 
