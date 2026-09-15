@@ -16,14 +16,19 @@ public sealed record UpdateInfo(string Tag, string Version, string ZipUrl, long 
         System.Version.TryParse(Version, out var other) && other > current;
 }
 
-/// <summary>Auto-updater: asks GitHub Releases for the latest Winotch, compares
+/// <summary>Auto-updater: asks GitHub Releases for the newest Winotch, compares
 /// it to the running build, downloads the win-x64 zip, stages the exe, and
 /// hands the swap to a hidden PowerShell one-liner that replaces the file once
 /// this process exits and relaunches it. A private repo or missing network
 /// simply yields "couldn't check" — the feature needs the repo to be public.</summary>
 public sealed class UpdateService
 {
-    private const string LatestApi = "https://api.github.com/repos/xXNeilplayzXx/Winotch/releases/latest";
+    /// <summary>Every Winotch build is published as a GitHub *prerelease*, and
+    /// the /releases/latest endpoint deliberately excludes prereleases — it
+    /// would report no update at all (or 404 once no stable release is left).
+    /// The list endpoint returns prereleases too, so the newest one is picked
+    /// by version instead.</summary>
+    private const string ReleasesApi = "https://api.github.com/repos/xXNeilplayzXx/Winotch/releases?per_page=30";
 
     private static readonly HttpClient Http = CreateClient();
     private static readonly Regex ZipAssetRegex = new(@"^Winotch-v\d+\.\d+\.\d+-x64\.zip$", RegexOptions.IgnoreCase);
@@ -45,29 +50,46 @@ public sealed class UpdateService
         return client;
     }
 
-    /// <summary>Query the latest release. Null when unreachable, not found, or
-    /// the release has no matching win-x64 zip asset.</summary>
+    /// <summary>Query the newest release. Null when unreachable or when no
+    /// release carries a matching win-x64 zip asset.</summary>
     public async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
     {
         try
         {
-            using var response = await Http.GetAsync(LatestApi, ct).ConfigureAwait(false);
+            using var response = await Http.GetAsync(ReleasesApi, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return null;
             var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return Parse(json);
+            return ParseLatest(json);
         }
         catch (HttpRequestException) { return null; }
         catch (TaskCanceledException) { return null; }
         catch (JsonException) { return null; }
     }
 
-    /// <summary>Parse the GitHub "latest release" JSON payload. Kept static and
-    /// pure so the tests exercise it without the network.</summary>
-    public static UpdateInfo? Parse(string json)
+    /// <summary>Pick the newest release out of the releases-list payload, or
+    /// fall back to single-release parsing when handed one object. Drafts are
+    /// skipped, and a release without a win-x64 zip (a docs-only tag) does not
+    /// hide an older usable build behind it. Kept static and pure so the tests
+    /// exercise it without the network.</summary>
+    public static UpdateInfo? ParseLatest(string json)
     {
         try
         {
-            return TryParse(json);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return ParseElement(doc.RootElement);
+
+            UpdateInfo? newest = null;
+            System.Version? newestVersion = null;
+            foreach (var release in doc.RootElement.EnumerateArray())
+            {
+                if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True) continue;
+                var candidate = ParseElement(release);
+                if (candidate is null || !System.Version.TryParse(candidate.Version, out var version)) continue;
+                if (newestVersion is not null && version <= newestVersion) continue;
+                newest = candidate;
+                newestVersion = version;
+            }
+            return newest;
         }
         catch (JsonException)
         {
@@ -75,10 +97,24 @@ public sealed class UpdateService
         }
     }
 
-    private static UpdateInfo? TryParse(string json)
+    /// <summary>Parse a single GitHub release object. Kept static and pure so
+    /// the tests exercise it without the network.</summary>
+    public static UpdateInfo? Parse(string json)
     {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return ParseElement(doc.RootElement);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static UpdateInfo? ParseElement(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return null;
         if (!root.TryGetProperty("tag_name", out var tagElement)) return null;
         var tag = tagElement.GetString();
         if (string.IsNullOrWhiteSpace(tag)) return null;

@@ -7,7 +7,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Winotch</AssemblyName>
     <RootNamespace>Winotch</RootNamespace>
-    <Version>2.3.3</Version>
+    <Version>2.3.4</Version>
     <Product>Winotch</Product>
     <ApplicationIcon>Resources/WinotchTray.ico</ApplicationIcon>
   </PropertyGroup>

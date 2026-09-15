@@ -32,17 +32,19 @@ Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and ever
 
 ## Getting started
 
+Every build is published as a GitHub **pre-release**, so tick **"Show pre-releases"** on the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page (or let the installers pick the newest build for you) — the "Latest" badge stays on the last stable release and points at an older build.
+
 ### Windows
 ```powershell
-irm https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/linux/install.ps1 | iex
+irm https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/main/install.ps1 | iex
 ```
-Or grab **Winotch-win-x64.tar.gz** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page and extract it anywhere.
+Download by hand instead: on the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page pick the newest **`Winotch-vX.Y.Z-x64.zip`** (the one *without* `linux` in its name), then unzip it anywhere and run `Winotch.exe`. It is self-contained — no .NET install needed.
 
 ### Linux
 ```bash
-curl -sL https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/linux/install.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/xXNeilplayzXx/Winotch/main/install.sh | sudo bash
 ```
-Or grab **Winotch-linux-x64.tar.gz** from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
+Download by hand instead: the newest **`Winotch-vX.Y.Z-linux-x64.zip`** on the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page, unzipped anywhere.
 
 Run **`Winotch`** (or `winotch` on Linux). A first-run wizard sets up your theme and widgets.
 
@@ -122,7 +124,9 @@ dotnet publish src/Winotch -c Release -r linux-x64 --self-contained -o dist
 dotnet publish src/Winotch -c Release -r win-x64 --self-contained -o dist-win
 ```
 
-Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release.
+Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release. Keep `<Version>` in `src/Winotch/Winotch.csproj` in step with the tag: the app reports that version to its own auto-updater. The workflow creates the release if it does not exist and marks it a **pre-release** either way, so no tag can publish itself as a stable "Latest" release.
+
+The app's updater reads the *releases list*, not `releases/latest` — GitHub hides pre-releases from `latest`, which would leave the app unable to see any of its own builds.
 
 ## Good to know
 

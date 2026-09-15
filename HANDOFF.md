@@ -1,98 +1,81 @@
-# Handoff Document - Winotch Cross-Platform Build
-
-## Current Status
-Successfully implemented cross-platform build support for Winotch with separate Windows and Linux releases. All conditional compilation fixes have been applied to ensure platform-specific code is properly excluded from incompatible builds.
-
-## Completed Work
-- Applied `#if WINDOWS` guards to Windows-specific code causing Linux build failures
-- Fixed BackdropBlur usage in IslandShell.cs to only compile on Windows
-- Applied conditional compilation to MediaService.cs and BackdropBlur.cs classes
-- Verified GitHub Actions workflow builds both platforms independently
-- Maintained Windows functionality while fixing Linux compatibility
-
-## Files Modified
-- `/src/Winotch/Engine/IslandShell.cs` - Added conditional compilation around BackdropBlur usage
-- `/src/Winotch/Engine/BackdropBlur.cs` - Wrapped entire class with `#if WINDOWS`
-- `/src/Winotch/MediaService.cs` - Wrapped entire class with `#if WINDOWS`
-- `/src/Winotch/Winotch.csproj` - Already had proper file exclusions for Linux builds
-
-## Next Steps
-The builds should now work properly when tagged releases are created. The GitHub Actions workflow in `.github/workflows/build-release.yml` is configured to:
-- Build Windows: `dotnet publish -r win-x64` with single-file output
-- Build Linux: `dotnet publish -r linux-x64` with single-file output
-- Package and upload release assets automatically
-
-## Verification Needed
-- Create a test tag/release to verify both Windows and Linux builds complete successfully
-- Confirm that the resulting executables work properly on their respective platforms
-
-## Context
-This work was done to address the user's request to "focus on linux for now but don't remove windows" and to fix build failures that occurred when attempting to create cross-platform releases. The solution maintains Windows functionality while ensuring Linux builds succeed by properly excluding Windows-specific code through conditional compilation.
-
----
-
 # HANDOFF — where we left off
+
+_Last updated: 2026-09-15, after v2.3.4._
 
 ## Current state (TL;DR)
 
-- **Latest release:** v2.3.0 "Linux Support" — but **CI is red on `main` and on the v2.3.0 tag**: the Windows build fails with 2 compile errors (details below). The release *does* have assets (`Winotch-win-x64.tar.gz`, `Winotch-linux-x64.tar.gz`) — packaging changed from `.zip` to `.tar.gz` in the Linux port.
-- **The 7 critical bug fixes are stranded on a branch.** `main` does **not** contain them — the Linux port branched from 2.1.10, before those fixes existed. Only the **v2.2.0** release (Windows zip) has them.
-- **Version history is out of order:** main went 2.1.10 → 2.3.0, skipping 2.2.0 (which exists only on the qwen branch + its release).
+- **Every release is a pre-release.** Newest: **v2.3.4**. Publishing as a pre-release is deliberate and permanent — see
+  "Release policy" below, because it changes more than the flag on the release page.
+- **CI is green on `main`** on all three gates: `build-test-release` (Windows build + Linux build + 146 unit tests) and
+  `windows-smoke` (launches the real exe on a real Windows runner).
+- `main` is the only live branch. `legacy` holds the old WebView2/Tauri app; `linux` is a porting branch kept for
+  reference. Version history on `main`: … 2.1.10 → **2.2.0 was cut on a branch and never merged** (its fixes *are* in
+  `main` now, re-applied) → 2.3.0 → 2.3.1 → 2.3.2 → 2.3.3 → 2.3.4.
+- Local environment has **no .NET SDK**. CI is the only compiler and the only place the app is ever executed. Push and
+  watch: `gh run watch <id> --exit-status`.
 
-## CI failures on main / v2.3.0 (blockers, fix first)
+## What the 2.3.x line fixed (and why it matters when touching the Windows host)
 
-Run 34391459754 (v2.3.0) and 34297138372 (main) — Windows job, Build step:
+The Linux port (`275f12b`) rewrote the Windows overlay as Avalonia code that had never been run on Windows. Everything
+below was invisible to a compile and to unit tests, and each one made the app look "dead" or wrong on a real desktop:
 
-| File | Error | Cause |
-|---|---|---|
-| `src/Winotch/PrivacyUseProbe.cs` | CS1529 — `using` clause must precede all other elements | `using Microsoft.Win32;` sits mid-file *after* the `IPrivacyConsentStore` interface, inside a `#if WINDOWS` block (merge mangled it) |
-| `src/Winotch/WindowsLocation.cs` | CS1022 — type/namespace or end-of-file expected | Extra closing brace before the final `#endif` |
+| Version | Fix |
+|---|---|
+| 2.3.1 | Build: restored the conditional Windows TFM; `#if WINDOWS` guards on `Platform/Windows/*.cs`; `FakeWindowsThemeSource` renamed to `FakeThemeSource`. |
+| 2.3.2 | Nothing actually worked yet — the "fix" only repackaged a framework-dependent build. Do not trust a zip's size alone: self-contained is ~80 MB, framework-dependent ~10 MB. |
+| 2.3.3 | Launch: the Windows host never started the shell's frame loop (only Linux did); the renderer PNG-encoded a full-screen surface per frame and handed zero-sized surfaces to Skia; the WndProc chain called a null pointer; WPF resources (`FontFamily`, tray icon pack URI) were used inside an Avalonia app. Also: all eight editor dialogs called Avalonia's `ShowDialog` with a **null owner**, which WPF allowed and Avalonia rejects — fatal on every first run. |
+| 2.3.4 | The overlay covered the whole screen: `TransparencyLevelHint` listed **Mica** first, and on Windows 11 the window material fills the entire (monitor-sized) window. Now transparency only, with a transparent fallback brush. Also fixed DIP coordinates being passed to `Window.Position`, which is in **physical** pixels. |
 
-**Shortcut:** the `qwen-code-b353ad55-5699-4a9e-8a58-a369f8205817` branch has *corrected* versions of both files (plain Windows forms, no `#if` mangle). Note `WindowsLocation.cs` on that branch is the plain `Geolocator` version — merge it deliberately, don't copy blindly, since main's copy may be the cross-platform-intended one with the braces just botched.
+## Release policy: pre-releases, always
 
-## The stranded bug-fix branch (needs merging into main)
+Decided by the maintainer: every build ships as a GitHub **pre-release** ("testing build"), from v2.3.4 on. That is not
+just a flag — `releases/latest` and everything built on it ignore pre-releases, so three things had to change with it:
 
-Branch `qwen-code-b353ad55-5699-4a9e-8a58-a369f8205817`, tip `0fda030`:
+1. **`.github/workflows/build-release.yml`** — on a tag it now creates the release if it is missing *and* forces
+   `--prerelease`, so a tag can never publish itself as a stable "Latest" release.
+2. **`src/Winotch/UpdateService.cs`** — the in-app updater reads `releases?per_page=30` and picks the highest version
+   (skipping drafts, and releases without a win-x64 zip). With `releases/latest` it would have reported "no update" for
+   ever, or 404'd once no stable release remained. Covered by tests in `tests/Winotch.Tests/UpdateServiceTests.cs`.
+3. **`install.ps1` / `install.sh` / README** — installers resolve the newest release through the API (or `WINOTCH_URL`)
+   and fetch the real asset names, `Winotch-vX.Y.Z-x64.zip` / `-linux-x64.zip`.
 
-- `8454e3f` — the 7 fixes: `CheckForUpdates` → `CheckForUpdatesAsync` on `INotchHost`, DPI divide-by-zero guard, mutex try/finally, logging in every swallowed `catch` in `MediaService.cs`, structural (deep) equality in `SettingsService.cs`, safe async event handlers in `OverlayWindow.cs`, thread-safe CTS dispose via `Interlocked.Exchange`.
-- `0fda030` — fixes the compile break the 7-fix commit introduced (tray still called old `CheckForUpdates`) and bumps `<Version>` to 2.2.0.
-
-Tag `v2.2.0` points at `0fda030`. Its release has `Winotch-v2.2.0-x64.zip` (76 MB). These fixes are **in that release but not in main**.
-
-⚠️ **When merging into main, expect conflicts:** main's Linux port stubbed D-Bus services and added `#if WINDOWS` conditionals; the branch is Windows-era code. Also the branch renamed `CheckForUpdatesAsync` — main's call sites still use `CheckForUpdates`. Resolve toward `CheckForUpdatesAsync` everywhere.
-
-## Pending work, in priority order
-
-1. **Fix the two compile errors on main** (see table above) → get CI green.
-2. **Merge the qwen bug-fix branch into main**, resolving the `CheckForUpdatesAsync` rename and `#if_WINDOWS` conflicts.
-3. **Decide the next version.** Main skipped 2.2.0; sensible next cut is **2.3.1** (or re-plan: if you want the bug fixes labeled, some teams would re-cut 2.4.0 — user's call).
-4. **Fullscreen "hide the notch" feature — approved but never built.** Agreed design: hide by default when a foreground window covers ≥98% of a monitor (and is topmost/not the shell), plus a **"Keep notch visible in fullscreen"** toggle in Settings → Pill. `HideNotch`/`ShowNotch`/`SetPaused` hooks already exist on the overlay; `MonitorTargeting.cs` is where the monitor probe belongs. Plan a `FullscreenDetector` pure helper + tests, per repo conventions.
-5. **Housekeeping:** stray `.DS_Store` files are untracked in the repo root — delete and gitignore them. Consider making the release workflow create its own release if missing (the upload step has failed twice for this reason).
+Consequence to keep in mind: the repo homepage and the Releases page will show a **stale "Latest"** badge on the last
+stable release. Point people at "Show pre-releases", or the installers.
 
 ## Release mechanics (hard-won, don't relearn these)
 
-- **The workflow's upload step requires the GitHub release to already exist.** Create the release (with notes) *before* the tag's CI run reaches the upload step, or it fails and you're re-running jobs. (v2.1.8 needed a rerun dance; v2.1.9/2.2.0 were clean because the release was pre-created.)
-- **`<Version>` in `src/Winotch/Winotch.csproj` must match the tag** — the app self-reports this version to the auto-updater. v2.2.0's tag initially shipped still saying 2.1.10.
-- CI is currently the **only** compile gate: there's no .NET SDK in the local environment. Push and watch `gh run watch <id> --exit-status`.
-- Compose git commit messages via a temp file + `git commit -F` (heredoc transport has been flaky in this environment).
-- When an algorithm has boundary conditions (column splits, hover rects, text wrap), **simulate it in `python3` before writing the C#** — this caught real bugs three times (unbalanced column split, 238-flip hover oscillation, wrap overflow).
+- **`<Version>` in `src/Winotch/Winotch.csproj` must match the tag.** The app reports it to its own updater; v2.2.0 once
+  shipped still saying 2.1.10, and no installed build was ever considered current.
+- **The upload step needs the release to exist.** Creating it yourself with notes before pushing the tag is still nicest
+  (the workflow's fallback creates one with a generic title). The workflow now also tolerates a missing release, but the
+  notes are better when human-written.
+- Tags are cut from a **version-stamp commit**: bump `<Version>`, commit, push, wait for green, then tag and push.
+- Compose commit messages via a temp file + `git commit -F` — heredoc transport is flaky in this environment.
+- **Simulate algorithms in `python3` before writing C#** when they have boundary conditions (column splits, hover rects,
+  text wrap, the releases-list version pick). It has caught real bugs repeatedly.
+- Editing app code from a Linux/macOS box is fine, but *nothing* on Windows can be verified without a CI run — rely on
+  the smoke job, not on reasoning about Win32.
 
-## Release inventory
+## Verification infrastructure
 
-| Release | Notes |
-|---|---|
-| v2.3.0 (Latest) | Linux port (PR #2). tar.gz assets. Tag run **failed** (Windows build). |
-| v2.2.0 | 7 critical bug fixes. Windows zip. Tag lives **only** on the qwen branch, not main. |
-| v2.1.10 | Empty-state text wrap fix (clipboard/notes hints clipped at card edge). |
-| v2.1.9 | Hover oscillation fix + side-pill sweep loop fix (audit-verified: 0 oscillating cells). |
-| v2.1.8 | Two-column horizontal open direction (~620px panel, height-balanced columns). |
+- `.github/workflows/windows-smoke.yml` launches the built `Winotch.exe` on a fresh `windows-latest` runner and fails on:
+  a process that exits during start-up, a `FATAL` line in the log, a frame loop that never starts, no rendered frame, a
+  window that resolves to a backdrop material instead of `Transparent`, or a frame that is opaque away from the island
+  (which is exactly "the app is covering my screen").
+- The app logs to `%LOCALAPPDATA%\Winotch\logs\winotch.log` (`AppLog`) and shows a message box on a fatal start-up
+  failure, so a launch failure is never silent again. Useful lines: `overlay transparency: …`, `overlay placed at …`,
+  `overlay frame is transparent outside the island`, `FATAL (startup): …`.
+- Unit tests: `tests/Winotch.Tests` (146 tests, Windows-only project because it touches Win32/WinForms types).
 
-## Shipped features recap (recent)
+## Open items / next steps
 
-Per-widget sizes (compact/standard/large) • vertical text option • two-column Horizontal panel with cross-column reorder • drag-to-seek + volume on Now Playing • precipitation-start toasts (once per event) • vertical/horizontal pill open direction setting • launcher executable scan in setup • wrapped empty-state hints.
-
-## Approved-but-unbuilt feature backlog
-
-- Fullscreen notch hiding (designed above — top of the queue).
-- Fuller clipboard card (real entry previews, per-row copy) — was offered, never requested.
-- Text-overflow audit of all widget cards at compact size / column widths.
+1. **Verify v2.3.4 on the maintainer's desktop** — especially on a scaled display (125 %/150 %) or multi-monitor setup,
+   where the `Window.Position` unit fix changes placement. The log lines above are the fastest way to diagnose.
+2. **Fullscreen notch hiding** — approved, designed (hide when a foreground window covers ≥98 % of a monitor, plus a
+   "Keep notch visible in fullscreen" toggle), never built. `HideNotch`/`ShowNotch`/`SetPaused` hooks exist;
+   `MonitorTargeting.cs` is where the probe belongs.
+3. **The Linux host has never been smoke-tested.** It has no Avalonia window, draws straight to X11, and its dialogs now
+   fall back to non-modal behaviour. It shares the same port that produced every bug above.
+4. **Shrink the overlay window** to the island's bounds rather than a whole monitor, so no window-level mistake can ever
+   cover the screen again.
+5. Housekeeping: stray `.DS_Store` files in the repo root are untracked — delete and gitignore.

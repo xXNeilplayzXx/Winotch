@@ -3,11 +3,27 @@
 
 $ErrorActionPreference = "Stop"
 
-$DownloadUrl = if ($env:WINOTCH_URL) { $env:WINOTCH_URL } else { "https://github.com/xXNeilplayzXx/Winotch/releases/latest/download/Winotch-win-x64.tar.gz" }
 $InstallDir = "$env:ProgramFiles\Winotch"
 $ExePath = "$InstallDir\Winotch.exe"
 
 Write-Host "Installing Winotch..." -ForegroundColor Cyan
+
+# Every Winotch build is published as a GitHub *prerelease*, and
+# releases/latest deliberately ignores prereleases — resolving the newest
+# release through the API is the only way to reach the current build.
+$DownloadUrl = $env:WINOTCH_URL
+if (-not $DownloadUrl) {
+    Write-Host "Resolving the newest release..."
+    try {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/xXNeilplayzXx/Winotch/releases?per_page=1" -UseBasicParsing
+        $asset = $releases[0].assets | Where-Object { $_.name -like "Winotch-v*-x64.zip" } | Select-Object -First 1
+        if (-not $asset) { throw "release $($releases[0].tag_name) has no Windows zip" }
+        $DownloadUrl = $asset.browser_download_url
+    } catch {
+        Write-Error "Could not find a Winotch release to download. Set `$env:WINOTCH_URL to a release zip and run again. ($_)"
+        exit 1
+    }
+}
 
 # Create install directory
 if (-not (Test-Path $InstallDir)) {
@@ -15,7 +31,7 @@ if (-not (Test-Path $InstallDir)) {
 }
 
 # Download binary
-$TempArchive = "$env:TEMP\Winotch-win-x64.tar.gz"
+$TempArchive = "$env:TEMP\Winotch-win-x64.zip"
 Write-Host "Downloading from $DownloadUrl..."
 try {
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempArchive -UseBasicParsing
@@ -26,7 +42,7 @@ try {
 
 # Extract
 Write-Host "Extracting to $InstallDir..."
-tar -xzf $TempArchive -C $InstallDir
+Expand-Archive -Path $TempArchive -DestinationPath $InstallDir -Force
 Remove-Item $TempArchive -Force
 
 # Add to PATH if not already there

@@ -5,13 +5,13 @@ set -e
 # Usage: curl -sL https://your-server.com/install.sh | sudo bash
 # Or: sudo ./install.sh
 
-# Configurable download URL (change this to your actual hosting location)
-DOWNLOAD_URL="${WINOTCH_URL:-https://github.com/xXNeilplayzXx/Winotch/releases/latest/download/Winotch-linux-x64.tar.gz}"
+# Optional override: WINOTCH_URL=/path/or/url/to/Winotch-vX.Y.Z-linux-x64.zip
+DOWNLOAD_URL="${WINOTCH_URL:-}"
 
 INSTALL_DIR="/opt/winotch"
 DESKTOP_FILE="/usr/share/applications/winotch.desktop"
 ICON_FILE="/opt/winotch/winotch.png"
-TARBALL="/tmp/Winotch-linux-x64.tar.gz"
+ARCHIVE="/tmp/Winotch-linux-x64.zip"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -19,15 +19,27 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Download or use local tarball
+# Download or use a local archive
 if [ -n "$1" ] && [ -f "$1" ]; then
     echo "Using local file: $1"
-    cp "$1" "$TARBALL"
+    cp "$1" "$ARCHIVE"
 else
+    # Every Winotch build is published as a GitHub *prerelease*, and
+    # releases/latest deliberately ignores prereleases — resolve the newest
+    # release through the API instead.
+    if [ -z "$DOWNLOAD_URL" ]; then
+        echo "Resolving the newest release..."
+        DOWNLOAD_URL=$(curl -sL "https://api.github.com/repos/xXNeilplayzXx/Winotch/releases?per_page=1" \
+            | grep -o 'https://[^"]*Winotch-v[0-9.]*-linux-x64\.zip' | head -1)
+    fi
+    if [ -z "$DOWNLOAD_URL" ]; then
+        echo "Error: could not find a Winotch Linux release."
+        echo "Set WINOTCH_URL to a release zip, or pass one as an argument."
+        exit 1
+    fi
     echo "Downloading Winotch from $DOWNLOAD_URL..."
-    if ! curl -sL "$DOWNLOAD_URL" -o "$TARBALL"; then
+    if ! curl -fsL "$DOWNLOAD_URL" -o "$ARCHIVE"; then
         echo "Error: Failed to download from $DOWNLOAD_URL"
-        echo "You can provide a local file: sudo ./install.sh Winotch-linux-x64.tar.gz"
         exit 1
     fi
 fi
@@ -39,7 +51,12 @@ mkdir -p "$INSTALL_DIR"
 
 # Extract binary
 echo "Extracting to $INSTALL_DIR..."
-tar -xzf "$TARBALL" -C "$INSTALL_DIR"
+if ! command -v unzip >/dev/null 2>&1; then
+    echo "Error: unzip is required to extract the Winotch release"
+    exit 1
+fi
+unzip -o -q "$ARCHIVE" -d "$INSTALL_DIR"
+rm -f "$ARCHIVE"
 
 # Make executable
 chmod +x "$INSTALL_DIR/Winotch"
