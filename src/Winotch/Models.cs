@@ -46,7 +46,7 @@ public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
 
 /// <summary>Look-and-feel settings ported from the original app: theme, accent,
 /// glass/solid appearance with opacity + blur, background gradients, pill
-/// size presets/sliders, idle content, drag-to-move and display targeting.
+/// size presets/sliders, idle content and display targeting.
 /// Defaults preserve the current rewrite's dark solid design.</summary>
 public sealed record AppearanceSettings
 {
@@ -80,7 +80,6 @@ public sealed record AppearanceSettings
 
     public IdleContentMode IdleContent { get; init; } = IdleContentMode.Auto;
     public string CustomIdleText { get; init; } = "";
-    public bool DragToMove { get; init; } = true;
 
     /// <summary>In side mode (pill attached to the left/right edge), render
     /// the pill's text with upright letters stacked top-to-bottom instead of

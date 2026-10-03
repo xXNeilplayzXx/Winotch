@@ -22,7 +22,6 @@ public class PillSettingsTests
                     SizePreset = "wide",
                     IdleContent = IdleContentMode.Custom,
                     CustomIdleText = "Lunch at 1",
-                    DragToMove = false,
                     VerticalText = true,
                     OffsetX = 120,
                     OffsetY = 40,
@@ -38,7 +37,6 @@ public class PillSettingsTests
             Assert.Equal("wide", appearance.SizePreset);
             Assert.Equal(IdleContentMode.Custom, appearance.IdleContent);
             Assert.Equal("Lunch at 1", appearance.CustomIdleText);
-            Assert.False(appearance.DragToMove);
             Assert.True(appearance.VerticalText);
             Assert.Equal(120, appearance.OffsetX);
             Assert.Equal(40, appearance.OffsetY);

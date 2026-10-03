@@ -238,9 +238,6 @@ public partial class SettingsWindow : Window
                     _customIdleRow.Visibility = v == "custom" ? Visibility.Visible : Visibility.Collapsed;
                 }),
             _customIdleRow,
-            MakeToggleRow("Drag to move", "Grab the pill to move it; the spot is remembered",
-                s.Appearance.DragToMove,
-                v => UpdateAppearance(x => x with { DragToMove = v })),
             MakeChoiceRow("Edge attachment", "Top = the usual pill; Left / Right rotate it vertically onto that edge",
                 new[] { ("top", "Top"), ("left", "Left"), ("right", "Right") },
                 EdgeKey(s.General.Edge),

@@ -176,16 +176,11 @@ public sealed class IslandShell
 
     public bool AnyHoverButton { get; private set; }
 
-    /// <summary>The drag-to-move feature toggle.</summary>
-    public bool DragToMoveEnabled => _settings.Current.Appearance.DragToMove;
-
     /// <summary>True when the point is over the collapsed pill (plus a small
-    /// margin) — the drag grab zone. Expanded panels are never draggable.
-    /// Drag mode lets you grab the pill even when Drag-to-move is off.</summary>
+    /// margin) — the drag grab zone. Expanded panels are never draggable.</summary>
     public bool IsCollapsedPillAt(double xDip, double yDip)
     {
         if (_paused || _blend > 0.5) return false;
-        if (!_dragMode && !DragToMoveEnabled) return false;
         const double m = 6;
         var rect = new SKRect((float)(_x - m), (float)(_y - m),
             (float)(_x + _w + m), (float)(_y + _h + m));
@@ -480,19 +475,26 @@ public sealed class IslandShell
         else
         {
             var notch = settings.General.Style == NotchStyle.Notch;
-            var targetTop = notch
+            var baseTop = notch
                 ? (expanded ? NotchTopPanel : NotchTopMini)
                 : (expanded ? IslandTopPanel : IslandTopMini);
-            _y += (targetTop - _y) * Math.Min(1, deltaTime * 16);
-            _x = (CanvasWidth - _w) / 2;
 
-            // Apply the drag offset, clamped so the island can never be pushed
-            // off the screen: the notch may keep its designed top-cap clip,
-            // the island must stay fully visible, and neither falls off-screen.
+            // Fold the drag offset into the spring target once, instead of
+            // adding it to the eased position every frame. Adding it after
+            // the ease re-applied the offset on top of the previous frame's
+            // value, so the pill overshot the cursor and bounced up and down
+            // while dragged. With the offset in the target the ease settles
+            // exactly on base + offset, and — like the vertical edge — snaps
+            // 1:1 while dragging. Clamped so the island can never be pushed
+            // off screen: the notch keeps its designed top-cap clip and the
+            // island stays fully visible.
             var yMin = notch ? NotchTopMini : 0;
             var yMax = Math.Max(yMin, CanvasHeight - _h);
+            var targetY = Math.Clamp(baseTop + OffsetY, yMin, yMax);
+            var k = Dragging ? 1 : Math.Min(1, deltaTime * 16);
+            _y += (targetY - _y) * k;
+            _x = (CanvasWidth - _w) / 2;
             _x = Math.Clamp(_x + OffsetX, 6, Math.Max(6, CanvasWidth - _w - 6));
-            _y = Math.Clamp(_y + OffsetY, yMin, yMax);
         }
 
         // Hover toggles expansion with hysteresis (suppressed while dragging

@@ -257,7 +257,7 @@ public sealed class OverlayWindow : Window, IDisposable
     {
         base.OnPreviewMouseLeftButtonDown(e);
         var point = e.GetPosition(_surface);
-        if (_shell.DragToMoveEnabled && _shell.IsCollapsedPillAt(point.X, point.Y))
+        if (_shell.IsCollapsedPillAt(point.X, point.Y))
         {
             _dragActive = true;
             _dragging = false;
