@@ -372,7 +372,14 @@ public sealed class LauncherEditWindow : Window
 
         var ok = DialogUi.Button("Done", primary: true);
         var cancel = DialogUi.Button("Cancel");
-        ok.Click += (_, _) => { Result = apps; DialogResult = true; };
+        ok.Click += (_, _) =>
+        {
+            Result = apps;
+            // Warm the icon cache off the UI thread so the card's first paint
+            // after closing the dialog doesn't stall on disk.
+            AppIcons.Prewarm(apps);
+            DialogResult = true;
+        };
         cancel.Click += (_, _) => DialogResult = false;
 
         var list = new StackPanel();
@@ -382,16 +389,27 @@ public sealed class LauncherEditWindow : Window
             foreach (var app in apps)
             {
                 var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var icon = new Image
+                {
+                    Width = 20,
+                    Height = 20,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Source = AppIcons.GetImageSource(app),
+                };
+                Grid.SetColumn(icon, 0);
                 var label = DialogUi.Label(app.Label, 12, weight: FontWeights.SemiBold);
                 var path = DialogUi.Label(app.Path, 10.5, muted: true);
                 var stack = new StackPanel { Children = { label, path } };
-                Grid.SetColumn(stack, 0);
+                Grid.SetColumn(stack, 1);
                 var remove = DialogUi.Button("✕", danger: true);
                 remove.Padding = new Thickness(8, 3, 8, 3);
-                Grid.SetColumn(remove, 1);
-                remove.Click += (_, _) => { apps.Remove(app); Repaint(); };
+                Grid.SetColumn(remove, 2);
+                remove.Click += (_, _) => { apps.Remove(app); Repaint(); RefreshAvailable(); };
+                row.Children.Add(icon);
                 row.Children.Add(stack);
                 row.Children.Add(remove);
                 list.Children.Add(row);
@@ -420,6 +438,7 @@ public sealed class LauncherEditWindow : Window
             nameBox.Text = "";
             pathBox.Text = "";
             Repaint();
+            RefreshAvailable();
             pathBox.Focus();
         }
         add.Click += (_, _) => DoAdd();
@@ -449,21 +468,114 @@ public sealed class LauncherEditWindow : Window
                 apps.Add(new LauncherApp(label, path));
                 quick.Children.Remove(chip);
                 Repaint();
+                RefreshAvailable();
             };
             quick.Children.Add(chip);
         }
+
+        // Installed apps found in the Start Menu, offered exactly the way the
+        // setup wizard does — so the widget's ⚙ can add a real app in one tap
+        // instead of demanding a hand-typed path.
+        var available = new List<LauncherApp>();
+        var availableHint = DialogUi.Label("Scanning installed apps\u2026", 10.5, muted: true);
+        var availableChips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        void RefreshAvailable()
+        {
+            availableChips.Children.Clear();
+            foreach (var app in available)
+            {
+                var selected = apps.Any(a => string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
+                var content = new StackPanel { Orientation = Orientation.Horizontal };
+                if (AppIcons.GetImageSource(app) is { } chipIcon)
+                {
+                    content.Children.Add(new Image
+                    {
+                        Width = 16,
+                        Height = 16,
+                        Margin = new Thickness(0, 0, 5, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Source = chipIcon,
+                    });
+                }
+                content.Children.Add(new TextBlock
+                {
+                    Text = (selected ? "\u2713 " : "+ ") + app.Label,
+                    FontSize = 11.5,
+                    FontWeight = FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(8),
+                    Background = selected ? DialogUi.Accent : DialogUi.CardHover,
+                    BorderBrush = selected ? DialogUi.Accent : DialogUi.Stroke,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(9, 4, 9, 4),
+                    Margin = new Thickness(0, 0, 6, 6),
+                    Cursor = Cursors.Hand,
+                    Child = content,
+                };
+                chip.MouseLeftButtonUp += (_, _) =>
+                {
+                    if (apps.Any(a => string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        apps.RemoveAll(a => string.Equals(a.Path, app.Path, StringComparison.OrdinalIgnoreCase));
+                    }
+                    else
+                    {
+                        apps.Add(app);
+                    }
+                    Repaint();
+                    RefreshAvailable();
+                };
+                availableChips.Children.Add(chip);
+            }
+        }
+        LauncherScanner.ScanAsync(Dispatcher, found =>
+        {
+            available = found;
+            availableHint.Text = found.Count == 0
+                ? "No installed apps found \u2014 add one by hand below."
+                : "Tap to include or exclude:";
+            RefreshAvailable();
+        });
+
+        var availableCard = new Border
+        {
+            Background = DialogUi.Card,
+            BorderBrush = DialogUi.Stroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(8),
+            Margin = new Thickness(0, 10, 0, 0),
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    DialogUi.Label("AVAILABLE APPS", 9.5, muted: true),
+                    availableHint,
+                    new ScrollViewer
+                    {
+                        Content = availableChips,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        MaxHeight = 148,
+                    },
+                },
+            },
+        };
 
         var scroller = new ScrollViewer
         {
             Content = list,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            MaxHeight = 220,
+            MaxHeight = 170,
             Margin = new Thickness(0, 4, 0, 0),
         };
 
         var panel = new StackPanel { Margin = new Thickness(16), Width = width };
         panel.Children.Add(DialogUi.Label("App shortcuts", 12, muted: true));
         panel.Children.Add(scroller);
+        panel.Children.Add(availableCard);
         panel.Children.Add(addRow);
         panel.Children.Add(quick);
         panel.Children.Add(DialogUi.SizeSection(scale, s => Scale = s));

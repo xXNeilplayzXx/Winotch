@@ -363,6 +363,15 @@ public static class PanelLayout
     /// <summary>A card the panel will actually draw: (id, height ≥ 0).</summary>
     public readonly record struct PanelCard(string Id, double Height);
 
+    /// <summary>Unscaled height of the empty clipboard card: text offset +
+    /// wrapped hint lines + bottom pad, mirroring DrawClipboardWidget's empty
+    /// state line for line. The card's box scales this exactly once by the
+    /// widget's size factor; applying the factor here as well made the empty
+    /// card scale by f², so it was cramped and clipping at Compact (0.72×) and
+    /// oversized at Large (1.32×).</summary>
+    public static double ClipboardEmptyCardHeight(int hintLineCount) =>
+        44 + Math.Max(0, hintLineCount) * 15 + 12;
+
     /// <summary>Split visible cards into at most <paramref name="columns"/>
     /// columns whose total heights stay balanced: the boundary index is the
     /// one whose left/right height sums are closest to equal, so a tall card

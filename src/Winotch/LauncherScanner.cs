@@ -53,6 +53,35 @@ public static class LauncherScanner
         return results;
     }
 
+    /// <summary>Resolve Start Menu shortcuts on a dedicated STA background
+    /// thread (WScript.Shell is COM, and resolving shortcuts is slow enough to
+    /// stall a window) and hand the list back on <paramref name="dispatcher"/>.
+    /// Shared by the setup wizard and the launcher widget's settings dialog so
+    /// both offer the same app list.</summary>
+    public static void ScanAsync(System.Windows.Threading.Dispatcher dispatcher,
+        Action<List<LauncherApp>> onDone)
+    {
+        var worker = new System.Threading.Thread(() =>
+        {
+            List<LauncherApp> found;
+            try
+            {
+                found = ScanInstalledApps();
+            }
+            catch
+            {
+                found = [];
+            }
+            dispatcher.Invoke(() => onDone(found));
+        })
+        {
+            IsBackground = true,
+            Name = "LauncherScan",
+        };
+        worker.SetApartmentState(System.Threading.ApartmentState.STA);
+        worker.Start();
+    }
+
     /// <summary>Heuristic for "an app the user would actually launch": the
     /// target must be an existing .exe and neither the shortcut name nor the
     /// target may look like an uninstaller, installer, updater or doc entry.</summary>

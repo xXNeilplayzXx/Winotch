@@ -59,7 +59,7 @@ Open the expanded panel and manage cards with **+** (add), the arrows or drag (r
 - **Weather** — current conditions, feels-like, today's high/low and city from Open-Meteo (no API key needed). Set a city or let Windows decide.
 - **Focus timer** — work/break presets (15/5, 25/5, 50/10, 90/20) or your own custom minutes, with an optional auto-cycle that keeps alternating; a live countdown shows on the pill.
 - **Clipboard history** — your last 10 copies (text, files, images with thumbnails), kept only in memory — never written to disk. Copy again, or **Clear**.
-- **App launcher** — a grid of shortcuts to launch any app or file; suggested apps included (Chrome, Edge, VS Code, Spotify…).
+- **App launcher** — a grid of shortcuts with each app's real icon; its ⚙ settings scan your installed apps so you can add them in one tap, alongside suggested entries (Chrome, Edge, VS Code, Spotify…).
 - **System stats** — live CPU, memory, battery and network rates.
 - **Notes** — a free-form scratchpad that persists.
 - **Clock** — time, date and your city.

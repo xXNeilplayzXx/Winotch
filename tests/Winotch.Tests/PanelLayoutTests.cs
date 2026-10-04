@@ -84,4 +84,22 @@ public class PanelLayoutTests
         var right = result[1].Sum(c => c.Height);
         Assert.True(Math.Abs(left - right) <= 130, $"columns wildly unbalanced: {left} vs {right}");
     }
+
+    [Fact]
+    public void ClipboardEmptyCardHeight_IsUnscaledAndMatchesTheDrawConstants()
+    {
+        // The empty clipboard card draws its hint at top+44 with 15px line
+        // steps and a 12px bottom pad. The size factor is applied once, by
+        // WidgetCardHeight — this used to multiply it here too, so the empty
+        // card scaled by f² and looked cramped at Compact and huge at Large.
+        Assert.Equal(44 + 0 * 15 + 12, PanelLayout.ClipboardEmptyCardHeight(0));
+        Assert.Equal(44 + 1 * 15 + 12, PanelLayout.ClipboardEmptyCardHeight(1));
+        Assert.Equal(44 + 3 * 15 + 12, PanelLayout.ClipboardEmptyCardHeight(3));
+
+        var unscaled = PanelLayout.ClipboardEmptyCardHeight(3);
+        Assert.Equal(unscaled * 0.85, unscaled * WidgetScale.Compact.Factor(), 6);
+        Assert.Equal(unscaled * 1.15, unscaled * WidgetScale.Large.Factor(), 6);
+        // A squared factor would land here instead — the regression guard.
+        Assert.NotEqual(unscaled * 0.85 * 0.85, unscaled * WidgetScale.Compact.Factor(), 6);
+    }
 }

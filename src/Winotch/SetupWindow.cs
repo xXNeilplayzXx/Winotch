@@ -411,34 +411,16 @@ public sealed class SetupWindow : Window
     /// the UI thread to fill the chip row.</summary>
     private void StartLauncherScan()
     {
-        var worker = new System.Threading.Thread(() =>
+        LauncherScanner.ScanAsync(Dispatcher, found =>
         {
-            List<LauncherApp> found;
-            try
+            if (_launcherEmpty is { } empty)
             {
-                found = LauncherScanner.ScanInstalledApps();
+                empty.Text = found.Count == 0
+                    ? "No installed apps found \u2014 add shortcuts from the widget's \u2699 settings later."
+                    : "Tap to include or exclude:";
             }
-            catch
-            {
-                found = [];
-            }
-            Dispatcher.Invoke(() =>
-            {
-                if (_launcherEmpty is { } empty)
-                {
-                    empty.Text = found.Count == 0
-                        ? "No installed apps found \u2014 add shortcuts from the widget's \u2699 settings later."
-                        : "Tap to include or exclude:";
-                }
-                PaintLauncherChips(found);
-            });
-        })
-        {
-            IsBackground = true,
-            Name = "LauncherScan",
-        };
-        worker.SetApartmentState(System.Threading.ApartmentState.STA); // COM (WScript.Shell)
-        worker.Start();
+            PaintLauncherChips(found);
+        });
     }
 
     private void PaintLauncherChips(List<LauncherApp> found)

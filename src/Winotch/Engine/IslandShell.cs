@@ -598,8 +598,15 @@ public sealed class IslandShell
         }
         if (appearance.CustomSize)
         {
-            var w = Math.Min(appearance.Width, Math.Max(150, CanvasWidth - 16));
             var h = Math.Min(appearance.Height, Math.Max(30, CanvasHeight - 8));
+            // The chosen width is a floor, not a cap: a live call/media/focus
+            // chip ("Discord · 12:34") must never be clipped by a size the
+            // user picked before that chip existed. The pill grows only as
+            // far as the row actually needs.
+            var needed = 0.0;
+            foreach (var item in BuildMiniRow()) needed += item.Width + 8;
+            var maxW = Math.Max(150, CanvasWidth - 16);
+            var w = Math.Min(Math.Max(appearance.Width, needed), maxW);
             return (w, h);
         }
         var total = 0.0;
@@ -705,7 +712,12 @@ public sealed class IslandShell
             "media" => Media is null ? 0 : 112,
             "notes" => 104,
             "weather" => 106,
-            "launcher" => 40 + LauncherRows(settings) * 58,
+            // With no apps the card only holds the hint line and the "add
+            // apps" chip — reserving a full 58px tile row for them left ~46px
+            // of dead space in a card that is enabled by default.
+            "launcher" => settings.Widgets.LauncherApps.Count == 0
+                ? 72 // hint line + the "add apps" chip (spans top+36..top+64)
+                : 40 + LauncherRows(settings) * 58,
             "focus" => settings.Features.FocusTimerEnabled ? 150 : 0,
             "clipboard" => settings.Features.ClipboardHistoryEnabled
                 ? ClipboardItems.Count == 0
@@ -968,7 +980,10 @@ public sealed class IslandShell
         {
             // A call takes over the strip (the legacy pill priority); media
             // yields so the green pill is never crowded out.
-            items.Add(new MiniItem(MiniKind.Call, 26 + TextKit.Measure(CallLabel(), 11.5f, TextKit.Semibold)));
+            // 40 = left pad (icon starts ~x+12) + right pad, so the green
+            // bubble has room to wrap the icon *and* the "Discord · 12:34"
+            // label instead of sitting centred over the left edge.
+            items.Add(new MiniItem(MiniKind.Call, 40 + TextKit.Measure(CallLabel(), 11.5f, TextKit.Semibold)));
         }
         else if (Media is { Playing: true } && settings.Features.ShowMediaOnPill)
         {
@@ -1091,10 +1106,15 @@ public sealed class IslandShell
                     TextKit.Draw(canvas, track, x + 22, cy - 8.5f, 11.5f, ShellUi.Text, TextKit.Semibold);
                     break;
                 case MiniKind.Call:
-                    var callW = (float)item.Width - 26;
-                    FillRound(canvas, x + 13 - callW / 2, cy - 11, callW, 22, 11, ShellUi.Fade(ShellUi.Ok, 0.16));
+                    // Bubble wraps the whole chip, icon through the timer. The
+                    // label gets the chip's own width, clamped to the pill's
+                    // right edge so a screen-clamped or mid-animation pill
+                    // still ellipsizes cleanly instead of running off it.
+                    var callW = (float)item.Width - 12;
+                    FillRound(canvas, x + 6, cy - 11, callW, 22, 11, ShellUi.Fade(ShellUi.Ok, 0.16));
                     ShellUi.DrawGlyph(canvas, "\uE717", x + 18, cy, 11, ShellUi.Ok);
-                    TextKit.Draw(canvas, ShellUi.Ellipsize(CallLabel(), Math.Max(40, rect.Right - x - 40), 11.5f, TextKit.Semibold),
+                    var callBudget = Math.Min(item.Width - 34, rect.Right - x - 8);
+                    TextKit.Draw(canvas, ShellUi.Ellipsize(CallLabel(), (float)Math.Max(40, callBudget), 11.5f, TextKit.Semibold),
                         x + 26, cy - 8.5f, 11.5f, ShellUi.Ok, TextKit.Semibold);
                     break;
                 case MiniKind.Focus:
@@ -1698,14 +1718,32 @@ public sealed class IslandShell
             {
                 FillRound(canvas, centerX - tileWidth / 2 + 2, centerY - tileHeight / 2, tileWidth - 4, tileHeight, 10, ShellUi.CardHover);
             }
-            ShellUi.FillCircle(canvas, centerX, centerY - 12, 14, ShellUi.Fade(ShellUi.Accent, hovering ? 0.5 : 0.22));
-            var name = apps[i].Label.Trim();
-            var initial = name.Length > 0 ? char.ToUpperInvariant(name[0]).ToString() : "\u2022";
-            TextKit.DrawCentered(canvas, initial, centerX, centerY - 12, 12.5f,
-                hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.9f), TextKit.Semibold);
-            TextKit.DrawCentered(canvas, ShellUi.Ellipsize(apps[i].Label, tileWidth - 6, 9.5f, TextKit.Regular),
-                centerX, centerY + 15, 9.5f, ShellUi.Fade(ShellUi.Muted, 1));
             var app = apps[i];
+            var iconCy = centerY - 12;
+            const float iconHalf = 14f;
+            var icon = AppIcons.GetBitmap(app);
+            if (icon is not null)
+            {
+                // Real app icon; a soft accent glow behind it carries the
+                // hover response the letter bubble used to provide.
+                if (hovering)
+                {
+                    ShellUi.FillCircle(canvas, centerX, iconCy, 16, ShellUi.Fade(ShellUi.Accent, 0.26));
+                }
+                canvas.DrawBitmap(icon, new SKRect(centerX - iconHalf, iconCy - iconHalf,
+                    centerX + iconHalf, iconCy + iconHalf));
+            }
+            else
+            {
+                // No readable icon — keep the letter bubble as the fallback.
+                ShellUi.FillCircle(canvas, centerX, iconCy, 14, ShellUi.Fade(ShellUi.Accent, hovering ? 0.5 : 0.22));
+                var name = app.Label.Trim();
+                var initial = name.Length > 0 ? char.ToUpperInvariant(name[0]).ToString() : "\u2022";
+                TextKit.DrawCentered(canvas, initial, centerX, iconCy, 12.5f,
+                    hovering ? ShellUi.Text : ShellUi.Fade(ShellUi.Text, 0.9f), TextKit.Semibold);
+            }
+            TextKit.DrawCentered(canvas, ShellUi.Ellipsize(app.Label, tileWidth - 6, 9.5f, TextKit.Regular),
+                centerX, centerY + 15, 9.5f, ShellUi.Fade(ShellUi.Muted, 1));
             RegisterButton(new SKRect(centerX - tileWidth / 2, centerY - tileHeight / 2,
                 centerX + tileWidth / 2, centerY + tileHeight / 2), () => LaunchAppRequested?.Invoke(app));
         }
@@ -1774,9 +1812,9 @@ public sealed class IslandShell
     /// card then scales by the widget's size factor).</summary>
     private double ClipboardEmptyHeight(WinotchSettings settings)
     {
-        var factor = settings.Widgets.SizeFor("clipboard").Factor();
-        var layoutWidth = (float)(CardLayoutWidth(settings) / factor);
-        return (44 + ClipboardHintLines(layoutWidth).Count * 15 + 12) * factor;
+        // Unscaled: WidgetCardHeight multiplies by the size factor once.
+        var layoutWidth = (float)(CardLayoutWidth(settings) / settings.Widgets.SizeFor("clipboard").Factor());
+        return PanelLayout.ClipboardEmptyCardHeight(ClipboardHintLines(layoutWidth).Count);
     }
 
     private void DrawClipboardWidget(SKCanvas canvas, float left, float top, float width)
