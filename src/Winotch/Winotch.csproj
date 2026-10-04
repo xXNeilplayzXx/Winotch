@@ -32,4 +32,8 @@
     <Using Remove="System.Drawing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Winotch.Tests" />
+  </ItemGroup>
+
 </Project>

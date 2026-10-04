@@ -372,8 +372,15 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             });
             if (accepted && window.StagedExe is { } staged)
             {
-                UpdateService.ApplyAndRestart(staged, window.DownloadPath);
-                QuitApplication();
+                if (UpdateService.ApplyAndRestart(staged, window.DownloadPath))
+                {
+                    QuitApplication();
+                }
+                else
+                {
+                    ShowToast(new ToastSpec("", "Update couldn't start",
+                        "Winotch couldn't launch its updater. Quit and start Winotch, then try again.", 7));
+                }
             }
         }
         catch (Exception ex)
@@ -434,13 +441,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     public void RestartApplication()
     {
         var executable = Environment.ProcessPath ?? StartupService.CurrentExecutablePath();
-        try
+        // Launching the new instance while this one is still alive makes it
+        // lose the single-instance mutex and exit at once, so the relaunch is
+        // deferred until this process is gone.
+        if (!UpdateService.RelaunchAfterExit(executable))
         {
-            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
-        }
-        catch
-        {
-            // Launch failed — stay running.
+            try
+            {
+                Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+            }
+            catch
+            {
+                // Launch failed — stay running.
+            }
         }
         QuitApplication();
     }

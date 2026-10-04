@@ -93,10 +93,12 @@ public sealed class UpdateWindow : Window
         try
         {
             var update = new UpdateService();
-            await update.DownloadAsync(_info.ZipUrl, zip, new Progress<int>(p => _progress.Value = p));
-            _status.Text = "Preparing…";
+            await update.DownloadAsync(_info.ZipUrl, zip, _info.SizeBytes, new Progress<int>(p => _progress.Value = p));
+            _progress.Value = 100;
+            _status.Text = "Verifying the download…";
             StagedExe = UpdateService.StageExe(zip, stage);
             DownloadPath = zip;
+            _status.Text = "Update ready — restarting Winotch…";
             DialogResult = true;
             Close();
         }
