@@ -370,6 +370,12 @@ public sealed class LauncherEditWindow : Window
         Scale = scale;
         var width = 380;
 
+        // Declared here rather than next to the picker below: Repaint's local
+        // functions capture both, and a captured local must be definitely
+        // assigned before the Repaint() call above its own declaration.
+        var available = new List<LauncherApp>();
+        var availableChips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+
         var ok = DialogUi.Button("Done", primary: true);
         var cancel = DialogUi.Button("Cancel");
         ok.Click += (_, _) =>
@@ -476,9 +482,7 @@ public sealed class LauncherEditWindow : Window
         // Installed apps found in the Start Menu, offered exactly the way the
         // setup wizard does — so the widget's ⚙ can add a real app in one tap
         // instead of demanding a hand-typed path.
-        var available = new List<LauncherApp>();
         var availableHint = DialogUi.Label("Scanning installed apps\u2026", 10.5, muted: true);
-        var availableChips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         void RefreshAvailable()
         {
             availableChips.Children.Clear();
@@ -512,7 +516,7 @@ public sealed class LauncherEditWindow : Window
                     BorderThickness = new Thickness(1),
                     Padding = new Thickness(9, 4, 9, 4),
                     Margin = new Thickness(0, 0, 6, 6),
-                    Cursor = Cursors.Hand,
+                    Cursor = System.Windows.Input.Cursors.Hand,
                     Child = content,
                 };
                 chip.MouseLeftButtonUp += (_, _) =>
