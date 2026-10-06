@@ -745,8 +745,7 @@ public sealed class IslandShell
             }
             else
             {
-                length = 10;
-                foreach (var item in BuildMiniRow()) length += item.Width + 8;
+                length = RowSpan(BuildMiniRow());
             }
             length = Math.Clamp(length, MiniHeight, Math.Max(MiniHeight, CanvasHeight - 16));
             return (MiniHeight, length);
@@ -758,15 +757,12 @@ public sealed class IslandShell
             // chip ("Discord · 12:34") must never be clipped by a size the
             // user picked before that chip existed. The pill grows only as
             // far as the row actually needs.
-            var needed = 0.0;
-            foreach (var item in BuildMiniRow()) needed += item.Width + 8;
+            var needed = RowSpan(BuildMiniRow());
             var maxW = Math.Max(150, CanvasWidth - 16);
             var w = Math.Min(Math.Max(appearance.Width, needed), maxW);
             return (w, h);
         }
-        var total = 0.0;
-        foreach (var item in BuildMiniRow()) total += item.Width + 8;
-        var width = Math.Clamp(total, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16));
+        var width = Math.Clamp(RowSpan(BuildMiniRow()), MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16));
         return (width, MiniHeight);
     }
 
@@ -1118,8 +1114,10 @@ public sealed class IslandShell
                 items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
                 if (BatteryText().Length > 0 && settings.Features.ShowBatteryOnPill)
                 {
+                    // The dot's box starts 2px in and its label 19px in, so 20 is
+                    // the honest width; 16 let the percent run out of its chip.
                     items.Add(new MiniItem(MiniKind.Battery,
-                        16 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
+                        20 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
                 }
                 break;
         }
@@ -1158,8 +1156,7 @@ public sealed class IslandShell
         var maxWidth = Vertical
             ? Math.Max(MiniHeight, CanvasHeight - 16)
             : Math.Max(MiniWidthMin, CanvasWidth - 16);
-        var total = 0.0;
-        foreach (var item in items) total += item.Width + 8;
+        var total = RowSpan(items);
         if (total > maxWidth)
         {
             for (var i = 0; i < items.Count; i++)
@@ -1179,6 +1176,17 @@ public sealed class IslandShell
         }
         return items;
     }
+
+    /// <summary>Width the collapsed row needs, side margins included — what the
+    /// pill sizes itself to (see PillRow).</summary>
+    private static double RowSpan(IEnumerable<MiniItem> items) =>
+        PillRow.Span(items.Select(item => item.Width));
+
+    /// <summary>Just the chips' own width, gaps between them included. The row is
+    /// centred on this, so the difference from the pill's width is the margin.
+    /// </summary>
+    private static double RowContent(IEnumerable<MiniItem> items) =>
+        PillRow.ContentSpan(items.Select(item => item.Width));
 
     private string IdleText(WinotchSettings settings)
     {
@@ -1223,9 +1231,7 @@ public sealed class IslandShell
         }
         var cy = rect.Top + rect.Height / 2;
         var items = BuildMiniRow();
-        var total = 0.0;
-        foreach (var item in items) total += item.Width + 8;
-        var x = rect.Left + (rect.Width - (float)total) / 2;
+        var x = (float)PillRow.Start(rect.Left, rect.Width, RowContent(items));
         var clock = ClockText(_settings.Current);
 
         foreach (var item in items)
@@ -1280,14 +1286,20 @@ public sealed class IslandShell
                         x + 26, cy - 8.5f, 11.5f, ShellUi.Ok, TextKit.Semibold);
                     break;
                 case MiniKind.Focus:
+                    // Centred on the chip's own box. The bubble used to be drawn a
+                    // fixed 10px from the item's left edge while the item is the
+                    // label plus 20 wide, so it hung half its width outside the
+                    // pill, got clipped by the silhouette, and left dead space on
+                    // the right — the auto-resize looked wrong from both ends.
                     var chipW = (float)item.Width - 20;
+                    var chipCx = (float)PillRow.Start(x, item.Width, chipW);
                     var isBreak = Focus.Phase == FocusTimerPhase.Break;
                     var color = isBreak ? ShellUi.Ok : ShellUi.Accent;
-                    FillRound(canvas, x + 10 - chipW / 2, cy - 11, chipW, 22, 11, ShellUi.Fade(color, 0.16));
-                    TextKit.DrawCentered(canvas, FocusLabel(), x + 10, cy, 11.5f, color, TextKit.Semibold);
+                    FillRound(canvas, chipCx - chipW / 2, cy - 11, chipW, 22, 11, ShellUi.Fade(color, 0.16));
+                    TextKit.DrawCentered(canvas, FocusLabel(), chipCx, cy, 11.5f, color, TextKit.Semibold);
                     break;
             }
-            x += (float)item.Width + 8;
+            x += (float)(item.Width + PillRow.Gap);
         }
     }
 
@@ -2806,9 +2818,8 @@ public sealed class IslandShell
     /// hover tooltip can anchor to it.</summary>
     private (float X, float Y) LedCenter(SKRect rect)
     {
-        var total = 0.0;
-        foreach (var item in BuildMiniRow()) total += item.Width + 8;
-        var x = rect.Left + (rect.Width - (float)total) / 2;
+        // Mirrors the row layout exactly, so the tooltip anchors to the dot.
+        var x = (float)PillRow.Start(rect.Left, rect.Width, RowContent(BuildMiniRow()));
         return (x + 5, (float)(rect.Top + rect.Height / 2));
     }
 
