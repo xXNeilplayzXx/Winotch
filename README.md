@@ -24,9 +24,10 @@ Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and ever
 
 ## Highlights
 
-- **The pill** — a springy, weightless notch that collapses to a tidy pill (clock, status light, live chips) and morphs open on hover. Hang it flush against the top edge like a notch, or float it like an island.
+- **The pill** — a springy, weightless notch that collapses to a tidy pill (clock, status light, live chips) and morphs open on hover. It also changes face: press a volume or media key and it becomes a slider or a transport chip, take a call and it turns green, copy something or plug in a charger and a chip slides in. Hang it flush against the top edge like a notch, or float it like an island.
 - **Widgets, your way** — clock, now playing, weather, focus timer, notes, clipboard history, system stats and an app launcher. Add, remove, resize and reorder them; everything persists.
-- **Calls at a glance** — when you're on a call the pill turns into a green chip with the app name and a live timer (Discord, Teams, Zoom, Slack and more).
+- **Calls at a glance** — when you're on a call the pill turns into a green chip with the app name and a live timer — desktop apps (Discord, Teams, Zoom, Slack, Webex, Skype, WhatsApp, Signal and more) and calls in the browser (Google Meet, web Teams/Slack/Discord, WhatsApp Web, Jitsi, Whereby…).
+- **Volume & brightness, not Windows' OSD** — press a volume key and the pill morphs into a slider showing the level; brightness does the same. Winotch claims the volume keys, so Windows' own volume pop-up never appears.
 - **Theme it completely** — Dark / Light / System / Colour / Background themes, glass or acrylic surfaces, ten background gradients, your pick of any font installed on your PC (or import your own), and a size that fits your screen.
 - **Small touches** — status alerts for low battery, Wi-Fi drops and charger events; a clipboard that keeps your last copies handy; a focus timer that nudges you through work/break cycles.
 
@@ -45,6 +46,10 @@ Works on **Windows 10 (2004+)** and **Windows 11**.
 - **Springy pill** — collapses to a pill and springs open on hover; a critically-damped spring drives the morph so it feels weightless.
 - **Idle content** — default (status light + clock), brand + clock, custom text (long text auto-scrolls), or just the light.
 - **Pill chips** — show or hide calls, now playing, focus timer and battery chips right on the collapsed pill, plus an optional date chip.
+- **Volume & brightness HUD** — press a volume key and the pill morphs into a slider: glyph, bar and percentage (**Muted** when it is). Winotch claims the volume keys themselves, so Windows' own OSD never appears and the level is applied straight to the audio endpoint — where possible the Now playing slider follows immediately, rather than on the next poll. Brightness shows the same HUD whenever it changes. Both are toggles in Settings → Pill, and a hidden or paused Winotch hands the keys straight back to Windows. **Media key feedback** (also Settings → Pill) does the same for play / pause / next / previous — except those keys are only watched, never taken over.
+- **One pill, many faces** — the collapsed pill has a few ways to take over from its usual row: drag mode, the volume / brightness slider, the call chip, the now-playing chip, and short-lived chips for a media key you just pressed or something worth a glance (charger in, rain coming, something copied). A chip yields to whatever you did last, so the pill always answers the most recent action; drag mode sits on top of all of it.
+- **Media key feedback** — press play / pause / next / previous and the pill shows the key you pressed with the track it applies to. Winotch never claims these keys: your player and Windows keep handling them exactly as before, and the chip is purely a readout.
+- **Glance chips** — rain starting within the half hour, the charger going in or out, and a fresh copy show as a chip on the pill instead of a toast. The rest (low battery, Wi-Fi, camera and mic) keep their toasts, because they are worth a sentence.
 - **Drag it anywhere** — hit the **Drag mode** button in Settings and the pill switches to a draggable handle with **Done / Reset** buttons: drag it anywhere on screen, **Done** keeps the spot, **Reset** snaps back to top-center. The pill can never be pushed off screen.
 - **Display targeting** — show it on your main monitor, one specific display (pick by name or on a visual map of your layout), **all monitors**, or **follow the active window** to whichever screen you're using.
 - **Side mode** — attach the pill to the **left or right edge** (Settings → Pill → Edge attachment): it rotates 90° into a slim vertical capsule that hugs the side of your screen and slides along it when dragged. Hover it and the panel slides out beside the capsule — opening downward when there's room, upward when the capsule sits low. **Vertical text** (Settings → Pill) renders the pill's letters upright, stacked top-to-bottom, instead of rotated 90°. **Open direction** (Settings → Pill) picks how the panel expands: **Vertical** keeps the single column growing downward, while **Horizontal** blooms wide to a two-column layout with the widgets split across balanced columns — the launch grid adapts from 4 to 3 tiles per row, and drag-to-reorder works across both columns.
@@ -54,8 +59,8 @@ Works on **Windows 10 (2004+)** and **Windows 11**.
 
 Open the expanded panel and manage cards with **+** (add), the arrows or drag (reorder), **⚙** (configure) and **✕** (remove).
 
-- **Now playing** — title, artist, album art, transport controls and a timeline via Windows SMTC. Toasts announce track changes ("now-playing toasts"). While music plays, the pill itself shows the track. Drag the timeline to seek (with a live time readout — shown when the media app allows seeking), and use the volume slider and mute button for system volume.
-- **Rain alerts** — a toast when precipitation is about to start at your weather location (within 30 minutes), once per shower. Toggle in Settings → Alerts.
+- **Now playing** — title, artist, album art, transport controls and a timeline via Windows SMTC. Toasts announce track changes ("now-playing toasts"). While music plays the pill becomes a compact now-playing chip — rounded album art, the track and the artist, and a hairline progress bar that advances with the track. Pause and the chip dims and shows a play mark for twenty seconds before the pill goes back to the clock, so a long-stopped track doesn't sit there forever, and a title too long for the chip scrolls instead of being cut off. Drag the timeline to seek (with a live time readout — shown when the media app allows seeking), and use the volume slider and mute button for system volume.
+- **Rain alerts** — a chip on the pill when precipitation is about to start at your weather location (within 30 minutes), once per shower. Toggle in Settings → Alerts.
 - **Weather** — current conditions, feels-like, today's high/low and city from Open-Meteo (no API key needed). Set a city or let Windows decide.
 - **Focus timer** — work/break presets (15/5, 25/5, 50/10, 90/20) or your own custom minutes, with an optional auto-cycle that keeps alternating; a live countdown shows on the pill.
 - **Clipboard history** — your last 10 copies (text, files, images with thumbnails), kept only in memory — never written to disk. Copy again, or **Clear**.
@@ -68,7 +73,7 @@ Each card sizes itself independently — hit **⚙** on a card and pick **Compac
 
 ### Calls & status light
 
-- **Call chip** — while you're actually on a call (mic/camera in use, or a call-style window like a meeting or ringing call), the pill becomes a green chip naming the app with a ticking timer.
+- **Call chip** — while you're actually on a call the pill becomes a green chip naming the app with a ticking timer. Desktop apps are matched by process name and browser calls (Google Meet, web Teams/Discord/Slack, WhatsApp Web, Jitsi, Whereby) by their tab title. A running app only lights the pill when there's real evidence of a call — a call-style window title, or a hot mic/camera for a known desktop app.
 - **Status light** — the little dot beside the clock tells you what's active: **red** while your mic is in use, **amber** while your camera is on, **purple** when both are. Hover it for details.
 
 ### Appearance
@@ -83,9 +88,9 @@ Each card sizes itself independently — hit **⚙** on a card and pick **Compac
 
 ### Alerts & extras
 
-- **Status alerts** — low battery, charger connected/disconnected (with a little battery-fill animation), Wi-Fi loss/reconnect, mic/camera in use.
+- **Status alerts** — low battery, Wi-Fi loss/reconnect, mic/camera in use, and charger connected/disconnected (those two show as a chip on the pill, with a little battery-fill animation).
 - **Right-click the notch** — hide, restart or close Winotch.
-- **Settings window** — everything above plus 24-hour clock, start-with-Windows ("launch when you sign in"), rerun setup, **Reset to defaults** and a **Factory reset** that wipes your settings.
+- **Settings window** — everything above plus 24-hour clock, start-with-Windows ("launch when you sign in"), rerun setup, **Reset to defaults** and a **Factory reset** that wipes your settings. Sections fold away with a click so the window is a short list of headings rather than one long scroll, and the ones you leave open are remembered between visits.
 - **Tray menu** — settings, pause/resume the notch, hide/show, start with Windows, restart, exit.
 - **Setup wizard** — a friendly two-page first run (theme → display & widgets) with a live preview; when the App launcher is enabled it scans the Start Menu and offers your installed apps as one-tap chips. Reopen it any time from Settings or the tray.
 - **Auto-updates** — checks GitHub for newer builds at startup (toggle in Settings) and offers a one-click download + restart; the tray menu and Settings can check on demand. Needs the GitHub repo to be public.
@@ -109,7 +114,9 @@ Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.gith
 - **Fonts** come from your system (Fluent icons, Segoe UI Emoji, Cascadia Mono for timers) — nothing is bundled. A missing font falls back to the OS default.
 - **Glass** blurs the desktop behind the notch. Because the overlay is a full-screen transparent surface, the capture includes the notch's own previous frame, which settles into a soft glow — content on top stays crisp. If the backdrop can't be captured (locked session, etc.) it falls back to a translucent panel.
 - **Clipboard** thumbnails live only in memory.
-- **Call detection** scans known call apps; browser-based calls aren't detected.
+- **Brightness is mirrored, not taken over.** Windows defines no brightness key an app can claim, and on most laptops the brightness keys are handled by your PC maker's utility before Windows ever sees them — so your PC's own brightness indicator can still appear, a beat before Winotch's. Reading the level needs DDC/CI, which some monitors and virtual machines don't answer at all; when that happens, the brightness HUD simply stays away.
+- **Media keys are watched, not taken over.** Play / pause / next / previous are handled by Windows and whatever app owns the session, exactly as before; Winotch only mirrors the press onto the pill. So the chip names the key you pressed rather than claiming a playing state, and a chip that never appears costs you nothing but a chip.
+- **Call detection** matches known desktop call apps and browser calls, and it's heuristic by nature: it looks for a call-style window title, or a hot mic/camera plus a running call app. So a window that keeps a call-like title while idle (a Zoom pre-join page, an open Jitsi tab) can light the pill early, and a web call whose tab title doesn't name the service can be missed.
 - The notch is a fully custom surface, so it isn't exposed to screen readers; the Settings window is standard accessible XAML.
 
 ## Credits & license
