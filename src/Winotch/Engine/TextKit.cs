@@ -16,7 +16,11 @@ public static class TextKit
         SetUiFamily("Segoe UI Variable Text");
     }
 
-    private static readonly SKTypeface Symbols = Pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol");
+    // U+E706 is the brightness icon: every icon family worth falling back to
+    // covers the block the pill draws from, so requiring the face to have this
+    // glyph keeps a present-but-unusable family from winning the slot.
+    private static readonly SKTypeface Symbols =
+        Pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol", probeGlyph: 0xE706);
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface UiEmoji = Pick("Segoe UI Emoji", "Segoe UI Symbol", "Arial");
 
@@ -53,20 +57,25 @@ public static class TextKit
     }
 
     private static SKTypeface Pick(string primary, string fallback, string last,
-        SKFontStyleWeight weight = SKFontStyleWeight.Normal)
+        SKFontStyleWeight weight = SKFontStyleWeight.Normal, int probeGlyph = 'A')
     {
         foreach (var family in new[] { primary, fallback, last })
         {
-            var face = TryFamily(family, weight);
-            if (face is not null) return face;
+            if (TryFamily(family, weight, probeGlyph) is { } face) return face;
         }
-        return TryFamily("Arial", SKFontStyleWeight.Normal) ?? SKTypeface.Default;
+        return TryFamily("Arial", SKFontStyleWeight.Normal, probeGlyph) ?? SKTypeface.Default;
     }
 
-    private static SKTypeface? TryFamily(string family, SKFontStyleWeight weight)
+    /// <summary>Resolve one family, rejecting the face the font manager hands
+    /// back for a family that is not installed (so the caller tries the next
+    /// candidate) and any face that cannot draw the glyph it is about to be
+    /// asked for. Both rejections matter: without them the first candidate
+    /// always "wins", even when it does not exist.</summary>
+    private static SKTypeface? TryFamily(string family, SKFontStyleWeight weight, int probeGlyph)
     {
         var face = SKTypeface.FromFamilyName(family, weight, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-        return face is not null && !string.IsNullOrEmpty(face.FamilyName) ? face : null;
+        if (face is null || !FontFallback.Matches(family, face.FamilyName)) return null;
+        return FontFallback.CanDraw(face.GetGlyph(probeGlyph)) ? face : null;
     }
 
     public static float Measure(string text, float size, SKTypeface? face = null)
