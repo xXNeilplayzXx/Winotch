@@ -48,6 +48,46 @@ public class PillSettingsTests
     }
 
     [Fact]
+    public void SettingsSections_RoundTrip_KeepsOnlyKnownIds()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"winotch-sections-{Guid.NewGuid():N}.json");
+        try
+        {
+            var settings = new SettingsService(path);
+            settings.Update(s => s with
+            {
+                General = s.General with
+                {
+                    // A hand-edited file could name anything: unknown ids,
+                    // duplicates and blanks are dropped rather than trusted.
+                    OpenSettingsSections = new List<string> { "Appearance", "pill", "pill", "nonsense", "  " },
+                },
+            });
+
+            var sections = new SettingsService(path).Current.General.OpenSettingsSections;
+            Assert.Equal(new[] { "appearance", "pill" }, sections);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SettingsSections_DefaultToNoneOpen()
+    {
+        // Every section ships folded, so a first run isn't a wall of rows.
+        Assert.Empty(new GeneralSettings().OpenSettingsSections);
+        Assert.Empty(new WinotchSettings().Normalize().General.OpenSettingsSections);
+        // A null list out of a hand-edited file must not throw on load.
+        var nulled = new WinotchSettings
+        {
+            General = new GeneralSettings { OpenSettingsSections = null! },
+        }.Normalize();
+        Assert.Empty(nulled.General.OpenSettingsSections);
+    }
+
+    [Fact]
     public void SizePresets_Find_KnownAndUnknown()
     {
         Assert.NotNull(SizePresets.Find("compact"));

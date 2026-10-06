@@ -78,6 +78,35 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
+        <!-- Settings section header: the whole row is the toggle, so hover and
+             the open state are the affordance (no separate disclosure button).
+             The inset rounded chrome keeps the highlight off the card's corners. -->
+        <Style x:Key="SectionHeaderToggle" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Chrome" Background="Transparent" CornerRadius="9"
+                                Padding="9,6" Margin="3">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background"
+                                        Value="{DynamicResource NotchPanelHover}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome" Property="Background"
+                                        Value="{DynamicResource NotchPanelHover}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Dark checkbox: the stock white box looks out of place. The check
              glyph + accent fill only appear when checked. Implicit so every
              dialog (accent row, metrics, focus editor) picks it up; the

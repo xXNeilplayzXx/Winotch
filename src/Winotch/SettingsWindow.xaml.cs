@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Winotch.Engine;
@@ -17,6 +18,11 @@ public partial class SettingsWindow : Window
     private readonly Action? _enterDragMode;
     private readonly Action? _checkForUpdates;
 
+    /// <summary>Ids of the sections the user has open. Loaded from the settings
+    /// and written back on every toggle, so closing and reopening the window
+    /// doesn't fold away what the user had unfolded.</summary>
+    private readonly HashSet<string> _openSections;
+
     public SettingsWindow(SettingsService settings, StartupService startup,
         Action? rerunSetup = null, Action? factoryReset = null, Action? enterDragMode = null,
         Action? checkForUpdates = null)
@@ -27,6 +33,8 @@ public partial class SettingsWindow : Window
         _factoryReset = factoryReset;
         _enterDragMode = enterDragMode;
         _checkForUpdates = checkForUpdates;
+        _openSections = new HashSet<string>(
+            settings.Current.General.OpenSettingsSections, StringComparer.OrdinalIgnoreCase);
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
@@ -47,6 +55,7 @@ public partial class SettingsWindow : Window
                 return;
             }
             _settings.Update(_ => WinotchSettings.Defaults);
+            _openSections.Clear();
             Rows.Children.Clear();
             BuildSections();
         };
@@ -177,9 +186,9 @@ public partial class SettingsWindow : Window
             generalRows.Add(MakeButtonRow("Check for updates",
                 "See if a newer build is available", _checkForUpdates));
         }
-        AddSection("General", generalRows.ToArray());
+        AddSection("general", "General", "Clock, date, position and start-up", generalRows.ToArray());
 
-        AddSection("Appearance",
+        AddSection("appearance", "Appearance", "Theme, accent, font, surface and glass",
             MakeChoiceRow("Theme", "System follows Windows; Colour tints the island; Background follows your wallpaper",
                 new[]
                 {
@@ -213,9 +222,9 @@ public partial class SettingsWindow : Window
             _opacityRow,
             _blurRow);
 
-        AddSection("Size", MakeSizeControl(s.Appearance));
+        AddSection("size", "Size", "Pill width and height", MakeSizeControl(s.Appearance));
 
-        AddSection("Display", MakeDisplayControl(s.Appearance));
+        AddSection("display", "Display", "Which screen the island shows on", MakeDisplayControl(s.Appearance));
 
         _customIdleRow = MakeTextBoxRow("Custom idle text", "Shown in the pill when 'Custom text' is selected",
             s.Appearance.CustomIdleText,
@@ -286,20 +295,29 @@ public partial class SettingsWindow : Window
         pillRows.Add(MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
             s.Features.ShowBatteryOnPill,
             v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
-        AddSection("Pill", pillRows.ToArray());
+        pillRows.Add(MakeToggleRow("Volume keys", "Take the volume keys over so the pill shows the level instead of Windows' OSD",
+            s.Features.VolumeHudEnabled,
+            v => _settings.Update(x => x with { Features = x.Features with { VolumeHudEnabled = v } })));
+        pillRows.Add(MakeToggleRow("Brightness on the pill", "Mirror brightness changes onto the pill (your PC may show its own too)",
+            s.Features.BrightnessHudEnabled,
+            v => _settings.Update(x => x with { Features = x.Features with { BrightnessHudEnabled = v } })));
+        pillRows.Add(MakeToggleRow("Media key feedback", "Show the track on the pill when you press play / pause / next",
+            s.Features.MediaHudEnabled,
+            v => _settings.Update(x => x with { Features = x.Features with { MediaHudEnabled = v } })));
+        AddSection("pill", "Pill", "Idle content, chips, drag and the level keys", pillRows.ToArray());
 
-        AddSection("Alerts",
+        AddSection("alerts", "Alerts", "Pill chips and toasts for tracks, battery, Wi-Fi and rain",
             MakeToggleRow("Now-playing toasts", "Pop a toast when the track changes",
                 s.Toasts.MediaToastsEnabled,
                 v => _settings.Update(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
             MakeToggleRow("Priority alerts", "Low battery, charger, Wi-Fi, mic / camera events",
                 s.Features.PriorityAlertsEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })),
-            MakeToggleRow("Rain alerts", "Toast when precipitation starts within 30 minutes",
+            MakeToggleRow("Rain alerts", "Chip on the pill when precipitation starts within 30 minutes (rain, charging and copies show on the pill instead of as toasts)",
                 s.Toasts.RainAlertsEnabled,
                 v => _settings.Update(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })));
 
-        AddSection("Widgets & features",
+        AddSection("widgets", "Widgets & features", "Clipboard, focus timer and widgets",
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
                 v => _settings.Update(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
@@ -370,32 +388,19 @@ public partial class SettingsWindow : Window
 
     // ------------------------------------------------------------- sections
 
-    private void AddSection(string title, params FrameworkElement[] rows)
+    /// <summary>One collapsible section: a header that always shows, and the
+    /// rows folded away behind it. Sections ship folded, so the window reads as
+    /// a short list of headings rather than one long scroll; whichever ones are
+    /// open is persisted, so a reopened window looks the way it was left.</summary>
+    private void AddSection(string id, string title, string summary, params FrameworkElement[] rows)
     {
-        Rows.Children.Add(new TextBlock
-        {
-            Text = title.ToUpperInvariant(),
-            Style = (Style)FindResource("SectionLabelText"),
-            Margin = new Thickness(2, 0, 0, 8),
-        });
-
-        var card = new Border
-        {
-            Background = (Brush)FindResource("NotchPanelRaised"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(4, 4, 4, 4),
-            Margin = new Thickness(0, 0, 0, 16),
-        };
-
-        var stack = new StackPanel();
+        var content = new StackPanel { Margin = new Thickness(4, 0, 4, 4) };
         for (var i = 0; i < rows.Length; i++)
         {
-            stack.Children.Add(rows[i]);
+            content.Children.Add(rows[i]);
             if (i < rows.Length - 1)
             {
-                stack.Children.Add(new Border
+                content.Children.Add(new Border
                 {
                     Height = 1,
                     Background = (Brush)FindResource("NotchHairline"),
@@ -403,8 +408,100 @@ public partial class SettingsWindow : Window
                 });
             }
         }
+
+        // The header carries the label brighter than the old static caption —
+        // it is a control now — and a one-line hint that only shows while the
+        // section is folded (once the rows are visible, the hint is noise).
+        var heading = new TextBlock
+        {
+            Text = title.ToUpperInvariant(),
+            Style = (Style)FindResource("SectionLabelText"),
+            Foreground = (Brush)FindResource("NotchText"),
+        };
+        var subtitle = new TextBlock
+        {
+            Text = summary,
+            FontSize = 10.5,
+            Foreground = (Brush)FindResource("NotchMutedText"),
+            Margin = new Thickness(0, 3, 0, 0),
+        };
+        var chevron = new TextBlock
+        {
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 2, 0),
+        };
+
+        var labels = new StackPanel();
+        labels.Children.Add(heading);
+        labels.Children.Add(subtitle);
+
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(labels, 0);
+        Grid.SetColumn(chevron, 1);
+        headerRow.Children.Add(labels);
+        headerRow.Children.Add(chevron);
+
+        var open = _openSections.Contains(id);
+        var header = new ToggleButton
+        {
+            Style = (Style)FindResource("SectionHeaderToggle"),
+            IsChecked = open,
+            Content = headerRow,
+        };
+
+        void ApplyState(bool isOpen)
+        {
+            content.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+            subtitle.Visibility = isOpen ? Visibility.Collapsed : Visibility.Visible;
+            chevron.Text = isOpen ? "\uE70E" : "\uE70D";
+            chevron.Foreground = (Brush)FindResource(isOpen ? "NotchAccent" : "NotchMutedText");
+        }
+
+        // Applied before the handlers are wired, so building the window never
+        // reads as a user toggle (and never writes settings).
+        ApplyState(open);
+        header.Checked += (_, _) =>
+        {
+            ApplyState(true);
+            RememberSection(id, open: true);
+        };
+        header.Unchecked += (_, _) =>
+        {
+            ApplyState(false);
+            RememberSection(id, open: false);
+        };
+
+        var card = new Border
+        {
+            Background = (Brush)FindResource("NotchPanelRaised"),
+            BorderBrush = (Brush)FindResource("NotchStroke"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        var stack = new StackPanel();
+        stack.Children.Add(header);
+        stack.Children.Add(content);
         card.Child = stack;
         Rows.Children.Add(card);
+    }
+
+    /// <summary>Record a section's open state so it survives closing the window.</summary>
+    private void RememberSection(string id, bool open)
+    {
+        if (open) _openSections.Add(id);
+        else _openSections.Remove(id);
+        _settings.Update(s => s with
+        {
+            General = s.General with
+            {
+                OpenSettingsSections = _openSections.OrderBy(x => x, StringComparer.Ordinal).ToList(),
+            },
+        });
     }
 
     // ------------------------------------------------------------- toggles
