@@ -37,7 +37,7 @@
                 CornerRadius="10" Padding="13,9" Margin="0,16,0,0">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                    <TextBlock Text="&#xE713;" FontFamily="{DynamicResource NotchIconFont}"
                                FontSize="11" Foreground="{DynamicResource NotchAccent}"
                                VerticalAlignment="Top" Margin="0,1,9,0" />
                     <StackPanel>
@@ -46,6 +46,11 @@
                         <TextBlock Text="Stored as JSON at %LOCALAPPDATA%\Winotch\settings.json"
                                    FontSize="10.5" Foreground="{DynamicResource NotchMutedText}"
                                    TextWrapping="Wrap" Margin="0,2,0,0" />
+                        <!-- Only shown when the icon font could not be resolved,
+                             so a window full of gaps explains itself. -->
+                        <TextBlock x:Name="IconHint" FontSize="10.5" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource NotchDanger}"
+                                   Margin="0,4,0,0" Visibility="Collapsed" />
                     </StackPanel>
                 </StackPanel>
                 <StackPanel x:Name="FooterActions" Orientation="Horizontal"

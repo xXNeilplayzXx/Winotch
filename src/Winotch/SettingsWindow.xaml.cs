@@ -92,6 +92,14 @@ public partial class SettingsWindow : Window
         {
             FontFamily = uiFont;
         }
+        // If no icon face could be found, every glyph in this window is blank.
+        // Say so where the user is already looking, rather than leaving a window
+        // full of unexplained gaps (see IconFont / IconFontWpf).
+        if (IconFontWpf.Note() is { } iconNote)
+        {
+            IconHint.Text = iconNote;
+            IconHint.Visibility = Visibility.Visible;
+        }
         SetBrush("NotchPanel", theme.WpfPanelTop);
         SetBrush("NotchPanelRaised", theme.WpfCard);
         SetBrush("NotchPanelHover", theme.WpfCardHover);
@@ -427,7 +435,8 @@ public partial class SettingsWindow : Window
         };
         var chevron = new TextBlock
         {
-            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontFamily = TryFindResource(IconFontWpf.ResourceKey) as FontFamily
+                ?? new FontFamily(IconFontWpf.FallbackFamilies),
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 2, 0),

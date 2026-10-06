@@ -16,18 +16,35 @@ public static class TextKit
         SetUiFamily("Segoe UI Variable Text");
     }
 
-    // U+E706 is the brightness icon: every icon family worth falling back to
-    // covers the block the pill draws from, so requiring the face to have this
-    // glyph keeps a present-but-unusable family from winning the slot.
-    private static readonly SKTypeface Symbols =
-        Pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol", probeGlyph: 0xE706);
+    // The icon face is resolved by capability rather than by name, and can be
+    // loaded straight from its file — private-use glyphs are never substituted,
+    // so a wrong choice here draws nothing at all (see IconFont).
+    private static readonly IconFontPick IconFace = IconFont.Resolve();
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface UiEmoji = Pick("Segoe UI Emoji", "Segoe UI Symbol", "Arial");
 
     public static SKTypeface Regular => UiRegular;
     public static SKTypeface Semibold => UiSemibold;
     public static SKTypeface Bold => UiBold;
-    public static SKTypeface Icons => Symbols;
+    public static SKTypeface Icons => IconFace.Face;
+
+    /// <summary>The icon face as installed, when that is how it was found, so the
+    /// other renderer (WPF, for the settings window's own glyphs) can name it.</summary>
+    public static string? IconInstalledFamily =>
+        IconFace.Kind == IconFontSource.Installed ? IconFace.Source : null;
+
+    /// <summary>The font file the icon face was loaded from, when the family
+    /// could not be matched by name (hidden or unenumerated fonts).</summary>
+    public static string? IconFontFile =>
+        IconFace.Kind == IconFontSource.FontFile ? IconFace.FilePath : null;
+
+    /// <summary>The family name inside the resolved face — what a file-based
+    /// WPF FontFamily has to name after the '#' to get the right face.</summary>
+    public static string? IconFamilyName => IconFace.Face.FamilyName;
+
+    /// <summary>False when no face could draw the icons, so every glyph comes
+    /// out blank — worth saying out loud rather than looking broken.</summary>
+    public static bool IconFaceResolved => IconFace.Resolved;
     public static SKTypeface Monospace => Mono;
     public static SKTypeface Emoji => UiEmoji;
 

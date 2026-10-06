@@ -17,9 +17,14 @@
         <SolidColorBrush x:Key="NotchHairline" Color="#23272F" />
         <!-- UI typeface, overridden at runtime by the Appearance font setting -->
         <FontFamily x:Key="NotchUiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+        <!-- Icon face, replaced at startup with the best one this machine
+             actually has (see IconFontWpf): a machine where the family cannot be
+             matched by name still gets its glyphs, and one with none of them is
+             told so instead of drawing blanks. -->
+        <FontFamily x:Key="NotchIconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
         <Style x:Key="GlyphText" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="FontFamily" Value="{DynamicResource NotchIconFont}" />
             <Setter Property="Foreground" Value="{StaticResource NotchText}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -122,7 +127,7 @@
                                     Background="{DynamicResource NotchPanelHover}"
                                     BorderBrush="{DynamicResource NotchStroke}" BorderThickness="1"
                                     VerticalAlignment="Center">
-                                <TextBlock x:Name="Check" Text="&#xE73E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                <TextBlock x:Name="Check" Text="&#xE73E;" FontFamily="{DynamicResource NotchIconFont}"
                                            FontSize="10" Foreground="#06131A" HorizontalAlignment="Center"
                                            VerticalAlignment="Center" Visibility="Collapsed" />
                             </Border>
@@ -161,7 +166,7 @@
                                                 <ContentPresenter Content="{TemplateBinding Content}"
                                                                   TextElement.Foreground="{DynamicResource NotchText}"
                                                                   VerticalAlignment="Center" Margin="0,0,18,0" />
-                                                <TextBlock Text="&#xE70D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                <TextBlock Text="&#xE70D;" FontFamily="{DynamicResource NotchIconFont}"
                                                            FontSize="9" Foreground="{DynamicResource NotchMutedText}"
                                                            HorizontalAlignment="Right" VerticalAlignment="Center" />
                                             </Grid>

@@ -98,6 +98,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var customFile = FontChoice.CustomFile(fontId);
         TextKit.SetUiFamily(family, customFile);
         Application.Current.Resources["NotchUiFont"] = WpfFontFamily(fontId, family);
+        // The icon face the other renderer uses for its own glyphs; resolved
+        // here so the pill and the settings window can never disagree.
+        IconFontWpf.Apply();
     }
 
     /// <summary>The WPF font for a font id: a plain family for curated /
