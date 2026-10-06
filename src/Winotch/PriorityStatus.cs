@@ -67,15 +67,20 @@ public sealed class PriorityStatusTracker
 public sealed record PriorityStatusSnapshot(
     BatteryInfo Battery, WifiStatus Wifi, bool MicrophoneActive, bool CameraActive);
 
+/// <summary>An edge-triggered status change. <c>PillGlance</c> marks the ones
+/// the island answers with a chip on the pill rather than a toast — the two
+/// charger alerts, which you notice happening and do not need to read.</summary>
 public sealed record PriorityStatusAlert(
-    string Icon, string Title, string Body, int? BatteryPercent = null, bool ShowsChargingFlourish = false)
+    string Icon, string Title, string Body, int? BatteryPercent = null,
+    bool ShowsChargingFlourish = false, bool PillGlance = false)
 {
     public static PriorityStatusAlert LowBattery(int percent) =>
         new("🔋", "Low battery", $"{percent}% remaining", percent);
     public static PriorityStatusAlert ChargerConnected(int percent) =>
-        new("⚡", "Charger connected", $"{percent}% and charging", percent, ShowsChargingFlourish: true);
+        new("⚡", "Charger connected", $"{percent}% and charging", percent,
+            ShowsChargingFlourish: true, PillGlance: true);
     public static PriorityStatusAlert ChargerDisconnected(int percent) =>
-        new("🔋", "Charger disconnected", $"{percent}% battery", percent);
+        new("🔋", "Charger disconnected", $"{percent}% battery", percent, PillGlance: true);
     public static PriorityStatusAlert WifiLost(string name) =>
         new("📡", "Wi-Fi disconnected", $"{name} connection lost");
     public static PriorityStatusAlert WifiReconnected(string name) =>

@@ -87,6 +87,20 @@ public class PriorityStatusTests
     }
 
     [Fact]
+    public void OnlyTheChargerAlerts_ArePillGlances()
+    {
+        // The pill answers what you notice happening and move on from; the rest
+        // stay toasts, because they are worth a sentence.
+        Assert.True(PriorityStatusAlert.ChargerConnected(42).PillGlance);
+        Assert.True(PriorityStatusAlert.ChargerDisconnected(42).PillGlance);
+        Assert.False(PriorityStatusAlert.LowBattery(15).PillGlance);
+        Assert.False(PriorityStatusAlert.CameraActive().PillGlance);
+        Assert.False(PriorityStatusAlert.MicrophoneActive().PillGlance);
+        Assert.False(PriorityStatusAlert.WifiLost("HomeNet").PillGlance);
+        Assert.False(PriorityStatusAlert.WifiReconnected("HomeNet").PillGlance);
+    }
+
+    [Fact]
     public void SameSnapshot_NoAlerts()
     {
         var tracker = new PriorityStatusTracker();

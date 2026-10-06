@@ -95,6 +95,20 @@ public static class TextKit
         canvas.DrawText(text, x, baseline, paint);
     }
 
+    /// <summary>Draw text left-aligned on x with its line centred on centerY —
+    /// the vertical twin of DrawCentered, for stacked lines. Draw takes the
+    /// line's top instead, which would need per-font guessing to line two
+    /// stacked lines up.</summary>
+    public static void DrawLeftCentered(SKCanvas canvas, string text, float x, float centerY,
+        float size, Col color, SKTypeface? face = null)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        using var paint = NewPaint(size, face ?? UiRegular, color);
+        var metrics = paint.FontMetrics;
+        var baseline = centerY - (metrics.Ascent + metrics.Descent) / 2;
+        canvas.DrawText(text, x, baseline, paint);
+    }
+
     /// <summary>Draw text centered horizontally on centerX and vertically on
     /// centerY (cap height centered, not full line box).</summary>
     public static void DrawCentered(SKCanvas canvas, string text, float centerX, float centerY,

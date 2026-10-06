@@ -10,6 +10,18 @@ public sealed class IslandShell
 {
     private const double MiniHeight = 44;
     private const double MiniWidthMin = 150;
+    private const double HudWidth = 208;
+
+    // The transport and glance chips: the same comfortable span as the slider,
+    // so the pill never looks like it is stretching to fit a track name.
+    private const double TransientWidth = 208;
+
+    // The collapsed now-playing chip: 20px rounded art, two stacked text lines
+    // and a progress hairline. A fixed width stops a long track title from
+    // stretching the pill across the screen — the title scrolls instead.
+    private const double MediaChipWidth = 150;
+    private const double MediaChipTextWidth = 116;
+    private const float MediaTitleSize = 11.5f;
     private const double ExpandedWidth = 398;
     private const double ExpandedWidthHorizontal = 620;
     private const double ColumnGap = 12;
@@ -83,6 +95,12 @@ public sealed class IslandShell
     private double _contextMenuX, _contextMenuY;
     private bool _dataDirty = true;
     private DateTimeOffset _mediaAt = DateTimeOffset.UtcNow;
+    // Now-playing chip: the pause grace, plus the title marquee for a track
+    // whose name is wider than the chip.
+    private DateTimeOffset? _mediaPausedAt;
+    private bool _mediaMarquee;
+    private double _mediaMarqueeOffset;
+    private string? _mediaMarqueeText;
     // Seek-drag state: a preview ratio while dragging, plus a short-lived
     // position override so the playhead stays put until SMTC's next poll.
     private float? _seekPreview;
@@ -98,9 +116,11 @@ public sealed class IslandShell
     private bool _mediaVolumeMuted;
     private bool _mediaVolumeAvailable;
 
-    // Drag-mode state (started from Settings): while active the pill shows
-    // Done / Reset buttons and can be dragged even when Drag-to-move is off.
-    private bool _dragMode;
+    // Everything that takes the collapsed pill over instead of letting it draw
+    // its usual row: drag mode's Done / Reset chips, the volume / brightness
+    // slider, and the transport and glance chips. One stack for all of them —
+    // see PillFaceStack for which one wins.
+    private readonly PillFaceStack _faces = new();
 
     // Marquee state for a custom idle text wider than the pill.
     private bool _idleMarquee;
@@ -125,19 +145,71 @@ public sealed class IslandShell
     /// <summary>True while drag mode is active (entered from Settings): the
     /// pill shows Done / Reset buttons and can be moved even with
     /// Drag-to-move off.</summary>
-    public bool DragMode => _dragMode;
+    public bool DragMode => _faces.Find<DragFace>() is not null;
 
     public void EnterDragMode()
     {
-        _dragMode = true;
+        _faces.Add(new DragFace(DragModeSpan()));
         MarkDataDirty();
     }
 
     public void ExitDragMode()
     {
-        _dragMode = false;
+        _faces.Remove(PillFaceKind.Drag);
         MarkDataDirty();
     }
+
+    /// <summary>True while something other than the normal row owns the pill:
+    /// the level slider, a transport or glance chip, or drag mode.</summary>
+    public bool FaceActive => _faces.Live is not null;
+
+    /// <summary>Show a level on the pill — every volume keypress, and every
+    /// brightness change the mirror notices. A live slider is refreshed rather
+    /// than restarted, so holding a key slides the bar instead of flickering
+    /// it, and the fill eases from wherever the bar already was.</summary>
+    public void ShowHud(HudSpec spec)
+    {
+        if (_paused) return;
+        if (_faces.Find<LevelFace>() is { Expired: false } live)
+        {
+            live.Hud.Refresh(spec);
+            _faces.Touch(live);
+        }
+        else
+        {
+            _faces.Add(new LevelFace(new Hud(spec), HudWidth));
+        }
+        MarkDataDirty();
+    }
+
+    /// <summary>Show a media keypress on the pill. Named for the key that was
+    /// pressed, not for a playback state: the key is handled by whatever app
+    /// owns the session and Winotch only learns the new state on the next poll,
+    /// so the chip says what you did, never something it cannot know yet.</summary>
+    public void ShowTransport(MediaKeyAction action)
+    {
+        if (_paused || Media is null) return;
+        var playing = Media is { Playing: true };
+        _faces.Add(new TransportFace(
+            new TransportSpec(action, MediaKeys.Glyph(action, playing), MediaKeys.Label(action)),
+            TransientWidth));
+        MarkDataDirty();
+    }
+
+    /// <summary>Show a glance chip — the pill-sized version of a toast, for the
+    /// status changes that want awareness rather than attention.</summary>
+    public void ShowGlance(GlanceSpec spec)
+    {
+        if (_paused) return;
+        _faces.Add(new GlanceFace(spec, TransientWidth));
+        MarkDataDirty();
+    }
+
+    /// <summary>Width of the drag-mode Done / Reset chips, in the same math the
+    /// drawing uses so the pill is exactly as wide as the pair needs.</summary>
+    private static double DragModeSpan() =>
+        14 + TextKit.Measure("Done", 11f, TextKit.Semibold) + 24
+        + 10 + TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24 + 14;
 
     /// <summary>Persist the current offset (Confirm, or after a plain drag).</summary>
     private void PersistOffset() =>
@@ -238,6 +310,11 @@ public sealed class IslandShell
         _blend is > 0.001 and < 0.999 ||
         _sizeAnimating ||
         _idleMarquee ||
+        // A live face (slider, transport chip, glance) fades and slides, so it
+        // needs frames until the pill falls back to the row.
+        _faces.NeedsLiveUpdates ||
+        // Only while collapsed: an expanded panel isn't drawing the chip.
+        (_mediaMarquee && _blend < 0.5) ||
         _cardAnim.Count > 0 ||
         _arrowFlashId is not null;
     public bool ToastsActive => _toasts.Count > 0;
@@ -281,10 +358,68 @@ public sealed class IslandShell
 
     public void SetMedia(MediaSnapshot? media)
     {
+        // Note when playback stops: the chip lingers briefly afterwards so the
+        // paused state is actually visible, then the pill goes back to the clock.
+        if (Media is { Playing: true } && media is { Playing: false })
+        {
+            _mediaPausedAt = DateTimeOffset.UtcNow;
+        }
+        else if (media is null || media.Playing)
+        {
+            _mediaPausedAt = null;
+        }
+
         Media = media;
         _mediaAt = DateTimeOffset.UtcNow;
+        UpdateMediaMarquee();
         MarkDataDirty();
     }
+
+    /// <summary>Decide whether the chip's title scrolls. Only a *playing*
+    /// track scrolls — a paused one sits still so the pill can stop
+    /// repainting — and the decision is made per track, not per frame.</summary>
+    private void UpdateMediaMarquee()
+    {
+        var title = Media is { Playing: true } media ? media.Title : "";
+        if (title.Length == 0)
+        {
+            _mediaMarquee = false;
+            _mediaMarqueeText = null;
+            _mediaMarqueeOffset = 0;
+            return;
+        }
+        if (string.Equals(_mediaMarqueeText, title, StringComparison.Ordinal)) return;
+
+        _mediaMarqueeText = title;
+        _mediaMarqueeOffset = 0;
+        _mediaMarquee = MediaChip.ShouldScroll(playing: true,
+            TextKit.Measure(title, MediaTitleSize, TextKit.Semibold), MediaChipTextWidth);
+    }
+
+    /// <summary>A live call takes the strip over, so the media chip yields.</summary>
+    private bool CallTakesStrip(WinotchSettings settings) =>
+        Call is { OnCall: true } && settings.Features.ShowCallsOnPill;
+
+    /// <summary>True while the now-playing chip occupies the collapsed pill —
+    /// a live call takes the strip over, and the chip can be switched off.</summary>
+    public bool MediaChipActive
+    {
+        get
+        {
+            var settings = _settings.Current;
+            return !CallTakesStrip(settings) && MediaChip.Visible(
+                settings.Features.ShowMediaOnPill,
+                hasTrack: Media is not null,
+                playing: Media is { Playing: true },
+                _mediaPausedAt,
+                DateTimeOffset.UtcNow);
+        }
+    }
+
+    /// <summary>True when the chip is showing a *playing* track, so the
+    /// progress hairline needs a per-second repaint (the same cadence the
+    /// expanded card already uses).</summary>
+    public bool MediaProgressLive => MediaChipActive && Media is { Playing: true };
 
     public void SetBattery(BatteryInfo battery)
     {
@@ -357,6 +492,7 @@ public sealed class IslandShell
         if (_paused)
         {
             _toasts.Clear();
+            _faces.Clear();
             return;
         }
 
@@ -371,9 +507,29 @@ public sealed class IslandShell
             if (_toasts[i].Expired) _toasts.RemoveAt(i);
         }
 
+        // Faces tick themselves and drop out when their fade is done; repaint
+        // through the fade, and once more on the frame the last one leaves, so
+        // the pill settles back into its normal content.
+        var hadFaces = _faces.Any;
+        _faces.Tick(deltaTime);
+        if (hadFaces || _faces.Any) MarkDataDirty();
+
         if (_idleMarquee)
         {
             _marqueeOffset += deltaTime * 42;
+        }
+
+        if (_mediaMarquee)
+        {
+            _mediaMarqueeOffset += deltaTime * 30;
+        }
+
+        // A stopped track keeps its chip for a moment, then the pill reverts.
+        if (_mediaPausedAt is { } pausedAt && Media is { Playing: false } &&
+            !MediaChip.WithinPauseGrace(pausedAt, DateTimeOffset.UtcNow))
+        {
+            _mediaPausedAt = null;
+            MarkDataDirty();
         }
 
         var targetBlend = _wantExpanded ? 1.0 : 0.0;
@@ -499,7 +655,7 @@ public sealed class IslandShell
 
         // Hover toggles expansion with hysteresis (suppressed while dragging
         // or while drag mode is positioning the pill).
-        if (Dragging || _dragMode)
+        if (Dragging || DragMode)
         {
             _wantExpanded = false;
         }
@@ -566,17 +722,22 @@ public sealed class IslandShell
     private (double Width, double Height) MiniTarget()
     {
         var appearance = _settings.Current.Appearance;
+        if (_faces.Live is { } face)
+        {
+            // A face replaces the row outright, so the pill is exactly the span
+            // it asks for — a fixed, comfortable one for a slider or a chip,
+            // the Done / Reset pair for drag mode — clamped to the canvas.
+            var span = Math.Min(face.Span, Vertical
+                ? Math.Max(MiniHeight, CanvasHeight - 16)
+                : Math.Max(MiniWidthMin, CanvasWidth - 16));
+            return Vertical ? (MiniHeight, span) : (span, MiniHeight);
+        }
         if (Vertical)
         {
             // Slim capsule along the edge: thickness is the pill height, the
-            // length follows the row (or the drag-mode Done / Reset chips).
+            // length follows the row.
             double length;
-            if (_dragMode)
-            {
-                length = 14 + TextKit.Measure("Done", 11f, TextKit.Semibold) + 24
-                    + 10 + TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24 + 14;
-            }
-            else if (appearance.VerticalText)
+            if (appearance.VerticalText)
             {
                 // Upright letters: the capsule's length follows the stacked
                 // characters, not the rotated row width.
@@ -589,12 +750,6 @@ public sealed class IslandShell
             }
             length = Math.Clamp(length, MiniHeight, Math.Max(MiniHeight, CanvasHeight - 16));
             return (MiniHeight, length);
-        }
-        if (_dragMode)
-        {
-            var w = 14 + (TextKit.Measure("Done", 11f, TextKit.Semibold) + 24)
-                + 10 + (TextKit.Measure("Reset", 11f, TextKit.Semibold) + 24) + 14;
-            return (Math.Clamp(w, MiniWidthMin, Math.Max(MiniWidthMin, CanvasWidth - 16)), MiniHeight);
         }
         if (appearance.CustomSize)
         {
@@ -915,7 +1070,7 @@ public sealed class IslandShell
         }
 
         // LED hover tooltip (collapsed pill only — the state readout).
-        if (!expanded && !_dragMode && _blend < 0.5)
+        if (!expanded && !FaceActive && _blend < 0.5)
         {
             var (ledX, ledY) = LedCenter(rect);
             if (Math.Abs(_cursorX - ledX) <= 12 && Math.Abs(_cursorY - ledY) <= 12)
@@ -976,7 +1131,7 @@ public sealed class IslandShell
                 TextKit.Measure(ShortDate(settings), 10f, TextKit.Monospace)));
         }
 
-        if (Call is { OnCall: true } && settings.Features.ShowCallsOnPill)
+        if (CallTakesStrip(settings))
         {
             // A call takes over the strip (the legacy pill priority); media
             // yields so the green pill is never crowded out.
@@ -985,9 +1140,12 @@ public sealed class IslandShell
             // label instead of sitting centred over the left edge.
             items.Add(new MiniItem(MiniKind.Call, 40 + TextKit.Measure(CallLabel(), 11.5f, TextKit.Semibold)));
         }
-        else if (Media is { Playing: true } && settings.Features.ShowMediaOnPill)
+        else if (MediaChip.Visible(settings.Features.ShowMediaOnPill, Media is not null,
+                     Media is { Playing: true }, _mediaPausedAt, DateTimeOffset.UtcNow))
         {
-            items.Add(new MiniItem(MiniKind.Media, 22 + TextKit.Measure(MiniTrackLabel(), 11.5f, TextKit.Semibold)));
+            // Fixed width, so a long title scrolls inside the chip instead of
+            // stretching the pill to fit the whole name.
+            items.Add(new MiniItem(MiniKind.Media, MediaChipWidth));
         }
         if (Focus.IsActive && settings.Features.ShowFocusOnPill)
         {
@@ -1044,10 +1202,24 @@ public sealed class IslandShell
     /// screen's vertical), mapping registered buttons back to screen rects.</summary>
     private void DrawMiniContent(SKCanvas canvas, SKRect rect)
     {
-        if (_dragMode)
+        // Whichever face owns the pill draws the whole thing instead of the row.
+        switch (_faces.Live)
         {
-            DrawDragModePill(canvas, rect);
-            return;
+            case DragFace _:
+                DrawDragModePill(canvas, rect);
+                return;
+            case LevelFace level:
+                DrawHudPill(canvas, rect, level.Hud);
+                return;
+            case TransportFace transport:
+                DrawTransientPill(canvas, rect, transport.Opacity, transport.Spec.Glyph,
+                    TransportTitle(), transport.Spec.Label, null, emoji: false);
+                return;
+            case GlanceFace glance:
+                DrawTransientPill(canvas, rect, glance.Opacity, glance.Spec.Glyph,
+                    glance.Spec.Label, glance.Spec.Detail,
+                    glance.HasFill ? glance.Fill : null, glance.Spec.Emoji);
+                return;
         }
         var cy = rect.Top + rect.Height / 2;
         var items = BuildMiniRow();
@@ -1093,17 +1265,7 @@ public sealed class IslandShell
                     DrawBattery(canvas, x + 8, (float)cy, BatteryText());
                     break;
                 case MiniKind.Media:
-                    var trackBudget = Math.Max(40, rect.Right - x - 26);
-                    var track = ShellUi.Ellipsize(MiniTrackLabel(), trackBudget, 11.5f, TextKit.Semibold);
-                    if (Media?.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 18, out var artThumb))
-                    {
-                        canvas.DrawBitmap(artThumb!, new SKRect(x + 1, cy - 9, x + 19, cy + 9));
-                    }
-                    else
-                    {
-                        ShellUi.DrawGlyph(canvas, "\uE768", x + 11, cy, 12, ShellUi.Accent);
-                    }
-                    TextKit.Draw(canvas, track, x + 22, cy - 8.5f, 11.5f, ShellUi.Text, TextKit.Semibold);
+                    DrawMediaChip(canvas, x, cy);
                     break;
                 case MiniKind.Call:
                     // Bubble wraps the whole chip, icon through the timer. The
@@ -1126,6 +1288,91 @@ public sealed class IslandShell
                     break;
             }
             x += (float)item.Width + 8;
+        }
+    }
+
+    /// <summary>The pill as a level slider: glyph, track, eased fill and a
+    /// percentage readout ("Muted" when the endpoint is muted — a muted
+    /// endpoint still reports the level it had before). Vertical pills draw
+    /// this through the same rotated path as the normal row.</summary>
+    private void DrawHudPill(SKCanvas canvas, SKRect rect, Hud hud)
+    {
+        var opacity = hud.Opacity;
+        var cy = rect.Top + rect.Height / 2;
+        var color = hud.Muted ? ShellUi.Muted : ShellUi.Text;
+
+        var glyph = hud.Spec.Kind == HudKind.Brightness
+            ? "\uE706"
+            : hud.Muted ? "\uE74F" : "\uE767";
+        ShellUi.DrawGlyph(canvas, glyph, rect.Left + 20, cy, 13, color, (float)opacity);
+
+        var trackLeft = rect.Left + 38;
+        var trackRight = Math.Max(trackLeft + 24, rect.Right - 56);
+        var trackWidth = trackRight - trackLeft;
+        FillRound(canvas, trackLeft, cy - 4, trackWidth, 8, 4, ShellUi.Fade(ShellUi.Text, 0.16 * opacity));
+        var filled = trackWidth * (float)Math.Clamp(hud.Fill, 0, 1);
+        if (filled > 0.5f)
+        {
+            // Centred inside the track, so a low level still reads as a bar.
+            FillRound(canvas, trackLeft, cy - 2, Math.Max(3f, filled), 4, 2,
+                ShellUi.Fade(hud.Muted ? ShellUi.Muted : ShellUi.Accent, opacity));
+        }
+
+        TextKit.DrawCentered(canvas, HudKeys.Label(hud.Spec.Kind, hud.Level01, hud.Muted),
+            rect.Right - 28, cy, 11.5f, ShellUi.Fade(color, opacity), TextKit.Monospace);
+    }
+
+    /// <summary>The track a transport chip names. Falls back to a generic label
+    /// so a keypress on a session with no title still says something.</summary>
+    private string TransportTitle() =>
+        Media is { } media && !string.IsNullOrWhiteSpace(media.Title) ? media.Title : "Media";
+
+    /// <summary>The transport and glance chip: glyph on the left, a label and a
+    /// detail line, and an optional hairline fill for anything with a level
+    /// behind it (the charging chip keeps the toast's flourish that way).
+    /// Vertical pills draw this through the same rotated path as the row.</summary>
+    private void DrawTransientPill(SKCanvas canvas, SKRect rect, double opacity, string glyph,
+        string label, string? detail, double? fill01, bool emoji)
+    {
+        if (opacity <= 0.01) return;
+        var cy = rect.Top + rect.Height / 2;
+        if (emoji)
+        {
+            TextKit.DrawCentered(canvas, glyph, rect.Left + 21, cy, 16,
+                ShellUi.Fade(ShellUi.Text, opacity), TextKit.Emoji);
+        }
+        else
+        {
+            ShellUi.DrawGlyph(canvas, glyph, rect.Left + 21, cy, 15, ShellUi.Accent, (float)opacity);
+        }
+
+        var textLeft = rect.Left + 40;
+        var textWidth = (float)Math.Max(24, rect.Right - 12 - textLeft);
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            TextKit.DrawLeftCentered(canvas,
+                ShellUi.Ellipsize(label, textWidth, 11.5f, TextKit.Semibold),
+                textLeft, cy - 5.5f, 11.5f, ShellUi.Fade(ShellUi.Text, opacity), TextKit.Semibold);
+            TextKit.DrawLeftCentered(canvas,
+                ShellUi.Ellipsize(detail!, textWidth, 10f, TextKit.Regular),
+                textLeft, cy + 7f, 10f, ShellUi.Fade(ShellUi.Muted, opacity * 0.95), TextKit.Regular);
+        }
+        else
+        {
+            TextKit.DrawLeftCentered(canvas,
+                ShellUi.Ellipsize(label, textWidth, 11.5f, TextKit.Semibold),
+                textLeft, cy, 11.5f, ShellUi.Fade(ShellUi.Text, opacity), TextKit.Semibold);
+        }
+
+        if (fill01 is not { } fill) return;
+        var trackLeft = textLeft;
+        var trackWidth = textWidth;
+        FillRound(canvas, trackLeft, rect.Bottom - 6.5f, trackWidth, 2.5f, 1.2f,
+            ShellUi.Fade(ShellUi.Text, 0.16 * opacity));
+        var filled = trackWidth * (float)Math.Clamp(fill, 0, 1);
+        if (filled > 0.5f)
+        {
+            FillRound(canvas, trackLeft, rect.Bottom - 6.5f, filled, 2.5f, 1.2f,                ShellUi.Fade(ShellUi.Accent, opacity));
         }
     }
 
@@ -1228,7 +1475,7 @@ public sealed class IslandShell
     /// the Vertical text option on, the letters stay upright instead.</summary>
     private void DrawMiniVertical(SKCanvas canvas, SKRect rect)
     {
-        if (!_dragMode && _settings.Current.Appearance.VerticalText)
+        if (!FaceActive && _settings.Current.Appearance.VerticalText)
         {
             DrawMiniVerticalText(canvas, rect);
             return;
@@ -1261,7 +1508,10 @@ public sealed class IslandShell
     /// text is drawn on its own line, reading top-to-bottom down the edge.</summary>
     private void DrawMiniVerticalText(SKCanvas canvas, SKRect rect)
     {
-        if (_dragMode)
+        // A face (drag mode, the level slider, a transport or glance chip)
+        // replaces the row outright, so there are no characters to stack —
+        // rotate the capsule and reuse the row layout instead.
+        if (FaceActive)
         {
             DrawMiniRotated(canvas, rect);
             return;
@@ -1625,6 +1875,102 @@ public sealed class IslandShell
 
         DrawSeekBar(canvas, left, top, right, media);
         DrawVolumeRow(canvas, left, top, right);
+    }
+
+    /// <summary>The collapsed pill's now-playing chip: rounded album art, the
+    /// track and artist stacked, and a hairline progress bar underneath. A
+    /// paused track dims and gets a play mark, and a title too long for the
+    /// chip scrolls rather than being cut off.</summary>
+    private void DrawMediaChip(SKCanvas canvas, float x, float cy)
+    {
+        if (Media is not { } media) return;
+        var playing = media.Playing;
+        var opacity = playing ? 1.0 : 0.62;
+
+        var art = new SKRect(x + 1, cy - 10, x + 21, cy + 10);
+        if (media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 20, out var artThumb))
+        {
+            canvas.Save();
+            using (var clip = new SKPath())
+            {
+                clip.AddRoundRect(art, 5, 5);
+                canvas.ClipPath(clip, SKClipOperation.Intersect, true);
+            }
+            using (var dim = ShellUi.Fill(ShellUi.Fade(Col.White, opacity)))
+            {
+                canvas.DrawBitmap(artThumb!, art, dim);
+            }
+            canvas.Restore();
+            if (!playing)
+            {
+                ShellUi.DrawGlyph(canvas, "\uE768", art.MidX, art.MidY, 11, Col.White, (float)opacity);
+            }
+        }
+        else
+        {
+            // No artwork: a plain play / pause mark stands in for it.
+            ShellUi.DrawGlyph(canvas, playing ? "\uE769" : "\uE768", art.MidX, art.MidY, 12,
+                ShellUi.Fade(ShellUi.Accent, opacity));
+        }
+
+        var textLeft = x + 27;
+        var title = media.Title.Length > 0 ? media.Title : "Now playing";
+        var hasArtist = media.Artist.Length > 0;
+        var titleY = hasArtist ? cy - 5 : cy - 2;
+
+        if (_mediaMarquee && _mediaMarqueeText is not null)
+        {
+            DrawScrollingText(canvas, _mediaMarqueeText, textLeft, titleY, (float)MediaChipTextWidth,
+                MediaTitleSize, ShellUi.Fade(ShellUi.Text, opacity), TextKit.Semibold, _mediaMarqueeOffset);
+        }
+        else
+        {
+            TextKit.DrawLeftCentered(canvas,
+                ShellUi.Ellipsize(title, (float)MediaChipTextWidth, MediaTitleSize, TextKit.Semibold),
+                textLeft, titleY, MediaTitleSize, ShellUi.Fade(ShellUi.Text, opacity), TextKit.Semibold);
+        }
+        if (hasArtist)
+        {
+            TextKit.DrawLeftCentered(canvas,
+                ShellUi.Ellipsize(media.Artist, (float)MediaChipTextWidth, 9.5f, TextKit.Regular),
+                textLeft, cy + 6.5f, 9.5f, ShellUi.Fade(ShellUi.Muted, opacity), TextKit.Regular);
+        }
+
+        // The progress hairline, matched to the card's own bar.
+        var trackLeft = textLeft;
+        var trackWidth = Math.Max(20f, x + (float)MediaChipWidth - 6 - trackLeft);
+        FillRound(canvas, trackLeft, cy + 13, trackWidth, 2, 1, ShellUi.Fade(ShellUi.Hairline, opacity));
+        if (media.DurationSeconds > 0)
+        {
+            var ratio = (float)Math.Clamp(MediaPosition(media) / media.DurationSeconds, 0, 1);
+            if (ratio > 0.01f)
+            {
+                FillRound(canvas, trackLeft, cy + 13, trackWidth * ratio, 2, 1,
+                    ShellUi.Fade(ShellUi.Accent, 0.85 * opacity));
+            }
+        }
+    }
+
+    /// <summary>Text that scrolls right-to-left inside a fixed width when it
+    /// can't fit. Two copies are drawn so the wrap is seamless.</summary>
+    private static void DrawScrollingText(SKCanvas canvas, string text, float left, float centerY,
+        float width, float size, Col color, SKTypeface face, double offset)
+    {
+        const double gap = 28;
+        var textWidth = TextKit.Measure(text, size, face);
+        var period = Math.Max(1, textWidth + gap);
+        var shift = (float)(offset % period);
+
+        using var paint = TextKit.NewPaint(size, face, color);
+        var metrics = paint.FontMetrics;
+        var baseline = centerY - (metrics.Ascent + metrics.Descent) / 2;
+
+        canvas.Save();
+        canvas.ClipRect(new SKRect(left, centerY - size, left + width, centerY + size));
+        // Two copies, so the wrap-around is seamless.
+        canvas.DrawText(text, left + width - shift, baseline, paint);
+        canvas.DrawText(text, left + width - shift + (float)period, baseline, paint);
+        canvas.Restore();
     }
 
     private void DrawNotesWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)

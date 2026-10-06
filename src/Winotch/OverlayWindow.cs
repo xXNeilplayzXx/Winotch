@@ -246,6 +246,8 @@ public sealed class OverlayWindow : Window, IDisposable
             (_shell.IsExpanded && secondChanged && _shell.NeedsLiveUpdates) ||
             (!_shell.IsExpanded && _shell.Focus.IsActive && secondChanged) ||
             (!_shell.IsExpanded && _shell.Call is { OnCall: true } && secondChanged) ||
+            // The now-playing chip's progress hairline advances with the track.
+            (!_shell.IsExpanded && _shell.MediaProgressLive && secondChanged) ||
             (!_shell.IsExpanded && minuteChanged);
 
         if (dirty) _surface.InvalidateVisual();

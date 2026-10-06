@@ -46,15 +46,18 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private readonly SystemStatsSampler _statsSampler = new();
     private readonly List<OverlayWindow> _windows = new();
     private readonly UpdateService _updateService = new();
+    private readonly KeyboardHudHook _hudHook = new();
 
     private readonly DispatcherTimer _clipboardTimer;
     private SettingsWindow? _settingsWindow;
     private TrayIconService? _tray;
     private CancellationTokenSource? _wifiCts;
+    private CancellationTokenSource? _brightnessCts;
+    private int? _lastBrightness;
     private string? _wifiName;
     private BatteryInfo _battery = new(100, false);
     private bool _lastMic, _lastCam;
-    private string? _lastCallApp;
+    private string? _lastCallKey;
     private string? _lastToastKey = "";
     private string _lastMonitorLayout = "";
     private DisplayMode _lastDisplayMode;
@@ -122,6 +125,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _ = FetchWeatherAsync();
         PollClipboard();
         _media.Start();
+        // Volume keys are claimed from the moment the app runs (the hook only
+        // decides per keypress, so toggling the setting needs no reinstall).
+        _hudHook.Claim = ClaimVolumeKey;
+        // Media keys are watched, never claimed — see ObserveKey.
+        _hudHook.Observed = ObserveKey;
+        _hudHook.Install();
+        StartBrightnessMirror();
         _ = CheckRainAlertAsync();
 
         if (_settings.Current.General.AutoCheckUpdates)
@@ -187,6 +197,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _disposed = true;
         _clipboardTimer.Stop();
         _wifiCts?.Cancel();
+        _brightnessCts?.Cancel();
+        _hudHook.Dispose();
+        BrightnessService.Release();
         foreach (var window in _windows.ToArray()) window.Dispose();
         _windows.Clear();
         _tray?.Dispose();
@@ -491,6 +504,160 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     public void MediaVolumeChanged(float level01) => SystemVolume.SetLevel(level01);
     public void MediaVolumeMuteToggled() => SystemVolume.SetMuted(!SystemVolume.Muted);
 
+    // -------------------------------------------------------- level HUDs
+
+    /// <summary>The volume/brightness HUD switch: how often the brightness
+    /// mirror reads the monitor. DDC/CI is slow, so this is deliberately
+    /// gentle; the cost is that a brightness keypress shows the HUD a beat or
+    /// two late.</summary>
+    private const int BrightnessPollMilliseconds = 1500;
+
+    /// <summary>Decide whether Winotch claims a volume key. This runs inside
+    /// the keyboard hook, which must return immediately, so it only decides:
+    /// the level is applied on the dispatcher once the hook has returned and
+    /// the key is already swallowed.</summary>
+    private bool ClaimVolumeKey(int virtualKey)
+    {
+        var hudEnabled = _settings.Current.Features.VolumeHudEnabled;
+        var awake = !IsPaused && !IsHidden;
+        if (!HudKeys.TakesOver(virtualKey, hudEnabled, awake, SystemVolume.Available)) return false;
+
+        var action = HudKeys.Classify(virtualKey);
+        try
+        {
+            Application.Current?.Dispatcher.BeginInvoke(() => ApplyVolumeKey(action));
+        }
+        catch
+        {
+            // Shutting down — let the key through rather than swallow it.
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Apply a claimed volume key and show the HUD. Mute toggles; the
+    /// level keys step and unmute, the way Windows' own keys do.</summary>
+    private void ApplyVolumeKey(HudKeyAction action)
+    {
+        if (action == HudKeyAction.VolumeMute)
+        {
+            SystemVolume.SetMuted(!SystemVolume.Muted);
+        }
+        else
+        {
+            if (HudKeys.Unmutes(action) && SystemVolume.Muted) SystemVolume.SetMuted(false);
+            SystemVolume.SetLevel(HudKeys.Step(SystemVolume.Level01, action));
+        }
+
+        // Push the new level now so the Now playing slider tracks the keys
+        // instead of waiting for the next poll.
+        var level = SystemVolume.Level01;
+        var muted = SystemVolume.Muted;
+        var available = SystemVolume.Available;
+        foreach (var window in _windows) window.Shell.SetVolume(level, muted, available);
+        ShowHud(new HudSpec(HudKind.Volume, level, muted));
+    }
+
+    private void ShowHud(HudSpec spec)
+    {
+        foreach (var window in _windows) window.Shell.ShowHud(spec);
+    }
+
+    /// <summary>Media keys, mirrored onto the pill. Winotch never claims these:
+    /// the app that owns the session still receives the key and Windows'
+    /// handling is untouched, so a failure here can only mean no chip. This runs
+    /// inside the keyboard hook, so it only classifies and posts.</summary>
+    private void ObserveKey(int virtualKey, bool isDown)
+    {
+        if (!isDown) return;
+        var action = MediaKeys.Classify(virtualKey);
+        if (action == MediaKeyAction.None) return;
+        if (!MediaKeys.Observes(virtualKey, _settings.Current.Features.MediaHudEnabled,
+                !IsPaused && !IsHidden)) return;
+        try
+        {
+            Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                foreach (var window in _windows) window.Shell.ShowTransport(action);
+            });
+        }
+        catch
+        {
+            // Shutting down — the key already worked; only the chip is lost.
+        }
+    }
+
+    private void ShowGlance(GlanceSpec spec)
+    {
+        foreach (var window in _windows) window.Shell.ShowGlance(spec);
+    }
+
+    /// <summary>Which status alerts belong on the pill instead of in a toast.
+    /// Charging is a glance — you see it happen and the battery chip already
+    /// carries the level — while camera, microphone, Wi-Fi and low battery stay
+    /// toasts, because those are worth a full sentence.</summary>
+    private static GlanceSpec? GlanceFor(PriorityStatusAlert alert) =>
+        alert.PillGlance
+            ? new GlanceSpec(alert.Icon, alert.Title, alert.Body, 3.6,
+                alert.BatteryPercent is { } percent ? percent / 100.0 : null)
+            : null;
+
+    private static GlanceSpec? GlanceFor(ClipboardEntry? entry) => entry is null
+        ? null
+        : new GlanceSpec("\U0001F4CB", "Copied", entry.Preview(44), 2.8);
+
+
+    /// <summary>Mirror the monitor's brightness onto the pill. Brightness can't
+    /// be claimed the way volume is — Windows defines no brightness virtual key
+    /// and on most laptops the keys are handled by the maker's utility before
+    /// Windows sees them — so the HUD appears on any brightness change we can
+    /// read, including changes made in Windows Settings. DDC/CI calls block, so
+    /// this stays off the UI thread, like the Wi-Fi watcher above.</summary>
+    private void StartBrightnessMirror()
+    {
+        _brightnessCts = new CancellationTokenSource();
+        var token = _brightnessCts.Token;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                // The first read only records where brightness started; a HUD
+                // at launch would be noise.
+                _lastBrightness = BrightnessService.Level;
+                while (!token.IsCancellationRequested)
+                {
+                    token.WaitHandle.WaitOne(BrightnessPollMilliseconds);
+                    if (token.IsCancellationRequested) break;
+                    var level = BrightnessService.Level;
+                    if (level == _lastBrightness) continue;
+                    _lastBrightness = level;
+                    if (level is { } percent) PostBrightnessHud(percent);
+                }
+            }
+            catch
+            {
+                // A monitor that won't answer just means no brightness HUD.
+            }
+        }, token);
+    }
+
+    private void PostBrightnessHud(int percent)
+    {
+        try
+        {
+            Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (!_settings.Current.Features.BrightnessHudEnabled) return;
+                if (IsPaused || IsHidden) return;
+                ShowHud(new HudSpec(HudKind.Brightness, percent / 100.0));
+            });
+        }
+        catch
+        {
+            // Shutting down.
+        }
+    }
+
     private void PollBattery()
     {
         _battery = SystemStatus.GetBattery();
@@ -516,13 +683,15 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         foreach (var window in _windows) window.Shell.SetPrivacy(_lastMic, _lastCam);
         FeedStatusTracker();
 
-        var app = CallDetector.FindCallApp(_lastMic || _lastCam);
-        if (!string.Equals(app, _lastCallApp, StringComparison.OrdinalIgnoreCase))
+        // The key (app or web service) only changes when the call source does,
+        // so the chip's timer restarts exactly once per call.
+        var match = CallDetector.FindCallApp(_lastMic || _lastCam);
+        if (!string.Equals(match?.Key, _lastCallKey, StringComparison.OrdinalIgnoreCase))
         {
-            _lastCallApp = app;
-            var state = app is null
+            _lastCallKey = match?.Key;
+            var state = match is null
                 ? null
-                : new CallState(true, CallDetector.DisplayName(app), DateTimeOffset.UtcNow);
+                : new CallState(true, match.Display, DateTimeOffset.UtcNow);
             foreach (var window in _windows) window.Shell.SetCall(state);
         }
     }
@@ -534,6 +703,11 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         for (var i = 0; i < 4; i++)
         {
             if (_status.Next(snapshot) is not { } alert) continue;
+            if (GlanceFor(alert) is { } glance)
+            {
+                ShowGlance(glance);
+                continue;
+            }
             foreach (var window in _windows) window.Shell.ShowStatusToast(alert);
         }
     }
@@ -584,9 +758,19 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         catch (ExternalException) { }
     }
 
+    private bool _clipboardWarm;
+
     private void PushClipboard()
     {
         foreach (var window in _windows) window.Shell.SetClipboard(_clipboardStore.Items);
+        // The first push is whatever was already on the clipboard when Winotch
+        // started — a chip for that would be noise, not feedback.
+        if (!_clipboardWarm)
+        {
+            _clipboardWarm = true;
+            return;
+        }
+        if (GlanceFor(_clipboardStore.Items.FirstOrDefault()) is { } glance) ShowGlance(glance);
     }
 
     public void CopyClipboardEntry(long id)
@@ -835,8 +1019,10 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             var startUnix = long.Parse(key.AsSpan(5), System.Globalization.CultureInfo.InvariantCulture);
             var minutes = Math.Max(1, (int)Math.Round((startUnix - nowUnix) / 60.0));
             var when = minutes <= 1 ? "starting now" : $"in about {minutes} min";
-            ShowToast(new ToastSpec("\U0001F327\uFE0F", "Rain soon",
-                $"Precipitation at {config.City} is expected {when}. Grab a jacket.", 6));
+            // A glance, not a toast: rain in half an hour wants awareness, not
+            // a sentence you have to dismiss.
+            ShowGlance(new GlanceSpec("\U0001F327\uFE0F", "Rain soon",
+                $"At {config.City} {when}", 5));
         }
         catch
         {

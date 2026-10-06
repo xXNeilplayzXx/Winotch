@@ -15,7 +15,7 @@ public sealed record WinotchSettings
 
     public WinotchSettings Normalize() => this with
     {
-        General = General ?? new GeneralSettings(),
+        General = General is null ? new GeneralSettings() : General.Normalize(),
         Appearance = Appearance is null ? new AppearanceSettings() : Appearance.Normalize(),
         Toasts = Toasts is null ? new ToastSettings() : Toasts.Normalize(),
         Features = Features ?? new FeatureSettings(),
@@ -336,6 +336,28 @@ public sealed record GeneralSettings
     /// <summary>Release tag the user was last offered and dismissed, so the
     /// automatic check doesn't nag about the same version twice.</summary>
     public string LastPromptedUpdate { get; init; } = "";
+
+    /// <summary>Settings sections the user left open. The settings window folds
+    /// every section away by default and reopens the ones named here, so it
+    /// comes back the way it was left.</summary>
+    public List<string> OpenSettingsSections { get; init; } = new();
+
+    /// <summary>Section ids that may be persisted — an id from a hand-edited
+    /// settings file that isn't one of these is simply dropped.</summary>
+    public static readonly string[] KnownSections =
+    {
+        "general", "appearance", "size", "display", "pill", "alerts", "widgets",
+    };
+
+    public GeneralSettings Normalize() => this with
+    {
+        OpenSettingsSections = (OpenSettingsSections ?? new List<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim().ToLowerInvariant())
+            .Where(KnownSections.Contains)
+            .Distinct()
+            .ToList(),
+    };
 }
 
 /// <summary>How the expanded panel header and clock widget stack the date:
@@ -526,6 +548,15 @@ public sealed record FeatureSettings
     public bool FocusTimerEnabled { get; init; } = true;
     public bool PriorityAlertsEnabled { get; init; } = true;
     public bool FollowActiveMonitor { get; init; } = true;
+
+    // Volume / brightness HUD: the level keys are claimed (so Windows' own
+    // volume OSD never appears) and the pill morphs into a slider.
+    public bool VolumeHudEnabled { get; init; } = true;
+    public bool BrightnessHudEnabled { get; init; } = true;
+
+    // Media keys are mirrored rather than claimed: the pill shows which key was
+    // pressed and what is playing, and Windows keeps handling the key itself.
+    public bool MediaHudEnabled { get; init; } = true;
 
     // Which live states may appear as chips on the collapsed pill.
     public bool ShowCallsOnPill { get; init; } = true;
