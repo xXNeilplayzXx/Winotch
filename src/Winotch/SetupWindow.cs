@@ -162,22 +162,22 @@ public sealed class SetupWindow : Window
     private void RefreshPreview()
     {
         if (_previewPill is null) return;
-        var light = _theme == ThemeMode.Light;
-        _previewPill.Background = new SolidColorBrush(
-            _glass
-                ? Color.FromRgb(light ? (byte)0xEA : (byte)0x23, light ? (byte)0xEE : (byte)0x27, light ? (byte)0xF5 : (byte)0x2F)
-                : Color.FromRgb(light ? (byte)0xF3 : (byte)0x1A, light ? (byte)0xF5 : (byte)0x1D, light ? (byte)0xF9 : (byte)0x24));
-        _previewPill.BorderBrush = new SolidColorBrush(
-            Color.FromRgb(light ? (byte)0xC9 : (byte)0x2E, light ? (byte)0xD1 : (byte)0x34, light ? (byte)0xDD : (byte)0x40));
+        var appearance = _settings.Current.Appearance with { Theme = _theme };
+        var baseTheme = ShellTheme.ForAppearance(appearance);
+        _previewPill.Background = new SolidColorBrush(_glass
+            ? Color.FromArgb(230, baseTheme.PanelTop.R, baseTheme.PanelTop.G, baseTheme.PanelTop.B)
+            : Color.FromRgb(baseTheme.PanelTop.R, baseTheme.PanelTop.G, baseTheme.PanelTop.B));
+        _previewPill.BorderBrush = new SolidColorBrush(Color.FromRgb(
+            baseTheme.Stroke.R, baseTheme.Stroke.G, baseTheme.Stroke.B));
         if (_previewPill.Child is StackPanel row && row.Children.Count == 2)
         {
             if (row.Children[0] is Ellipse led)
             {
-                led.Fill = new SolidColorBrush(light ? Color.FromRgb(0x00, 0x78, 0xD4) : Color.FromRgb(0x50, 0xD6, 0xFF));
+                led.Fill = new SolidColorBrush(Color.FromRgb(baseTheme.Accent.R, baseTheme.Accent.G, baseTheme.Accent.B));
             }
             if (row.Children[1] is TextBlock clock)
             {
-                clock.Foreground = new SolidColorBrush(light ? Color.FromRgb(0x14, 0x19, 0x22) : Color.FromRgb(0xF2, 0xF4, 0xF8));
+                clock.Foreground = new SolidColorBrush(Color.FromRgb(baseTheme.Text.R, baseTheme.Text.G, baseTheme.Text.B));
             }
         }
         _previewCaption.Text = _style == NotchStyle.Notch
@@ -436,6 +436,7 @@ public sealed class SetupWindow : Window
                 Text = (selected ? "\u2713 " : "+ ") + app.Label,
                 FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
+                Foreground = selected ? DialogUi.OnAccent : DialogUi.Text,
             };
             var chip = new Border
             {
@@ -464,6 +465,7 @@ public sealed class SetupWindow : Window
                 chipLabel.Text = (already ? "+ " : "\u2713 ") + app.Label;
                 chip.Background = already ? DialogUi.CardHover : DialogUi.Accent;
                 chip.BorderBrush = already ? DialogUi.Stroke : DialogUi.Accent;
+                chipLabel.Foreground = already ? DialogUi.Text : DialogUi.OnAccent;
             };
             _launcherChips.Children.Add(chip);
         }

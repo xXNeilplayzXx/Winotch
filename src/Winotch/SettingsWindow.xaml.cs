@@ -17,15 +17,36 @@ public partial class SettingsWindow : Window
     private readonly Action? _factoryReset;
     private readonly Action? _enterDragMode;
     private readonly Action? _checkForUpdates;
+    private readonly Func<BrightnessSource>? _brightnessSource;
+    private readonly string? _monitorDeviceName;
+    private readonly Action? _requestWindowsNotificationAccess;
+
+    /// <summary>The subtitle of the brightness row, kept so the live "which
+    /// interface is it reading" line can be refreshed after the row is built.</summary>
+    private TextBlock? _brightnessSub;
 
     /// <summary>Ids of the sections the user has open. Loaded from the settings
     /// and written back on every toggle, so closing and reopening the window
     /// doesn't fold away what the user had unfolded.</summary>
     private readonly HashSet<string> _openSections;
 
+    /// <summary>True while a WPF slider owns the mouse for an active drag. A
+    /// settings refresh must not replace the slider until the drag completes.</summary>
+    public bool IsDraggingSlider => Mouse.Captured is DependencyObject captured && IsSliderInAncestry(captured);
+
+    private static bool IsSliderInAncestry(DependencyObject current)
+    {
+        for (DependencyObject? node = current; node is not null; node = node is Visual ? VisualTreeHelper.GetParent(node) : null)
+        {
+            if (node is Slider) return true;
+        }
+        return false;
+    }
+
     public SettingsWindow(SettingsService settings, StartupService startup,
         Action? rerunSetup = null, Action? factoryReset = null, Action? enterDragMode = null,
-        Action? checkForUpdates = null)
+        Action? checkForUpdates = null, Func<BrightnessSource>? brightnessSource = null,
+        string? monitorDeviceName = null, Action? requestWindowsNotificationAccess = null)
     {
         _settings = settings;
         _startup = startup;
@@ -33,12 +54,19 @@ public partial class SettingsWindow : Window
         _factoryReset = factoryReset;
         _enterDragMode = enterDragMode;
         _checkForUpdates = checkForUpdates;
+        _brightnessSource = brightnessSource;
+        _monitorDeviceName = monitorDeviceName;
+        _requestWindowsNotificationAccess = requestWindowsNotificationAccess;
+        _lastMonitorProfiles = settings.Current.MonitorProfiles;
+        _lastProfilesEnabled = settings.Current.Appearance.UseMonitorProfiles;
         _openSections = new HashSet<string>(
             settings.Current.General.OpenSettingsSections, StringComparer.OrdinalIgnoreCase);
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
         BuildFooterActions();
+        _settings.Changed += OnSettingsChanged;
+        Closed += (_, _) => _settings.Changed -= OnSettingsChanged;
     }
 
     /// <summary>Sticky footer actions: reset everything to defaults, or wipe
@@ -54,7 +82,7 @@ public partial class SettingsWindow : Window
             {
                 return;
             }
-            _settings.Update(_ => WinotchSettings.Defaults);
+            UpdateSettings(_ => WinotchSettings.Defaults);
             _openSections.Clear();
             Rows.Children.Clear();
             BuildSections();
@@ -73,6 +101,27 @@ public partial class SettingsWindow : Window
         FooterActions.Children.Add(reset);
         FooterActions.Children.Add(factory);
     }
+
+    private void OnSettingsChanged(object? sender, WinotchSettings settings)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_settingsWindowMonitorProfileChanged(settings))
+            {
+                _lastMonitorProfiles = settings.MonitorProfiles;
+                _lastProfilesEnabled = settings.Appearance.UseMonitorProfiles;
+                Rows.Children.Clear();
+                BuildSections();
+            }
+        });
+    }
+
+    private bool _settingsWindowMonitorProfileChanged(WinotchSettings settings) =>
+        !ReferenceEquals(settings.MonitorProfiles, _lastMonitorProfiles) ||
+        settings.Appearance.UseMonitorProfiles != _lastProfilesEnabled;
+
+    private IReadOnlyDictionary<string, MonitorProfile> _lastMonitorProfiles = new Dictionary<string, MonitorProfile>();
+    private bool _lastProfilesEnabled;
 
     private string AssemblyVersion()
     {
@@ -100,6 +149,13 @@ public partial class SettingsWindow : Window
             IconHint.Text = iconNote;
             IconHint.Visibility = Visibility.Visible;
         }
+        // The brightness row's subtitle names the interface being read, which can
+        // change while this window is open (a monitor plugged in, the poll
+        // answering late).
+        if (_brightnessSub is not null)
+        {
+            _brightnessSub.Text = BrightnessSubtitle(ScopedSettings.Features.BrightnessHudEnabled);
+        }
         SetBrush("NotchPanel", theme.WpfPanelTop);
         SetBrush("NotchPanelRaised", theme.WpfCard);
         SetBrush("NotchPanelHover", theme.WpfCardHover);
@@ -108,6 +164,9 @@ public partial class SettingsWindow : Window
         SetBrush("NotchText", theme.WpfText);
         SetBrush("NotchMutedText", theme.WpfMuted);
         SetBrush("NotchHairline", theme.WpfHairline);
+        SetBrush("NotchOnAccent", theme.WpfOnAccent);
+        SetBrush("NotchOk", theme.WpfOk);
+        SetBrush("NotchDanger", theme.WpfDanger);
         if (rebuild)
         {
             Rows.Children.Clear();
@@ -123,9 +182,46 @@ public partial class SettingsWindow : Window
     private Border _blurEnabledRow = null!;
     private Border _customIdleRow = null!;
 
+    private WinotchSettings ScopedSettings => string.IsNullOrWhiteSpace(_monitorDeviceName)
+        ? _settings.Current
+        : MonitorProfileStore.Resolve(_settings.Current, _monitorDeviceName);
+
+    private void UpdateSettings(Func<WinotchSettings, WinotchSettings> change)
+    {
+        if (string.IsNullOrWhiteSpace(_monitorDeviceName))
+        {
+            _settings.Update(change);
+            return;
+        }
+        _settings.Update(current =>
+        {
+            var updated = Scoped(current, _monitorDeviceName, change);
+            return current.Appearance.UseMonitorProfiles
+                ? MonitorProfileStore.Save(current, _monitorDeviceName, updated)
+                : updated;
+        });
+    }
+
+    private static WinotchSettings Scoped(WinotchSettings current, string deviceName,
+        Func<WinotchSettings, WinotchSettings> change)
+    {
+        var effective = MonitorProfileStore.Resolve(current, deviceName);
+        var updated = change(effective);
+        return updated with
+        {
+            Appearance = updated.Appearance with
+            {
+                UseMonitorProfiles = current.Appearance.UseMonitorProfiles,
+                Display = current.Appearance.Display,
+                DisplayDeviceName = current.Appearance.DisplayDeviceName,
+            },
+        };
+    }
+
+
     private void BuildSections()
     {
-        var s = _settings.Current;
+        var s = ScopedSettings;
 
         _opacityRow = MakeSliderRow("Opacity", "Glass translucency (10–100%)",
             10, 100, s.Appearance.Opacity,
@@ -152,17 +248,17 @@ public partial class SettingsWindow : Window
         {
             MakeToggleRow("24-hour clock", "Show times in 24h format",
                 s.General.Use24HourClock,
-                v => _settings.Update(x => x with { General = x.General with { Use24HourClock = v } })),
+                v => UpdateSettings(x => x with { General = x.General with { Use24HourClock = v } })),
             MakeToggleRow("Show the date", "Day + month in the panel and clock widget",
                 s.General.ShowDate,
-                v => _settings.Update(x => x with { General = x.General with { ShowDate = v } })),
+                v => UpdateSettings(x => x with { General = x.General with { ShowDate = v } })),
             MakeToggleRow("Date on the pill", "Also show the day + month on the collapsed pill",
                 s.General.ShowDateOnPill,
-                v => _settings.Update(x => x with { General = x.General with { ShowDateOnPill = v } })),
+                v => UpdateSettings(x => x with { General = x.General with { ShowDateOnPill = v } })),
             MakeChoiceRow("Clock layout", "Stacked centers the date under the time",
                 new[] { ("standard", "Standard"), ("stacked", "Stacked") },
                 s.General.Layout == ClockLayout.Stacked ? "stacked" : "standard",
-                v => _settings.Update(x => x with
+                v => UpdateSettings(x => x with
                 {
                     General = x.General with { Layout = v == "stacked" ? ClockLayout.Stacked : ClockLayout.Standard },
                 })),
@@ -173,7 +269,7 @@ public partial class SettingsWindow : Window
         }
         generalRows.Add(MakeToggleRow("Attach to the top edge", "Unchecked = floating island below the edge",
             s.General.Style == NotchStyle.Notch,
-            v => _settings.Update(x => x with { General = x.General with { Style = v ? NotchStyle.Notch : NotchStyle.Island } })));
+            v => UpdateSettings(x => x with { General = x.General with { Style = v ? NotchStyle.Notch : NotchStyle.Island } })));
         generalRows.Add(MakeSliderRow("Drop from top", "0 = tucked under the top edge — or just drag the pill",
             0, 200, (int)Math.Clamp(s.Appearance.OffsetY, 0, 200),
             v => UpdateAppearance(x => x with { OffsetY = v })));
@@ -181,14 +277,14 @@ public partial class SettingsWindow : Window
             s.General.StartWithWindows,
             v =>
             {
-                _settings.Update(x => x with { General = x.General with { StartWithWindows = v } });
+                UpdateSettings(x => x with { General = x.General with { StartWithWindows = v } });
                 var executable = StartupService.CurrentExecutablePath();
                 _startup.SetEnabled(v, executable);
             }));
         generalRows.Add(MakeToggleRow("Check for updates automatically",
             "Look for newer builds on GitHub when Winotch starts",
             s.General.AutoCheckUpdates,
-            v => _settings.Update(x => x with { General = x.General with { AutoCheckUpdates = v } })));
+            v => UpdateSettings(x => x with { General = x.General with { AutoCheckUpdates = v } })));
         if (_checkForUpdates is not null)
         {
             generalRows.Add(MakeButtonRow("Check for updates",
@@ -221,7 +317,7 @@ public partial class SettingsWindow : Window
                     var surface = ParseSurface(v);
                     var glass = surface != SurfaceMode.Solid;
                     UpdateAppearance(x => x with { Surface = surface, Glass = glass });
-                    var blurEnabled = _settings.Current.Appearance.BlurEnabled;
+                    var blurEnabled = ScopedSettings.Appearance.BlurEnabled;
                     _blurEnabledRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
                     _opacityRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
                     _blurRow.Visibility = glass && blurEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -232,7 +328,23 @@ public partial class SettingsWindow : Window
 
         AddSection("size", "Size", "Pill width and height", MakeSizeControl(s.Appearance));
 
-        AddSection("display", "Display", "Which screen the island shows on", MakeDisplayControl(s.Appearance));
+        var profileRows = new List<FrameworkElement>
+        {
+            MakeToggleRow("Profiles for each monitor", "Save and apply a complete independent settings profile per display",
+                s.Appearance.UseMonitorProfiles,
+                enabled =>
+                {
+                    _settings.Update(current => current with { Appearance = current.Appearance with { UseMonitorProfiles = enabled } });
+                    if (enabled && !string.IsNullOrWhiteSpace(_monitorDeviceName) &&
+                        !_settings.Current.MonitorProfiles.ContainsKey(_monitorDeviceName)) CaptureMonitorProfile();
+                }),
+        };
+        if (!string.IsNullOrWhiteSpace(_monitorDeviceName))
+        {
+            profileRows.Add(MakeButtonRow("Capture settings for this monitor", "Save the current settings groups as this display's profile",
+                CaptureMonitorProfile));
+        }
+        AddSection("display", "Display", "Which screen the island shows on", new[] { MakeDisplayControl(s.Appearance) }.Concat(profileRows).ToArray());
 
         _customIdleRow = MakeTextBoxRow("Custom idle text", "Shown in the pill when 'Custom text' is selected",
             s.Appearance.CustomIdleText,
@@ -263,10 +375,10 @@ public partial class SettingsWindow : Window
                     var edge = ParseEdge(v);
                     // Switching edges re-anchors the pill; drop the old drag
                     // offset so it doesn't land in a stale spot on the new edge.
-                    var appearance = edge == _settings.Current.General.Edge
-                        ? _settings.Current.Appearance
-                        : _settings.Current.Appearance with { OffsetX = 0, OffsetY = 0 };
-                    _settings.Update(x => x with
+                    var appearance = edge == ScopedSettings.General.Edge
+                        ? ScopedSettings.Appearance
+                        : ScopedSettings.Appearance with { OffsetX = 0, OffsetY = 0 };
+                    UpdateSettings(x => x with
                     {
                         General = x.General with { Edge = edge },
                         Appearance = appearance,
@@ -278,7 +390,7 @@ public partial class SettingsWindow : Window
             MakeChoiceRow("Open direction", "How the panel expands: one column downward, or wider with widgets in two columns",
                 new[] { ("vertical", "Vertical"), ("horizontal", "Horizontal") },
                 s.General.OpenDirection == ExpandDirection.Horizontal ? "horizontal" : "vertical",
-                v => _settings.Update(x => x with
+                v => UpdateSettings(x => x with
                 {
                     General = x.General with
                     {
@@ -293,54 +405,62 @@ public partial class SettingsWindow : Window
         }
         pillRows.Add(MakeToggleRow("Calls on the pill", "Green bubble while you're on a call",
             s.Features.ShowCallsOnPill,
-            v => _settings.Update(x => x with { Features = x.Features with { ShowCallsOnPill = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { ShowCallsOnPill = v } })));
         pillRows.Add(MakeToggleRow("Now playing on the pill", "Track chip while music plays",
             s.Features.ShowMediaOnPill,
-            v => _settings.Update(x => x with { Features = x.Features with { ShowMediaOnPill = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { ShowMediaOnPill = v } })));
         pillRows.Add(MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
             s.Features.ShowFocusOnPill,
-            v => _settings.Update(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
         pillRows.Add(MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
             s.Features.ShowBatteryOnPill,
-            v => _settings.Update(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
         pillRows.Add(MakeToggleRow("Volume keys", "Take the volume keys over so the pill shows the level instead of Windows' OSD",
             s.Features.VolumeHudEnabled,
-            v => _settings.Update(x => x with { Features = x.Features with { VolumeHudEnabled = v } })));
-        pillRows.Add(MakeToggleRow("Brightness on the pill", "Mirror brightness changes onto the pill (your PC may show its own too)",
+            v => UpdateSettings(x => x with { Features = x.Features with { VolumeHudEnabled = v } })));
+        pillRows.Add(MakeToggleRow("Brightness on the pill", BrightnessSubtitle(s.Features.BrightnessHudEnabled),
             s.Features.BrightnessHudEnabled,
-            v => _settings.Update(x => x with { Features = x.Features with { BrightnessHudEnabled = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { BrightnessHudEnabled = v } }),
+            sub => _brightnessSub = sub));
         pillRows.Add(MakeToggleRow("Media key feedback", "Show the track on the pill when you press play / pause / next",
             s.Features.MediaHudEnabled,
-            v => _settings.Update(x => x with { Features = x.Features with { MediaHudEnabled = v } })));
+            v => UpdateSettings(x => x with { Features = x.Features with { MediaHudEnabled = v } })));
         AddSection("pill", "Pill", "Idle content, chips, drag and the level keys", pillRows.ToArray());
 
         AddSection("alerts", "Alerts", "Pill chips and toasts for tracks, battery, Wi-Fi and rain",
             MakeToggleRow("Now-playing toasts", "Pop a toast when the track changes",
                 s.Toasts.MediaToastsEnabled,
-                v => _settings.Update(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
+                v => UpdateSettings(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
             MakeToggleRow("Priority alerts", "Low battery, charger, Wi-Fi, mic / camera events",
                 s.Features.PriorityAlertsEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })),
+                v => UpdateSettings(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })),
             MakeToggleRow("Rain alerts", "Chip on the pill when precipitation starts within 30 minutes (rain, charging and copies show on the pill instead of as toasts)",
                 s.Toasts.RainAlertsEnabled,
-                v => _settings.Update(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })));
+                v => UpdateSettings(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })));
 
         AddSection("widgets", "Widgets & features", "Clipboard, focus timer and widgets",
+            MakeButtonRow("Configure quick actions", "Choose which buttons appear in the Quick actions card", OpenQuickActionsEditor),
+            MakeButtonRow("Calendar source", "Choose Windows calendars or import a local .ics file", OpenCalendarEditor),
+            MakeButtonRow("Windows notification history", "Request Windows permission for current Notification Center toasts (MSIX only)",
+                () => _requestWindowsNotificationAccess?.Invoke()),
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
+                v => UpdateSettings(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
             // Widget card sizes moved into each card's own ⚙ settings dialog,
             // so the card layout is per-widget instead of one size for all.
             MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
+                v => UpdateSettings(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
             MakeToggleRow("Quiet during focus", "Suppress media and rain feedback while a focus session is running",
                 s.Features.QuietDuringFocus,
-                v => _settings.Update(x => x with { Features = x.Features with { QuietDuringFocus = v } })));
+                v => UpdateSettings(x => x with { Features = x.Features with { QuietDuringFocus = v } })),
+            MakeToggleRow("Quiet mode", "Temporarily suppress pill toasts and feedback",
+                s.Widgets.QuietMode,
+                v => UpdateSettings(x => x with { Widgets = x.Widgets with { QuietMode = v } })));
     }
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>
-        _settings.Update(x => x with { Appearance = change(x.Appearance) });
+        UpdateSettings(x => x with { Appearance = change(x.Appearance) });
 
     private static string EdgeKey(PillEdge edge) => edge switch
     {
@@ -507,7 +627,7 @@ public partial class SettingsWindow : Window
     {
         if (open) _openSections.Add(id);
         else _openSections.Remove(id);
-        _settings.Update(s => s with
+        UpdateSettings(s => s with
         {
             General = s.General with
             {
@@ -518,7 +638,16 @@ public partial class SettingsWindow : Window
 
     // ------------------------------------------------------------- toggles
 
-    private Border MakeToggleRow(string label, string sub, bool initial, Action<bool> onChanged)
+    /// <summary>What the brightness row says underneath its title: which
+    /// interface the mirror is actually reading, or that this display doesn't
+    /// report brightness at all — the difference between a bug and a machine
+    /// that can't do it. Reading a field the pill's host keeps up to date, so a
+    /// rebuilt row never shows a stale answer.</summary>
+    private string BrightnessSubtitle(bool enabled) =>
+        BrightnessMirror.Describe(_brightnessSource?.Invoke() ?? BrightnessSource.None, enabled);
+
+    private Border MakeToggleRow(string label, string sub, bool initial, Action<bool> onChanged,
+        Action<TextBlock>? captureSubtitle = null)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -533,13 +662,16 @@ public partial class SettingsWindow : Window
         });
         if (!string.IsNullOrEmpty(sub))
         {
-            text.Children.Add(new TextBlock
+            var subtitle = new TextBlock
             {
                 Text = sub,
                 FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
                 Foreground = (Brush)FindResource("NotchMutedText"),
                 Margin = new Thickness(0, 1, 0, 0),
-            });
+            };
+            captureSubtitle?.Invoke(subtitle);
+            text.Children.Add(subtitle);
         }
 
         var toggle = new CheckBox
@@ -607,6 +739,85 @@ public partial class SettingsWindow : Window
 
     /// <summary>Display targeting: mode chips plus a visual map of the
     /// monitors (click a monitor to target it specifically).</summary>
+    private void CaptureMonitorProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_monitorDeviceName)) return;
+        _settings.Update(current =>
+        {
+            var capture = MonitorProfileStore.Resolve(current, _monitorDeviceName);
+            return MonitorProfileStore.Save(current, _monitorDeviceName, capture);
+        });
+    }
+
+    private void OpenCalendarEditor()
+    {
+        var calendar = ScopedSettings.Widgets.Calendar;
+        var useWindows = new CheckBox
+        {
+            Content = "Use Windows calendars (requires MSIX and permission)",
+            IsChecked = calendar.UseWindowsCalendars,
+            Margin = new Thickness(0, 4, 0, 10),
+            Foreground = (Brush)FindResource("NotchText"),
+        };
+        var content = new StackPanel { Margin = new Thickness(16), Width = 330 };
+        var dialog = new Window { Owner = this, Width = 360, Title = "Calendar", WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Content = content };
+        DialogUi.ApplyFrame(dialog, "Calendar");
+        content.Children.Add(DialogUi.Label("Calendar source", 13, weight: FontWeights.SemiBold));
+        content.Children.Add(useWindows);
+        content.Children.Add(DialogUi.Label("Portable installs can import a local .ics file from the calendar card.", 11, muted: true));
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var cancel = DialogUi.Button("Cancel");
+        var save = DialogUi.Button("Save", primary: true);
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        save.Click += (_, _) =>
+        {
+            UpdateSettings(current => current with { Widgets = current.Widgets with { Calendar = current.Widgets.Calendar with { UseWindowsCalendars = useWindows.IsChecked == true } } });
+            dialog.DialogResult = true;
+        };
+        buttons.Children.Add(cancel); buttons.Children.Add(save);
+        ((FrameworkElement)buttons.Children[1]).Margin = new Thickness(8, 0, 0, 0);
+        content.Children.Add(buttons);
+        dialog.ShowDialog();
+    }
+
+    private void OpenQuickActionsEditor()
+    {
+        var selected = ScopedSettings.Widgets.QuickActions.ToHashSet(StringComparer.Ordinal);
+        var items = QuickActionCatalog.Known.Select(id => new
+        {
+            Id = id,
+            Check = new CheckBox
+            {
+                Content = QuickActionCatalog.Labels[id],
+                IsChecked = selected.Contains(id),
+                Margin = new Thickness(2, 4, 2, 4),
+                Foreground = (Brush)FindResource("NotchText"),
+            },
+        }).ToList();
+        var save = DialogUi.Button("Save", primary: true);
+        var cancel = DialogUi.Button("Cancel");
+        var content = new StackPanel { Margin = new Thickness(16), Width = 260 };
+        var dialog = new Window { Owner = this, Width = 300, Title = "Quick actions", WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+            Content = content };
+        DialogUi.ApplyFrame(dialog, "Quick actions");
+        foreach (var item in items) content.Children.Add(item.Check);
+        save.Click += (_, _) =>
+        {
+            UpdateSettings(settings => settings with { Widgets = settings.Widgets with
+            {
+                QuickActions = items.Where(item => item.Check.IsChecked == true).Select(item => item.Id).ToList(),
+            } });
+            dialog.DialogResult = true;
+        };
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, save } };
+        ((FrameworkElement)buttons.Children[1]).Margin = new Thickness(8, 0, 0, 0);
+        content.Children.Add(buttons);
+        dialog.ShowDialog();
+    }
+
     private FrameworkElement MakeDisplayControl(AppearanceSettings appearance)
     {
         var stack = new StackPanel();
@@ -630,7 +841,7 @@ public partial class SettingsWindow : Window
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
                 chipLabels[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    ? (Brush)FindResource("NotchOnAccent")
                     : (Brush)FindResource("NotchText");
             }
             if (mapCard is not null)
@@ -800,7 +1011,7 @@ public partial class SettingsWindow : Window
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
                 chipLabels[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    ? (Brush)FindResource("NotchOnAccent")
                     : (Brush)FindResource("NotchText");
             }
         }
@@ -890,7 +1101,7 @@ public partial class SettingsWindow : Window
 
         void ResetDraft()
         {
-            var committed = _settings.Current.Appearance;
+            var committed = ScopedSettings.Appearance;
             presetId = committed.CustomSize ? committed.SizePreset : "";
             draftWidth = committed.CustomSize ? committed.Width : SizePresets.All[1].Width;
             draftHeight = committed.CustomSize ? committed.Height : SizePresets.All[1].Height;
@@ -978,7 +1189,7 @@ public partial class SettingsWindow : Window
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
                 labels[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    ? (Brush)FindResource("NotchOnAccent")
                     : (Brush)FindResource("NotchText");
             }
         }
@@ -1032,15 +1243,15 @@ public partial class SettingsWindow : Window
                     ? (Brush)FindResource("NotchAccent")
                     : (Brush)FindResource("NotchPanelHover");
                 clockTexts[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    ? (Brush)FindResource("NotchOnAccent")
                     : (Brush)FindResource("NotchText");
                 nameTexts[i].Foreground = selected
-                    ? new SolidColorBrush(Color.FromRgb(0x06, 0x13, 0x1A))
+                    ? (Brush)FindResource("NotchOnAccent")
                     : (Brush)FindResource("NotchMutedText");
             }
         }
 
-        var clock = DateTime.Now.ToString(_settings.Current.General.Use24HourClock ? "H:mm" : "h:mm");
+        var clock = DateTime.Now.ToString(ScopedSettings.General.Use24HourClock ? "H:mm" : "h:mm");
         foreach (var (id, label) in FontChoice.Known)
         {
             var family = new FontFamily(FontChoice.FamilyOf(id));
@@ -1164,7 +1375,7 @@ public partial class SettingsWindow : Window
                 }
                 File.Copy(dialog.FileName, dest);
                 var fontId = FontChoice.CustomId(dest);
-                var customList = (_settings.Current.Appearance.CustomFonts ?? new List<string>())
+                var customList = (ScopedSettings.Appearance.CustomFonts ?? new List<string>())
                     .Append(dest)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -1202,7 +1413,7 @@ public partial class SettingsWindow : Window
 
         void RefreshAccentSelection()
         {
-            var currentSettings = _settings.Current.Appearance;
+            var currentSettings = ScopedSettings.Appearance;
             for (var i = 0; i < swatches.Count; i++)
             {
                 var selected = currentSettings.Accent == AccentMode.Custom &&

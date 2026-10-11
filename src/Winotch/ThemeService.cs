@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Winotch.Engine;
@@ -31,8 +32,44 @@ public sealed record ShellTheme(
         Col.Rgba(0x0E, 0x8A, 0x5F), Col.Rgba(0xB4, 0x6A, 0x00),
         Col.Rgba(0xC4, 0x2B, 0x1C), Col.Rgba(0xD9, 0xDE, 0xE6), true);
 
+    /// <summary>Foreground color with the stronger contrast against the current accent.</summary>
+    public Col OnAccent => ContrastRatio(Col.White, Accent) >= ContrastRatio(new Col(0x06, 0x13, 0x1A), Accent)
+        ? Col.White
+        : new Col(0x06, 0x13, 0x1A);
+
+    public Color WpfOnAccent => FromCol(OnAccent);
+
     /// <summary>The dark palette with a custom accent substituted.</summary>
     public ShellTheme WithAccent(Col accent) => this with { Accent = accent };
+
+    public static ShellTheme ForAppearance(AppearanceSettings appearance, IWindowsThemeSource? os = null)
+    {
+        var source = os ?? WindowsTheme.Instance;
+        var service = new ThemeService(source);
+        var light = service.ResolveLight(appearance);
+        var accent = service.ResolveAccent(appearance, light);
+        var theme = (light ? Light : Dark).WithAccent(accent);
+        return appearance.Theme == ThemeMode.Color ? theme.WithAccentTint(accent) : theme;
+    }
+
+    private static double ContrastRatio(Col foreground, Col background)
+    {
+        var foregroundLuminance = RelativeLuminance(foreground);
+        var backgroundLuminance = RelativeLuminance(background);
+        return (Math.Max(foregroundLuminance, backgroundLuminance) + 0.05) /
+               (Math.Min(foregroundLuminance, backgroundLuminance) + 0.05);
+    }
+
+    private static double RelativeLuminance(Col color)
+    {
+        static double Linear(byte channel)
+        {
+            var value = channel / 255.0;
+            return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+    }
 
     /// <summary>The palette with its panel/card surfaces tinted toward the
     /// accent — the "Colour" theme — while text/stroke stay readable.</summary>
@@ -59,6 +96,32 @@ public sealed record ShellTheme(
     public Color WpfHairline => FromCol(Hairline);
 
     private static Color FromCol(Col c) => Color.FromArgb(c.A, c.R, c.G, c.B);
+}
+
+/// <summary>Updates the app-wide WPF design tokens when the resolved palette changes.</summary>
+public static class ThemeResources
+{
+    public static void Apply(ShellTheme theme)
+    {
+        var resources = Application.Current?.Resources;
+        if (resources is null) return;
+
+        resources["NotchBlack"] = Brush(Col.Black);
+        resources["NotchPanel"] = Brush(theme.PanelTop);
+        resources["NotchPanelRaised"] = Brush(theme.Card);
+        resources["NotchPanelHover"] = Brush(theme.CardHover);
+        resources["NotchStroke"] = Brush(theme.Stroke);
+        resources["NotchAccent"] = Brush(theme.Accent);
+        resources["NotchOk"] = Brush(theme.Ok);
+        resources["NotchDanger"] = Brush(theme.Danger);
+        resources["NotchText"] = Brush(theme.Text);
+        resources["NotchMutedText"] = Brush(theme.Muted);
+        resources["NotchHairline"] = Brush(theme.Hairline);
+        resources["NotchOnAccent"] = Brush(theme.OnAccent);
+    }
+
+    private static SolidColorBrush Brush(Col color) =>
+        new(Color.FromArgb(color.A, color.R, color.G, color.B));
 }
 
 /// <summary>Reads the two Windows theme sources the legacy app used: the app
@@ -193,17 +256,11 @@ public sealed class ThemeService
 
     public event EventHandler? ThemeChanged;
 
+    public ShellTheme Resolve(WinotchSettings settings) => ShellTheme.ForAppearance(settings.Appearance, _os);
+
     public ShellTheme Refresh(WinotchSettings settings)
     {
-        var appearance = settings.Appearance;
-        var light = ResolveLight(appearance);
-        var baseTheme = light ? ShellTheme.Light : ShellTheme.Dark;
-        var accent = ResolveAccent(appearance, light);
-        var resolved = baseTheme.WithAccent(accent);
-        if (appearance.Theme == ThemeMode.Color)
-        {
-            resolved = resolved.WithAccentTint(accent);
-        }
+        var resolved = Resolve(settings);
         if (resolved != Current)
         {
             Current = resolved;

@@ -22,7 +22,7 @@ internal static class DialogUi
     public static SolidColorBrush Muted => Brush(Current.Muted);
     public static SolidColorBrush Accent => Brush(Current.Accent);
     public static SolidColorBrush Danger => Brush(Current.Danger);
-    public static SolidColorBrush OnAccent => Brush(Current.IsLight ? Col.White : new Col(0x06, 0x13, 0x1A));
+    public static SolidColorBrush OnAccent => Brush(Current.OnAccent);
 
     private static SolidColorBrush Brush(Col c) => new(Color.FromArgb(c.A, c.R, c.G, c.B));
 
@@ -79,7 +79,7 @@ internal static class DialogUi
         {
             Content = content,
             Background = primary ? Accent : CardHover,
-            Foreground = primary ? B(0x06, 0x13, 0x1A) : Text,
+            Foreground = primary ? OnAccent : Text,
             BorderBrush = primary ? Accent : Stroke,
             BorderThickness = new Thickness(1),
             Padding = new Thickness(14, 6, 14, 6),
@@ -118,7 +118,7 @@ internal static class DialogUi
             {
                 var on = options[i] == selected;
                 buttons[i].Background = on ? Accent : CardHover;
-                buttons[i].Foreground = on ? B(0x06, 0x13, 0x1A) : Text;
+                buttons[i].Foreground = on ? OnAccent : Text;
             }
         }
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
@@ -152,18 +152,139 @@ internal static class DialogUi
     public static void ApplyFrame(Window window, string title)
     {
         window.Title = title;
-        window.Background = Panel;
         window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         window.Topmost = true;
         window.SizeToContent = SizeToContent.WidthAndHeight;
         window.ResizeMode = ResizeMode.NoResize;
         window.ShowInTaskbar = false;
         window.Icon = AppIcon.Load();
-        // Follow the Appearance font choice; fall back to Segoe UI when the
-        // shared resource has not been populated yet.
-        window.FontFamily = (Application.Current.Resources["NotchUiFont"] as FontFamily)
+        window.Background = Panel;
+        window.FontFamily = (Application.Current?.Resources["NotchUiFont"] as FontFamily)
             ?? new FontFamily("Segoe UI");
     }
+
+    /// <summary>Refresh only the palette/font on an existing dialog. Reapplying
+    /// the frame settings while it is open would recenter it on every theme poll.</summary>
+    public static void ApplyTheme(Window window, ShellTheme previous, ShellTheme theme)
+    {
+        window.Background = Brush(theme.PanelTop);
+        window.FontFamily = (Application.Current?.Resources["NotchUiFont"] as FontFamily)
+            ?? new FontFamily("Segoe UI");
+        ApplyTheme(window.Content as DependencyObject, previous, theme);
+    }
+
+    public static void ApplyTheme(Window window)
+    {
+        var theme = Current;
+        window.Background = Brush(theme.PanelTop);
+        window.FontFamily = (Application.Current?.Resources["NotchUiFont"] as FontFamily)
+            ?? new FontFamily("Segoe UI");
+        ApplyTheme(window.Content as DependencyObject, theme, theme);
+    }
+
+    public static void ApplyOpenWindowFonts()
+    {
+        if (Application.Current?.Resources["NotchUiFont"] is not FontFamily font) return;
+        foreach (Window window in Application.Current.Windows)
+        {
+            if (window is OverlayWindow) continue;
+            window.FontFamily = font;
+        }
+    }
+
+    public static void ApplyOpenDialogsTheme(ShellTheme previous, ShellTheme theme)
+    {
+        if (Application.Current is null) return;
+        foreach (Window window in Application.Current.Windows)
+        {
+            if (window is not (SettingsWindow or OverlayWindow)) ApplyTheme(window, previous, theme);
+        }
+        Current = theme;
+    }
+
+    private static void ApplyTheme(DependencyObject? root, ShellTheme previous, ShellTheme theme)
+    {
+        if (root is null) return;
+
+        switch (root)
+        {
+            case TextBox textBox:
+                textBox.Background = Recolor(textBox.Background, previous, theme);
+                textBox.Foreground = Recolor(textBox.Foreground, previous, theme);
+                textBox.BorderBrush = Recolor(textBox.BorderBrush, previous, theme);
+                textBox.CaretBrush = Recolor(textBox.CaretBrush, previous, theme);
+                textBox.SelectionBrush = Recolor(textBox.SelectionBrush, previous, theme);
+                break;
+            case Button button:
+                button.Background = Recolor(button.Background, previous, theme);
+                button.Foreground = Recolor(button.Foreground, previous, theme);
+                button.BorderBrush = Recolor(button.BorderBrush, previous, theme);
+                break;
+            case System.Windows.Controls.Primitives.ToggleButton toggle:
+                toggle.Foreground = Recolor(toggle.Foreground, previous, theme);
+                break;
+            case ProgressBar progressBar:
+                progressBar.Background = Recolor(progressBar.Background, previous, theme);
+                progressBar.Foreground = Recolor(progressBar.Foreground, previous, theme);
+                break;
+            case System.Windows.Controls.Primitives.RangeBase range:
+                range.Foreground = Recolor(range.Foreground, previous, theme);
+                break;
+            case TextBlock textBlock:
+                textBlock.Foreground = Recolor(textBlock.Foreground, previous, theme);
+                break;
+            case System.Windows.Documents.Run run:
+                run.Foreground = Recolor(run.Foreground, previous, theme);
+                break;
+            case Border border:
+                border.Background = Recolor(border.Background, previous, theme);
+                border.BorderBrush = Recolor(border.BorderBrush, previous, theme);
+                break;
+            case System.Windows.Shapes.Shape shape:
+                shape.Fill = Recolor(shape.Fill, previous, theme);
+                shape.Stroke = Recolor(shape.Stroke, previous, theme);
+                break;
+        }
+
+        if (root is Visual or System.Windows.Media.Media3D.Visual3D)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                ApplyTheme(VisualTreeHelper.GetChild(root, i), previous, theme);
+            }
+        }
+        else if (root is FrameworkContentElement)
+        {
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                if (child is DependencyObject dependencyObject)
+                    ApplyTheme(dependencyObject, previous, theme);
+            }
+        }
+    }
+
+    private static Brush Recolor(Brush brush, ShellTheme previous, ShellTheme theme)
+    {
+        if (brush is not SolidColorBrush solid) return brush;
+        var color = solid.Color;
+        foreach (var (from, to) in new[]
+        {
+            (previous.PanelTop, theme.PanelTop), (previous.PanelBottom, theme.PanelBottom),
+            (previous.Card, theme.Card), (previous.CardHover, theme.CardHover),
+            (previous.Stroke, theme.Stroke), (previous.Text, theme.Text),
+            (previous.Muted, theme.Muted), (previous.Accent, theme.Accent),
+            (previous.Ok, theme.Ok), (previous.Warn, theme.Warn),
+            (previous.Danger, theme.Danger), (previous.Hairline, theme.Hairline),
+            (previous.OnAccent, theme.OnAccent),
+        })
+        {
+            if (color == ToColor(from)) return Brush(to);
+        }
+        return brush;
+    }
+
+    private static Color ToColor(Col color) => Color.FromArgb(color.A, color.R, color.G, color.B);
 }
 
 /// <summary>Loads the Winotch tray icon as a window/taskbar icon. The icon

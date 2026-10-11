@@ -26,6 +26,7 @@ Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and ever
 
 - **The pill** — a springy, weightless notch that collapses to a tidy pill (clock, status light, live chips) and morphs open on hover. It also changes face: press a volume or media key and it becomes a slider or a transport chip, take a call and it turns green, copy something or plug in a charger and a chip slides in. Hang it flush against the top edge like a notch, or float it like an island.
 - **Widgets, your way** — clock, now playing, weather, focus timer, notes, clipboard history, system stats and an app launcher. Add, remove, resize and reorder them; everything persists.
+- **Per-monitor profiles** — independently customize the notch, theme and widget settings for each display.
 - **Calls at a glance** — when you're on a call the pill turns into a green chip with the app name and a live timer — desktop apps (Discord, Teams, Zoom, Slack, Webex, Skype, WhatsApp, Signal and more) and calls in the browser (Google Meet, web Teams/Slack/Discord, WhatsApp Web, Jitsi, Whereby…).
 - **Volume & brightness, not Windows' OSD** — press a volume key and the pill morphs into a slider showing the level; brightness does the same. Winotch claims the volume keys, so Windows' own volume pop-up never appears.
 - **Theme it completely** — Dark / Light / System / Colour / Background themes, glass or acrylic surfaces, ten background gradients, your pick of any font installed on your PC (or import your own), and a size that fits your screen.
@@ -46,7 +47,7 @@ Works on **Windows 10 (2004+)** and **Windows 11**.
 - **Springy pill** — collapses to a pill and springs open on hover; a critically-damped spring drives the morph so it feels weightless.
 - **Idle content** — default (status light + clock), brand + clock, custom text (long text auto-scrolls), or just the light.
 - **Pill chips** — show or hide calls, now playing, focus timer and battery chips right on the collapsed pill, plus an optional date chip.
-- **Volume & brightness HUD** — press a volume key and the pill morphs into a slider: glyph, bar and percentage (**Muted** when it is). Winotch claims the volume keys themselves, so Windows' own OSD never appears and the level is applied straight to the audio endpoint — where possible the Now playing slider follows immediately, rather than on the next poll. Brightness shows the same HUD whenever it changes. Both are toggles in Settings → Pill, and a hidden or paused Winotch hands the keys straight back to Windows. **Media key feedback** (also Settings → Pill) does the same for play / pause / next / previous — except those keys are only watched, never taken over.
+- **Volume & brightness HUD** — press a volume key and the pill morphs into a slider: glyph, bar and percentage (**Muted** when it is). Winotch claims the volume keys themselves, so Windows' own OSD never appears and the level is applied straight to the audio endpoint — where possible the Now playing slider follows immediately, rather than on the next poll. Brightness shows the same HUD whenever it changes, read from either the monitor (DDC/CI) or a built-in panel (the Windows backlight), whichever your PC answers on. Both are toggles in Settings → Pill, and a hidden or paused Winotch hands the keys straight back to Windows. **Media key feedback** (also Settings → Pill) does the same for play / pause / next / previous — except those keys are only watched, never taken over.
 - **One pill, many faces** — the collapsed pill has a few ways to take over from its usual row: drag mode, the volume / brightness slider, the call chip, the now-playing chip, and short-lived chips for a media key you just pressed or something worth a glance (charger in, rain coming, something copied). A chip yields to whatever you did last, so the pill always answers the most recent action; drag mode sits on top of all of it.
 - **Media key feedback** — press play / pause / next / previous and the pill shows the key you pressed with the track it applies to. Winotch never claims these keys: your player and Windows keep handling them exactly as before, and the chip is purely a readout.
 - **Glance chips** — rain starting within the half hour, the charger going in or out, and a fresh copy show as a chip on the pill instead of a toast. The rest (low battery, Wi-Fi, camera and mic) keep their toasts, because they are worth a sentence.
@@ -107,18 +108,26 @@ dotnet test  Winotch.slnx -c Release
 
 Run it with `dotnet run --project src/Winotch`, or launch the built exe.
 
-Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release.
+Tagging a commit `vX.Y.Z` and pushing it triggers the [build-test-release](.github/workflows/build-release.yml) workflow, which tests, publishes the self-contained `Winotch.exe` and attaches it to the release. The MSIX packaging project is separate and requires Windows with Visual Studio's MSIX Packaging Tools; the portable zip remains the automated release artifact.
 
 ## Good to know
 
 - **Fonts** come from your system (Fluent icons, Segoe UI Emoji, Cascadia Mono for timers) — nothing is bundled. A missing font falls back to the OS default.
 - **Glass** blurs the desktop behind the notch. Because the overlay is a full-screen transparent surface, the capture includes the notch's own previous frame, which settles into a soft glow — content on top stays crisp. If the backdrop can't be captured (locked session, etc.) it falls back to a translucent panel.
 - **Clipboard** thumbnails live only in memory.
-- **Brightness is mirrored, not taken over.** Windows defines no brightness key an app can claim, and on most laptops the brightness keys are handled by your PC maker's utility before Windows ever sees them — so your PC's own brightness indicator can still appear, a beat before Winotch's. Reading the level needs DDC/CI, which some monitors and virtual machines don't answer at all; when that happens, the brightness HUD simply stays away.
+- **Brightness is mirrored, not taken over.** Windows defines no brightness key an app can claim, and on most laptops the brightness keys are handled by your PC maker's utility before Windows ever sees them — so your PC's own brightness indicator can still appear, a beat before Winotch's. Reading the level means asking the display, and Windows exposes brightness through two unrelated interfaces: DDC/CI down the display cable, which is how an external monitor answers, and the ACPI backlight behind WMI, which is how a laptop's own panel answers. Winotch reads both every poll and mirrors whichever one moved. If neither answers — some monitors ship with DDC/CI switched off in their own menu, and a virtual machine usually has no backlight at all — the brightness HUD stays away, and Settings → Pill says so on the brightness row itself.
 - **Media keys are watched, not taken over.** Play / pause / next / previous are handled by Windows and whatever app owns the session, exactly as before; Winotch only mirrors the press onto the pill. So the chip names the key you pressed rather than claiming a playing state, and a chip that never appears costs you nothing but a chip.
 - **Call detection** matches known desktop call apps and browser calls, and it's heuristic by nature: it looks for a call-style window title, or a hot mic/camera plus a running call app. So a window that keeps a call-like title while idle (a Zoom pre-join page, an open Jitsi tab) can light the pill early, and a web call whose tab title doesn't name the service can be missed.
 - The notch is a fully custom surface, so it isn't exposed to screen readers; the Settings window is standard accessible XAML.
 
 ## Credits & license
 
-Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin) (SkiaSharp island, spring motion) and [yappologistic/winotch](https://github.com/yappologistic/winotch) (feature set). Both predate this codebase; this project is an independent implementation released under [The Unlicense](LICENSE) — public domain. Use it however you like.
+Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin) (SkiaSharp island, spring motion) and [yappologistic/winotch](https://github.com/yappologistic/winotch) (feature set). Both predate this codebase, which is an independent implementation.
+
+Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
+
+## Release notes (v4.5.0)
+
+- Add calendar/next-meeting, quick actions, a bounded notification inbox, and per-monitor profiles.
+- Add an MSIX packaging project with opt-in native Windows calendar and Notification Center access; portable `.ics` import remains available.
+- Improve brightness reading across external monitors and built-in laptop panels, and refine theme contrast and dialog behavior.

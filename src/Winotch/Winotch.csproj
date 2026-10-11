@@ -8,9 +8,12 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- A separate WAP project adds package identity while the default build remains portable. -->
+    <WindowsPackageType Condition="'$(WinotchMsix)' != 'true'">None</WindowsPackageType>
+    <AppxPackageSigningEnabled Condition="'$(WinotchMsix)' != 'true'">false</AppxPackageSigningEnabled>
     <AssemblyName>Winotch</AssemblyName>
     <RootNamespace>Winotch</RootNamespace>
-    <Version>2.4.3</Version>
+    <Version>4.5.0</Version>
     <Product>Winotch</Product>
     <ApplicationIcon>Resources\WinotchTray.ico</ApplicationIcon>
   </PropertyGroup>
@@ -22,6 +25,11 @@
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="2.88.8" />
     <PackageReference Include="SkiaSharp.Views.WPF" Version="2.88.8" />
+    <!-- The internal panel's brightness only exists behind ACPI, which on
+         Windows means WMI's root\wmi:WmiMonitorBrightness. Managed only, so it
+         bundles into Winotch.exe like the rest — the updater still has just the
+         one file to swap. -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

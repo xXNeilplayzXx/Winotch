@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{B75257DA-C281-4849-9132-2E13D94182EC}</ProjectGuid>
+    <TargetPlatformVersion>10.0.19041.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AppxBundle>Never</AppxBundle>
+    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <Platforms>x64</Platforms>
+    <Configurations>Debug;Release</Configurations>
+    <OutputType>AppContainerExe</OutputType>
+    <AppxPackageDir>$(MSBuildThisFileDirectory)AppPackages\</AppxPackageDir>
+    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+    <AppxAutoIncrementPackageRevision>false</AppxAutoIncrementPackageRevision>
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <AppxPackage>true</AppxPackage>
+    <AppxManifest>Package.appxmanifest</AppxManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Winotch\Winotch.csproj">
+      <AdditionalProperties>Configuration=$(Configuration);Platform=x64;WinotchMsix=true</AdditionalProperties>
+      <Project>{61BA7BFC-AC94-480D-AEEB-DC6DBB3E3373}</Project>
+      <Name>Winotch</Name>
+    </ProjectReference>
+    <Content Include="Assets\StoreLogo44.png" />
+    <Content Include="Assets\StoreLogo50.png" />
+    <Content Include="Assets\StoreLogo150.png" />
+    <Content Include="Assets\StoreLogo310.png" />
+    <Content Include="Assets\SplashScreen.png" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" />
+</Project>

@@ -43,6 +43,12 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private readonly IPrivacyConsentStore _privacy = new RegistryPrivacyConsentStore();
     private readonly ClipboardHistoryStore _clipboardStore = new();
     private readonly WeatherService _weather = new();
+    private readonly DispatcherTimer _focusTimer;
+    private readonly Dictionary<string, FocusTimerState> _focusStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DispatcherTimer _calendarTimer;
+    private readonly DispatcherTimer _notificationsTimer;
+    private readonly WindowsNotificationInbox _windowsNotifications = new();
+    private bool _isSyncingSystemNotifications;
     private readonly SystemStatsSampler _statsSampler = new();
     private readonly List<OverlayWindow> _windows = new();
     private readonly UpdateService _updateService = new();
@@ -53,7 +59,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private TrayIconService? _tray;
     private CancellationTokenSource? _wifiCts;
     private CancellationTokenSource? _brightnessCts;
-    private int? _lastBrightness;
+
+    /// <summary>The brightness poll's memory: two independent readers, and the
+    /// rule for when a change is worth a HUD. Pure, so it is tested.</summary>
+    private readonly BrightnessMirror _brightness = new();
+
+    /// <summary>Which interface the brightness mirror is reading from, for the
+    /// Settings window's diagnostic line. None until something answers.</summary>
+    public BrightnessSource BrightnessSource => _brightness.Source;
     private string? _wifiName;
     private BatteryInfo _battery = new(100, false);
     private bool _lastMic, _lastCam;
@@ -64,13 +77,18 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private string _lastDisplayDevice = "";
     private bool _disposed;
     private bool _updateCheckInFlight;
+    private bool _lastWindowsNotificationInboxEnabled;
+    private string _lastCalendarSourceState = "";
 
     public OverlayWindowManager(SettingsService settings, StartupService startup)
     {
         _settings = settings;
         _startup = startup;
+        _lastWindowsNotificationInboxEnabled = settings.Current.WindowsNotificationInboxEnabled;
+        _lastCalendarSourceState = CalendarSourceState(settings.Current);
 
         _theme.Refresh(settings.Current);
+        ThemeResources.Apply(_theme.Current);
         DialogUi.Current = _theme.Current;
         _lastDisplayMode = settings.Current.Appearance.Display;
         _lastDisplayDevice = settings.Current.Appearance.DisplayDeviceName;
@@ -78,6 +96,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _theme.ThemeChanged += OnThemeChanged;
 
         _media.Changed += OnMediaChanged;
+
+        _calendarTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(2) };
+        _calendarTimer.Tick += async (_, _) => await ReloadCalendarsAsync();
+        _notificationsTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(20) };
+        _notificationsTimer.Tick += async (_, _) => await SyncWindowsNotificationsAsync();
+        _focusTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
+        _focusTimer.Tick += (_, _) => TickFocusTimers();
 
         _clipboardTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -192,6 +217,12 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         rain.Start();
 
         _clipboardTimer.Start();
+        _calendarTimer.Start();
+        _notificationsTimer.Start();
+        _focusTimer.Start();
+        _ = ReloadCalendarsAsync();
+        _ = SyncWindowsNotificationsAsync();
+        PushInbox();
     }
 
     public void Dispose()
@@ -199,10 +230,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         if (_disposed) return;
         _disposed = true;
         _clipboardTimer.Stop();
+        _calendarTimer.Stop();
+        _notificationsTimer.Stop();
+        _focusTimer.Stop();
         _wifiCts?.Cancel();
         _brightnessCts?.Cancel();
         _hudHook.Dispose();
         BrightnessService.Release();
+        InternalBrightness.Release();
         foreach (var window in _windows.ToArray()) window.Dispose();
         _windows.Clear();
         _tray?.Dispose();
@@ -244,6 +279,10 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             {
                 var window = new OverlayWindow(_settings, _theme, _startup, this);
                 window.AssignMonitor(target);
+                var scoped = MonitorProfileStore.Resolve(_settings.Current, target.DeviceName);
+                window.Shell.SetInbox(VisibleInbox(_settings.Current));
+                window.Shell.SetQuietMode(scoped.Widgets.QuietMode);
+                if (_focusStates.TryGetValue(target.DeviceName, out var focus)) window.Shell.SetFocus(focus);
                 window.Show();
                 _windows.Add(window);
             }
@@ -285,10 +324,13 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private void OnSettingsChanged(object? sender, WinotchSettings settings)
     {
         ApplyUiFont();
+        PushInbox();
+        HandlePackageSettingsChanged(settings);
         _theme.Refresh(settings);
-        foreach (var window in _windows) window.Shell.ApplyTheme();
-        DialogUi.Current = _theme.Current;
-        _settingsWindow?.ApplyTheme(_theme.Current);
+        foreach (var window in _windows) window.Shell.RefreshSettings();
+        DialogUi.ApplyOpenWindowFonts();
+        // ThemeService's event handles actual palette changes. Ordinary settings
+        // edits must leave the existing control tree alone (especially sliders).
         RebuildIfLayoutChanged();
 
         // Display targeting is not a layout change — rebuilding on the mode /
@@ -306,10 +348,12 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     private void OnThemeChanged(object? sender, EventArgs e)
     {
+        var previous = DialogUi.Current;
         foreach (var window in _windows) window.Shell.ApplyTheme();
-        DialogUi.Current = _theme.Current;
-        // A real palette change re-skins the settings window's rows.
-        _settingsWindow?.ApplyTheme(_theme.Current, rebuild: true);
+        ThemeResources.Apply(_theme.Current);
+        DialogUi.ApplyOpenDialogsTheme(previous, _theme.Current);
+        if (_settingsWindow is { } settingsWindow)
+            settingsWindow.ApplyTheme(_theme.Current, rebuild: !settingsWindow.IsDraggingSlider);
     }
 
     private void RecreateTray()
@@ -418,8 +462,11 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     {
         if (_settingsWindow is null)
         {
+            var activeMonitor = MonitorTargeting.SelectMonitor(MonitorTargeting.CaptureScreens(),
+                MonitorTargeting.GetForegroundWindowRect(), MonitorTargeting.GetCursorPosition(), true, null).DeviceName;
             _settingsWindow = new SettingsWindow(_settings, _startup, OpenSetupWizard, FactoryReset, EnterDragMode,
-                () => _ = CheckForUpdatesAsync(manual: true));
+                () => _ = CheckForUpdatesAsync(manual: true), () => _brightness.Source, activeMonitor,
+                () => _ = RequestWindowsNotificationAccessAsync());
             _settingsWindow.ApplyTheme(_theme.Current);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
@@ -488,6 +535,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
                     _settings.Current.Toasts.MediaToastsEnabled && !IsQuietDuringFocus)
                 {
                     _lastToastKey = media.Key;
+                    AddInbox("media:" + media.Key, "Now playing", $"{media.Title} — {media.Artist}", "\uE768");
                     var spec = new ToastSpec("", media.Title, media.Artist, 4.5);
                     foreach (var window in _windows) window.Shell.ShowToast(spec);
                 }
@@ -499,8 +547,10 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         }
     }
 
-    private bool IsQuietDuringFocus => FocusFeedbackPolicy.ShouldSuppress(
-        _settings.Current.Features.QuietDuringFocus, _windows.Select(window => window.Shell.Focus));
+    private bool IsQuietDuringFocus => _settings.Current.Widgets.QuietMode ||
+        _windows.Any(window => MonitorProfileStore.Resolve(_settings.Current, window.Monitor.DeviceName).Widgets.QuietMode) ||
+        FocusFeedbackPolicy.ShouldSuppress(
+            _settings.Current.Features.QuietDuringFocus, _windows.Select(window => window.Shell.Focus));
 
     public async Task MediaPlayPauseAsync() => await _media.PlayPauseAsync();
     public async Task MediaNextAsync() => await _media.NextAsync();
@@ -628,26 +678,43 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         var token = _brightnessCts.Token;
         _ = Task.Run(() =>
         {
-            try
+            while (!token.IsCancellationRequested)
             {
-                // The first read only records where brightness started; a HUD
-                // at launch would be noise.
-                _lastBrightness = BrightnessService.Level;
-                while (!token.IsCancellationRequested)
+                try
                 {
-                    token.WaitHandle.WaitOne(BrightnessPollMilliseconds);
-                    if (token.IsCancellationRequested) break;
-                    var level = BrightnessService.Level;
-                    if (level == _lastBrightness) continue;
-                    _lastBrightness = level;
-                    if (level is { } percent) PostBrightnessHud(percent);
+                    // Both interfaces every poll: DDC/CI for a monitor on the
+                    // cable, the WMI backlight class for a laptop's own panel.
+                    // Reading only DDC/CI — which is what this used to do — meant
+                    // the internal panel, the one the brightness keys actually
+                    // move, could never produce a HUD. The first pass only records
+                    // where brightness started; a HUD at launch would be noise.
+                    var reading = _brightness.Observe(
+                        SafeRead(() => BrightnessService.Level),
+                        SafeRead(() => InternalBrightness.Level));
+                    if (reading is { } change) PostBrightnessHud(change.Percent);
                 }
-            }
-            catch
-            {
-                // A monitor that won't answer just means no brightness HUD.
+                catch
+                {
+                    // A machine that won't answer just means no brightness HUD.
+                }
+                token.WaitHandle.WaitOne(BrightnessPollMilliseconds);
             }
         }, token);
+    }
+
+    /// <summary>Read one brightness interface, turning any failure into the same
+    /// null an unsupported display gives — the loop must never die, because a
+    /// dead mirror means no HUD for the rest of the session.</summary>
+    private static int? SafeRead(Func<int?> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void PostBrightnessHud(int percent)
@@ -825,28 +892,179 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     // ----------------------------------------------------- widget editors
 
-    public void OpenNotesEditor()
+    public async Task ReloadCalendarsAsync()
     {
-        var widgets = _settings.Current.Widgets;
+        var settings = _settings.Current;
+        await ReloadCalendarAsync(null);
+        foreach (var deviceName in settings.MonitorProfiles.Keys.ToArray())
+            await ReloadCalendarAsync(deviceName);
+    }
+
+    public void ReloadCalendars() => _ = ReloadCalendarsAsync();
+
+    public void ReloadCalendar(string? deviceName = null) => _ = ReloadCalendarAsync(deviceName);
+
+    private async Task ReloadCalendarAsync(string? deviceName)
+    {
+        try
+        {
+            var current = _settings.Current;
+            var settings = string.IsNullOrWhiteSpace(deviceName) ? current : MonitorProfileStore.Resolve(current, deviceName);
+            IReadOnlyList<CalendarEvent> events;
+            if (settings.Widgets.Calendar.UseWindowsCalendars && IsPackaged())
+                events = await WindowsCalendarReader.ReadUpcomingAsync(DateTimeOffset.Now, TimeSpan.FromDays(31));
+            else
+            {
+                var path = string.IsNullOrWhiteSpace(settings.Widgets.Calendar.FilePath)
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Winotch", "calendar.ics")
+                    : settings.Widgets.Calendar.FilePath;
+                events = File.Exists(path) ? CalendarService.ReadFile(path) : Array.Empty<CalendarEvent>();
+            }
+            if (string.IsNullOrWhiteSpace(deviceName))
+                _settings.Update(s => s with { Widgets = s.Widgets with { Calendar = s.Widgets.Calendar with { Events = events.ToList() } } });
+            else
+                SaveScoped(deviceName, s => s with { Widgets = s.Widgets with { Calendar = s.Widgets.Calendar with { Events = events.ToList() } } });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            ShowToast(new ToastSpec("", "Calendar import failed", ex.Message, 5));
+        }
+    }
+
+    private static bool IsPackaged()
+    {
+        try { return !string.IsNullOrWhiteSpace(Windows.ApplicationModel.Package.Current.Id.FamilyName); }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static string CalendarSourceState(WinotchSettings settings) => string.Join("\n",
+        $"global:{settings.Widgets.Calendar.UseWindowsCalendars}:{settings.Widgets.Calendar.FilePath}",
+        settings.MonitorProfiles.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => $"{pair.Key}:{pair.Value.Widgets.Calendar.UseWindowsCalendars}:{pair.Value.Widgets.Calendar.FilePath}"));
+
+    private void HandlePackageSettingsChanged(WinotchSettings settings)
+    {
+        if (_lastWindowsNotificationInboxEnabled != settings.WindowsNotificationInboxEnabled)
+        {
+            _lastWindowsNotificationInboxEnabled = settings.WindowsNotificationInboxEnabled;
+            if (settings.WindowsNotificationInboxEnabled) _ = SyncWindowsNotificationsAsync();
+            else if (settings.NotificationInbox.Any(item => item.Id.StartsWith("windows:", StringComparison.Ordinal)))
+                _settings.Update(current => current with
+                {
+                    NotificationInbox = current.NotificationInbox.Where(item => !item.Id.StartsWith("windows:", StringComparison.Ordinal)).ToList(),
+                });
+        }
+        var calendarSource = CalendarSourceState(settings);
+        if (_lastCalendarSourceState == calendarSource) return;
+        _lastCalendarSourceState = calendarSource;
+        _ = ReloadCalendarsAsync();
+    }
+
+    private async Task SyncWindowsNotificationsAsync()
+    {
+        if (_isSyncingSystemNotifications || !_settings.Current.WindowsNotificationInboxEnabled || !IsPackaged() || _settings.Current.Widgets.QuietMode) return;
+        _isSyncingSystemNotifications = true;
+        try
+        {
+            var notices = await _windowsNotifications.ReadAsync();
+            var notifications = notices.ToDictionary(item => item.Id, StringComparer.Ordinal);
+            _settings.Update(current =>
+            {
+                var retainedSystemIds = notifications.Keys.ToHashSet(StringComparer.Ordinal);
+                var dismissed = NotificationInboxStore.DismissSystemNotifications(
+                    current.DismissedWindowsNotificationIds,
+                    current.NotificationInbox.Where(item => item.Id.StartsWith("windows:", StringComparison.Ordinal) && !retainedSystemIds.Contains(item.Id))
+                        .Select(item => item.Id));
+                return current with
+                {
+                    DismissedWindowsNotificationIds = dismissed,
+                    NotificationInbox = NotificationInboxStore.MergeSystemNotifications(
+                        current.NotificationInbox, notifications.Values, dismissed),
+                };
+            });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Winotch] Windows notification sync unavailable: {ex.Message}");
+        }
+        finally { _isSyncingSystemNotifications = false; }
+    }
+
+    public async Task RequestWindowsNotificationAccessAsync()
+    {
+        if (_settings.Current.Widgets.QuietMode) return;
+        if (!IsPackaged())
+        {
+            ShowToast(new ToastSpec("", "MSIX required", "Windows notification history is available only in the packaged MSIX build.", 5));
+            return;
+        }
+        try
+        {
+            var status = await _windowsNotifications.RequestAccessAsync();
+            if (status == Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Allowed)
+            {
+                _settings.Update(current => current with { WindowsNotificationInboxEnabled = true });
+                await SyncWindowsNotificationsAsync();
+            }
+            else
+                ShowToast(new ToastSpec("", "Notification access not enabled", "Allow Winotch in Windows Settings, then try again.", 5));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            ShowToast(new ToastSpec("", "Notification access unavailable", ex.Message, 5));
+        }
+    }
+
+    public void OpenCalendarEditor(string? deviceName = null)
+    {
+        var picker = new Microsoft.Win32.OpenFileDialog { Title = "Import an iCalendar file", Filter = "Calendar files (*.ics)|*.ics|All files (*.*)|*.*", CheckFileExists = true };
+        var scopedCalendar = ResolveScoped(deviceName).Widgets.Calendar;
+        if (!string.IsNullOrWhiteSpace(scopedCalendar.FilePath) && File.Exists(scopedCalendar.FilePath))
+            picker.InitialDirectory = Path.GetDirectoryName(scopedCalendar.FilePath);
+        if (picker.ShowDialog() != true) return;
+        try
+        {
+            var calendarPath = string.IsNullOrWhiteSpace(deviceName) || !_settings.Current.Appearance.UseMonitorProfiles
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Winotch", "calendar.ics")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Winotch", "Calendars", Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(deviceName)))[..16] + ".ics");
+            Directory.CreateDirectory(Path.GetDirectoryName(calendarPath)!);
+            File.Copy(picker.FileName, calendarPath, overwrite: true);
+            if (string.IsNullOrWhiteSpace(deviceName))
+                _settings.Update(s => s with { Widgets = s.Widgets with { Calendar = s.Widgets.Calendar with { FilePath = calendarPath } } });
+            else
+                SaveScoped(deviceName, s => s with { Widgets = s.Widgets with { Calendar = s.Widgets.Calendar with { FilePath = calendarPath } } });
+            ReloadCalendar(deviceName);
+            var resolved = string.IsNullOrWhiteSpace(deviceName) ? _settings.Current : MonitorProfileStore.Resolve(_settings.Current, deviceName);
+            ShowToast(new ToastSpec("", "Calendar imported", $"Loaded {resolved.Widgets.Calendar.Events.Count} events.", 4));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ShowToast(new ToastSpec("", "Calendar import failed", ex.Message, 5));
+        }
+    }
+
+    public void OpenNotesEditor(string? deviceName = null)
+    {
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new NotesEditWindow(widgets.Notes, widgets.SizeFor("notes"));
         if (window.ShowDialog() == true && window.Result is { } text)
         {
             var scale = window.Scale;
-            _settings.Update(s => s with
+            SaveScoped(deviceName ?? "", s => s with
             {
                 Widgets = s.Widgets.WithSize("notes", scale) with { Notes = text },
             });
         }
     }
 
-    public void OpenWeatherEditor()
+    public void OpenWeatherEditor(string? deviceName = null)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new WeatherEditWindow(widgets.Weather, widgets.SizeFor("weather"));
         if (window.ShowDialog() != true) return;
         // Both outcome paths below update settings themselves, so the card
         // size choice is saved here first.
-        _settings.Update(s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
+        SaveScoped(deviceName ?? "", s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
         if (window.City is { } city)
         {
             _ = ResolveAndFetchWeatherAsync(city);
@@ -857,28 +1075,28 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         }
     }
 
-    public void OpenLauncherEditor()
+    public void OpenLauncherEditor(string? deviceName = null)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new LauncherEditWindow(widgets.LauncherApps, widgets.SizeFor("launcher"));
         if (window.ShowDialog() == true && window.Result is { } apps)
         {
             var scale = window.Scale;
-            _settings.Update(s => s with
+            SaveScoped(deviceName ?? "", s => s with
             {
                 Widgets = s.Widgets.WithSize("launcher", scale) with { LauncherApps = apps },
             });
         }
     }
 
-    public void OpenFocusEditor()
+    public void OpenFocusEditor(string? deviceName = null)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new FocusEditWindow(widgets.FocusMinutes, widgets.BreakMinutes,
             widgets.FocusAutoCycle, widgets.SizeFor("focus"));
         if (window.ShowDialog() != true || window.Result is not { } result) return;
         var scale = window.Scale;
-        _settings.Update(s => s with
+        SaveScoped(deviceName ?? "", s => s with
         {
             Widgets = s.Widgets.WithSize("focus", scale) with
             {
@@ -889,14 +1107,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         });
     }
 
-    public void OpenMetricsEditor()
+    public void OpenMetricsEditor(string? deviceName = null)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new MetricsEditWindow(widgets.SystemMetrics, widgets.SizeFor("system"));
         if (window.ShowDialog() == true && window.Result is { } result)
         {
             var scale = window.Scale;
-            _settings.Update(s => s with
+            SaveScoped(deviceName ?? "", s => s with
             {
                 Widgets = s.Widgets.WithSize("system", scale) with { SystemMetrics = result },
             });
@@ -907,10 +1125,171 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     /// now playing, clipboard).</summary>
     public void OpenCardSizeEditor(string id)
     {
-        var widgets = _settings.Current.Widgets;
+        OpenCardSizeEditor(null, id);
+    }
+
+    public void OpenCardSizeEditor(string? deviceName, string id)
+    {
+        var widgets = ResolveScoped(deviceName).Widgets;
         var window = new CardSizeWindow(WidgetSettings.Labels[id], widgets.SizeFor(id));
         if (window.ShowDialog() != true) return;
-        _settings.Update(s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
+        SaveScoped(deviceName ?? "", s => s with { Widgets = s.Widgets.WithSize(id, window.Scale) });
+    }
+
+    private WinotchSettings ResolveScoped(string? deviceName) => string.IsNullOrWhiteSpace(deviceName)
+        ? _settings.Current
+        : MonitorProfileStore.Resolve(_settings.Current, deviceName);
+
+    private void SaveScoped(string deviceName, Func<WinotchSettings, WinotchSettings> change)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+        {
+            _settings.Update(change);
+            return;
+        }
+        if (!_settings.Current.Appearance.UseMonitorProfiles)
+        {
+            _settings.Update(change);
+            return;
+        }
+        _settings.Update(current =>
+        {
+            var updated = change(MonitorProfileStore.Resolve(current, deviceName));
+            return MonitorProfileStore.Save(current, deviceName, updated with
+            {
+                Appearance = updated.Appearance with { UseMonitorProfiles = true },
+            });
+        });
+    }
+
+    public void AddInbox(string id, string title, string body, string glyph = "\uE7BA")
+    {
+        if (string.IsNullOrWhiteSpace(title)) return;
+        var cleanTitle = title.Trim();
+        var cleanBody = string.IsNullOrWhiteSpace(body) ? "" : body.Trim();
+        var stableId = string.IsNullOrWhiteSpace(id) ? $"inbox:{Guid.NewGuid():N}" : id;
+        var item = new InboxNotification(stableId, DateTimeOffset.UtcNow, cleanTitle, cleanBody, glyph);
+        _settings.Update(s => s with { NotificationInbox = NotificationInboxStore.Add(s.NotificationInbox, item) });
+        PushInbox();
+    }
+
+    public void MarkInboxRead(string id)
+    {
+        _settings.Update(s => s with
+        {
+            NotificationInbox = NotificationInboxStore.MarkRead(s.NotificationInbox, id),
+            DismissedWindowsNotificationIds = id.StartsWith("windows:", StringComparison.Ordinal)
+                ? NotificationInboxStore.DismissSystemNotifications(s.DismissedWindowsNotificationIds, new[] { id })
+                : s.DismissedWindowsNotificationIds,
+        });
+        PushInbox();
+    }
+
+    public void ClearInbox()
+    {
+        _settings.Update(s => s with
+        {
+            NotificationInbox = NotificationInboxStore.Clear(s.NotificationInbox),
+            DismissedWindowsNotificationIds = NotificationInboxStore.DismissSystemNotifications(
+                s.DismissedWindowsNotificationIds, s.NotificationInbox.Where(item => item.Id.StartsWith("windows:", StringComparison.Ordinal)).Select(item => item.Id)),
+        });
+        PushInbox();
+    }
+
+    private static IReadOnlyList<InboxNotification> VisibleInbox(WinotchSettings settings) =>
+        settings.WindowsNotificationInboxEnabled
+            ? settings.NotificationInbox
+            : settings.NotificationInbox.Where(item => !item.Id.StartsWith("windows:", StringComparison.Ordinal)).ToArray();
+
+    private void PushInbox()
+    {
+        var settings = _settings.Current;
+        foreach (var window in _windows)
+        {
+            var effective = MonitorProfileStore.Resolve(settings, window.Monitor.DeviceName);
+            window.Shell.SetInbox(VisibleInbox(settings));
+            window.Shell.SetQuietMode(effective.Widgets.QuietMode);
+            if (_focusStates.TryGetValue(window.Monitor.DeviceName, out var focus)) window.Shell.SetFocus(focus);
+        }
+    }
+
+    public void SetFocusState(string deviceName, FocusTimerState state)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+        {
+            foreach (var window in _windows) window.Shell.SetFocus(state);
+            return;
+        }
+        if (state.Status == FocusTimerStatus.Stopped) _focusStates.Remove(deviceName);
+        else _focusStates[deviceName] = state;
+        foreach (var window in _windows.Where(window => string.Equals(window.Monitor.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase)))
+            window.Shell.SetFocus(state);
+    }
+
+    private void TickFocusTimers()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (device, state) in _focusStates.ToArray())
+        {
+            if (state.Status != FocusTimerStatus.Running) continue;
+            var completed = new List<FocusTimerCompletion>();
+            var next = state.AdvanceTo(now, completion => completed.Add(completion));
+            foreach (var completion in completed)
+            {
+                var title = completion.Kind == FocusTimerCompletionKind.FocusComplete ? "Focus complete" : "Break over";
+                var body = completion.Kind == FocusTimerCompletionKind.FocusComplete
+                    ? $"Take a {(int)completion.NextPhaseDuration.TotalMinutes} min break."
+                    : "Back to focus.";
+                AddInbox($"focus:{device}:{completion.Kind}:{now:O}", title, body, "\uE768");
+                foreach (var window in _windows.Where(window => string.Equals(window.Monitor.DeviceName, device, StringComparison.OrdinalIgnoreCase)))
+                    window.Shell.ShowToast(new ToastSpec("", title, body, 5));
+            }
+            if (next != state) SetFocusState(device, next);
+        }
+    }
+
+    public bool IsQuietMode => _settings.Current.Widgets.QuietMode;
+
+    public void ExecuteQuickAction(string actionId, string? deviceName = null)
+    {
+        if (actionId == "focus-ended")
+        {
+            if (string.IsNullOrWhiteSpace(deviceName)) return;
+            SetFocusState(deviceName, FocusTimerState.Stopped);
+            return;
+        }
+        if (!QuickActionCatalog.Known.Contains(actionId, StringComparer.Ordinal)) return;
+        switch (actionId)
+        {
+            case "settings": OpenSettingsWindow(); break;
+            case "focus":
+                var settings = ResolveScoped(deviceName);
+                var widgets = settings.Widgets;
+                var preset = new FocusTimerSettings(TimeSpan.FromMinutes(widgets.FocusMinutes),
+                    TimeSpan.FromMinutes(widgets.BreakMinutes), widgets.FocusAutoCycle);
+                var state = FocusTimerState.Start(preset, DateTimeOffset.UtcNow);
+                if (string.IsNullOrWhiteSpace(deviceName))
+                {
+                    foreach (var window in _windows) SetFocusState(window.Monitor.DeviceName, state);
+                }
+                else SetFocusState(deviceName, state);
+                break;
+            case "quiet":
+                var scoped = ResolveScoped(deviceName);
+                var quietOn = deviceName is null
+                    ? !_settings.Current.Widgets.QuietMode
+                    : !scoped.Widgets.QuietMode;
+                SaveScoped(deviceName ?? "", s => s with { Widgets = s.Widgets with { QuietMode = quietOn } });
+                foreach (var window in _windows.Where(window => deviceName is null || string.Equals(window.Monitor.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase)))
+                    window.Shell.SetQuietMode(quietOn);
+                break;
+            case "inbox":
+                foreach (var window in _windows.Where(window => deviceName is null || string.Equals(window.Monitor.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase)))
+                    window.Shell.ExecuteQuickAction("inbox");
+                break;
+            case "sync-notifications": _ = RequestWindowsNotificationAccessAsync(); break;
+            case "hide": HideNotch(); break;
+        }
     }
 
     public void LaunchApp(LauncherApp app)
@@ -928,6 +1307,8 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     private void ShowToast(ToastSpec spec)
     {
+        if (!string.IsNullOrWhiteSpace(spec.Title))
+            AddInbox($"toast:{Guid.NewGuid():N}", spec.Title, spec.Body, spec.Icon);
         foreach (var window in _windows) window.Shell.ShowToast(spec);
     }
 

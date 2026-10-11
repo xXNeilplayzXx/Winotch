@@ -15,6 +15,7 @@
         <SolidColorBrush x:Key="NotchText" Color="#F4F6FA" />
         <SolidColorBrush x:Key="NotchMutedText" Color="#9AA3B2" />
         <SolidColorBrush x:Key="NotchHairline" Color="#23272F" />
+        <SolidColorBrush x:Key="NotchOnAccent" Color="#06131A" />
         <!-- UI typeface, overridden at runtime by the Appearance font setting -->
         <FontFamily x:Key="NotchUiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
         <!-- Icon face, replaced at startup with the best one this machine
@@ -25,20 +26,20 @@
 
         <Style x:Key="GlyphText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource NotchIconFont}" />
-            <Setter Property="Foreground" Value="{StaticResource NotchText}" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchText}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
         <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource NotchUiFont}" />
-            <Setter Property="Foreground" Value="{StaticResource NotchText}" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchText}" />
         </Style>
 
         <Style TargetType="Button">
             <Setter Property="FontFamily" Value="{DynamicResource NotchUiFont}" />
-            <Setter Property="Foreground" Value="{StaticResource NotchText}" />
-            <Setter Property="Background" Value="{StaticResource NotchPanelRaised}" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchText}" />
+            <Setter Property="Background" Value="{DynamicResource NotchPanelRaised}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="FontSize" Value="11.5" />
@@ -54,7 +55,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource NotchPanelHover}" />
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.88" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Chrome" Property="Opacity" Value="0.7" />
@@ -67,18 +68,18 @@
 
         <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="{DynamicResource NotchAccent}" />
-            <Setter Property="Foreground" Value="#06131A" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchOnAccent}" />
         </Style>
 
         <Style x:Key="RowLabelText" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10.5" />
-            <Setter Property="Foreground" Value="{StaticResource NotchMutedText}" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchMutedText}" />
             <Setter Property="FontFamily" Value="Consolas, Courier New" />
         </Style>
 
         <Style x:Key="SectionLabelText" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10" />
-            <Setter Property="Foreground" Value="{StaticResource NotchMutedText}" />
+            <Setter Property="Foreground" Value="{DynamicResource NotchMutedText}" />
             <Setter Property="FontFamily" Value="Consolas, Courier New" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
@@ -128,7 +129,7 @@
                                     BorderBrush="{DynamicResource NotchStroke}" BorderThickness="1"
                                     VerticalAlignment="Center">
                                 <TextBlock x:Name="Check" Text="&#xE73E;" FontFamily="{DynamicResource NotchIconFont}"
-                                           FontSize="10" Foreground="#06131A" HorizontalAlignment="Center"
+                                           FontSize="10" Foreground="{DynamicResource NotchOnAccent}" HorizontalAlignment="Center"
                                            VerticalAlignment="Center" Visibility="Collapsed" />
                             </Border>
                             <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True" />
@@ -209,7 +210,7 @@
                                             <Setter TargetName="Row" Property="Background" Value="{DynamicResource NotchAccent}" />
                                         </Trigger>
                                         <Trigger Property="IsSelected" Value="True">
-                                            <Setter Property="Foreground" Value="#06131A" />
+                                            <Setter Property="Foreground" Value="{DynamicResource NotchOnAccent}" />
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -241,7 +242,7 @@
                                 <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource NotchAccent}" />
                                 <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
                                 <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
-                                <Setter TargetName="Knob" Property="Fill" Value="#06131A" />
+                                <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource NotchOnAccent}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

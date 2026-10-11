@@ -40,6 +40,39 @@ public class ThemeTests
         Assert.Equal(expectedLight, service.ResolveLight(appearance));
     }
 
+    [Theory]
+    [InlineData("#0078D4", 255, 255, 255)]
+    [InlineData("#50D6FF", 6, 19, 26)]
+    [InlineData("#FF8800", 6, 19, 26)]
+    [InlineData("#112233", 255, 255, 255)]
+    public void ShellTheme_OnAccent_SelectsHigherContrastForeground(string accentHex, byte r, byte g, byte b)
+    {
+        var service = Service(Os());
+        var theme = service.Refresh(new WinotchSettings
+        {
+            Appearance = new AppearanceSettings { Accent = AccentMode.Custom, AccentHex = accentHex },
+        });
+
+        Assert.Equal(new Col(r, g, b), theme.OnAccent);
+        Assert.Equal(theme.OnAccent.ToWpf(), theme.WpfOnAccent);
+    }
+
+    [Fact]
+    public void ForAppearance_UsesResolvedLightThemeForSystemAndBackground()
+    {
+        var system = ShellTheme.ForAppearance(
+            new AppearanceSettings { Theme = ThemeMode.System }, Os(light: true));
+        var backgroundOs = Os(light: false);
+        backgroundOs.Wallpaper = true;
+        var background = ShellTheme.ForAppearance(
+            new AppearanceSettings { Theme = ThemeMode.Background }, backgroundOs);
+
+        Assert.True(system.IsLight);
+        Assert.True(background.IsLight);
+        Assert.True(system.PanelTop.R > 200);
+        Assert.True(background.Text.R < 100);
+    }
+
     [Fact]
     public void Refresh_SystemLight_UsesLightPalette()
     {

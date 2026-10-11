@@ -12,6 +12,10 @@ public sealed record WinotchSettings
     public ToastSettings Toasts { get; init; } = new();
     public FeatureSettings Features { get; init; } = new();
     public WidgetSettings Widgets { get; init; } = new();
+    public Dictionary<string, MonitorProfile> MonitorProfiles { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<InboxNotification> NotificationInbox { get; init; } = new();
+    public bool WindowsNotificationInboxEnabled { get; init; }
+    public List<string> DismissedWindowsNotificationIds { get; init; } = new();
 
     public WinotchSettings Normalize() => this with
     {
@@ -20,6 +24,13 @@ public sealed record WinotchSettings
         Toasts = Toasts is null ? new ToastSettings() : Toasts.Normalize(),
         Features = Features ?? new FeatureSettings(),
         Widgets = Widgets is null ? new WidgetSettings() : Widgets.Normalize(),
+        MonitorProfiles = MonitorProfiles is null
+            ? new Dictionary<string, MonitorProfile>(StringComparer.OrdinalIgnoreCase)
+            : MonitorProfiles.Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
+                .ToDictionary(pair => pair.Key, pair => pair.Value.Normalize(), StringComparer.OrdinalIgnoreCase),
+        NotificationInbox = NotificationInboxStore.Normalize(NotificationInbox),
+        DismissedWindowsNotificationIds = (DismissedWindowsNotificationIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal).TakeLast(2000).ToList(),
     };
 }
 
@@ -51,6 +62,7 @@ public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
 public sealed record AppearanceSettings
 {
     public ThemeMode Theme { get; init; } = ThemeMode.Dark;
+    public bool UseMonitorProfiles { get; init; }
     public AccentMode Accent { get; init; } = AccentMode.Default;
     public string AccentHex { get; init; } = "#50D6FF";
     public string Gradient { get; init; } = GradientSkin.None;
@@ -572,8 +584,8 @@ public sealed record FeatureSettings
 /// notes, weather, app launcher, focus timer, clipboard.</summary>
 public sealed record WidgetSettings
 {
-    public static readonly string[] Known = { "clock", "system", "media", "notes", "weather", "launcher", "focus", "clipboard" };
-    public static readonly string[] DefaultEnabled = Known;
+    public static readonly string[] Known = { "clock", "system", "media", "notes", "weather", "launcher", "focus", "clipboard", "calendar", "actions", "inbox" };
+    public static readonly string[] DefaultEnabled = { "clock", "system", "media", "notes", "weather", "launcher", "focus", "clipboard", "calendar", "actions", "inbox" };
 
     public static readonly Dictionary<string, string> Labels = new()
     {
@@ -585,6 +597,9 @@ public sealed record WidgetSettings
         ["launcher"] = "App launcher",
         ["focus"] = "Focus timer",
         ["clipboard"] = "Clipboard",
+        ["calendar"] = "Calendar & next meeting",
+        ["actions"] = "Quick actions",
+        ["inbox"] = "Notification inbox",
     };
 
     public List<string> Enabled { get; init; } = new(DefaultEnabled);
@@ -592,6 +607,9 @@ public sealed record WidgetSettings
     public WeatherWidgetConfig Weather { get; init; } = new();
     public List<LauncherApp> LauncherApps { get; init; } = new();
     public SystemMetricsConfig SystemMetrics { get; init; } = new();
+    public CalendarWidgetConfig Calendar { get; init; } = new();
+    public List<string> QuickActions { get; init; } = new(QuickActionCatalog.DefaultEnabled);
+    public bool QuietMode { get; init; }
 
     /// <summary>Per-card size of each widget, keyed by widget id. Widgets with
     /// no entry render at Standard — each card is sized from its own ⚙.</summary>
@@ -651,6 +669,9 @@ public sealed record WidgetSettings
             Weather = Weather is null ? new WeatherWidgetConfig() : Weather,
             LauncherApps = LauncherApps ?? [],
             SystemMetrics = SystemMetrics is null ? new SystemMetricsConfig() : SystemMetrics,
+            Calendar = Calendar is null ? new CalendarWidgetConfig() : Calendar.Normalize(),
+            QuickActions = (QuickActions ?? []).Where(QuickActionCatalog.Known.Contains).Distinct(StringComparer.Ordinal).ToList(),
+            QuietMode = QuietMode,
             Sizes = sizes,
             Scale = WidgetScale.Standard,
             FocusMinutes = Math.Clamp(FocusMinutes, 1, 180),
@@ -689,6 +710,125 @@ public sealed record WeatherWidgetConfig
 }
 
 public sealed record LauncherApp(string Label, string Path);
+
+public sealed record InboxNotification(
+    string Id, DateTimeOffset CreatedAt, string Title, string Body, string Glyph = "\uE7BA", bool Read = false);
+
+/// <summary>Reusable, local quick actions. Only known IDs are persisted/executed.</summary>
+public static class QuickActionCatalog
+{
+    public static readonly string[] Known = { "settings", "focus", "quiet", "inbox", "hide" };
+    public static readonly string[] DefaultEnabled = { "settings", "focus", "quiet", "inbox" };
+    public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>
+    {
+        ["settings"] = "Settings",
+        ["focus"] = "Start focus",
+        ["quiet"] = "Toggle quiet",
+        ["inbox"] = "Notifications",
+        ["hide"] = "Hide pill",
+    };
+}
+
+/// <summary>Snapshot of the full settings groups customized per monitor.</summary>
+public sealed record MonitorProfile(
+    GeneralSettings General,
+    AppearanceSettings Appearance,
+    ToastSettings Toasts,
+    FeatureSettings Features,
+    WidgetSettings Widgets)
+{
+    public MonitorProfile Normalize() => this with
+    {
+        General = General is null ? new GeneralSettings() : General.Normalize(),
+        Appearance = Appearance is null ? new AppearanceSettings() : Appearance.Normalize(),
+        Toasts = Toasts is null ? new ToastSettings() : Toasts.Normalize(),
+        Features = Features ?? new FeatureSettings(),
+        Widgets = Widgets is null ? new WidgetSettings() : Widgets.Normalize(),
+    };
+
+    public static MonitorProfile Capture(WinotchSettings settings) =>
+        new(settings.General, settings.Appearance with { Display = DisplayMode.All, DisplayDeviceName = "" },
+            settings.Toasts, settings.Features, settings.Widgets);
+
+    public WinotchSettings ApplyTo(WinotchSettings settings) => settings with
+    {
+        General = General,
+        Appearance = Appearance with
+        {
+            UseMonitorProfiles = settings.Appearance.UseMonitorProfiles,
+            Display = settings.Appearance.Display,
+            DisplayDeviceName = settings.Appearance.DisplayDeviceName,
+        },
+        Toasts = Toasts,
+        Features = Features,
+        Widgets = Widgets,
+    };
+}
+
+public static class MonitorProfileStore
+{
+    public static WinotchSettings Resolve(WinotchSettings settings, string deviceName) =>
+        settings.Appearance.UseMonitorProfiles && settings.MonitorProfiles.TryGetValue(deviceName, out var profile)
+            ? profile.ApplyTo(settings) with
+            {
+                Appearance = profile.Appearance with
+                {
+                    UseMonitorProfiles = true,
+                    Display = settings.Appearance.Display,
+                    DisplayDeviceName = settings.Appearance.DisplayDeviceName,
+                },
+            }
+            : settings;
+
+    public static WinotchSettings Save(WinotchSettings settings, string deviceName, WinotchSettings scoped) =>
+        string.IsNullOrWhiteSpace(deviceName) ? settings : settings with
+        {
+            MonitorProfiles = new Dictionary<string, MonitorProfile>(settings.MonitorProfiles, StringComparer.OrdinalIgnoreCase)
+            {
+                [deviceName] = MonitorProfile.Capture(scoped),
+            },
+        };
+}
+
+public static class NotificationInboxStore
+{
+    public const int MaximumEntries = 100;
+
+    public static string WindowsNotificationId(string appId, uint notificationId, DateTimeOffset createdAt) =>
+        $"windows:{appId}:{notificationId}:{createdAt.UtcTicks}";
+
+    public static List<InboxNotification> Add(IEnumerable<InboxNotification> current, InboxNotification item) =>
+        current.Where(existing => existing.Id != item.Id).Prepend(item)
+            .OrderByDescending(existing => existing.CreatedAt).Take(MaximumEntries).ToList();
+
+    public static List<InboxNotification> MergeSystemNotifications(
+        IEnumerable<InboxNotification> current, IEnumerable<InboxNotification> systemNotifications,
+        IEnumerable<string>? dismissedIds = null)
+    {
+        var priorSystem = current.Where(item => item.Id.StartsWith("windows:", StringComparison.Ordinal))
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
+        var dismissed = (dismissedIds ?? []).ToHashSet(StringComparer.Ordinal);
+        var fresh = Normalize(systemNotifications)
+            .Where(item => !dismissed.Contains(item.Id))
+            .Select(item => priorSystem.TryGetValue(item.Id, out var previous) ? item with { Read = previous.Read } : item);
+        return current.Where(item => !item.Id.StartsWith("windows:", StringComparison.Ordinal))
+            .Concat(fresh).OrderByDescending(item => item.CreatedAt).Take(MaximumEntries).ToList();
+    }
+
+    public static List<string> DismissSystemNotifications(IEnumerable<string> current, IEnumerable<string> ids) =>
+        current.Concat(ids).Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal).TakeLast(2000).ToList();
+
+    public static List<InboxNotification> MarkRead(IEnumerable<InboxNotification> current, string id) =>
+        current.Select(item => item.Id == id ? item with { Read = true } : item).ToList();
+
+    public static List<InboxNotification> Clear(IEnumerable<InboxNotification> _) => new();
+
+    public static List<InboxNotification> Normalize(IEnumerable<InboxNotification>? notifications) =>
+        (notifications ?? []).Where(item => item is not null && !string.IsNullOrWhiteSpace(item.Id) &&
+            !string.IsNullOrWhiteSpace(item.Title))
+            .OrderByDescending(item => item.CreatedAt).Take(MaximumEntries).ToList();
+}
 
 /// <summary>Which live metrics the System stats card shows.</summary>
 public sealed record SystemMetricsConfig

@@ -26,6 +26,7 @@ public static class ShellUi
     public static Col Text => _theme.Text;
     public static Col Muted => _theme.Muted;
     public static Col Accent => _theme.Accent;
+    public static Col OnAccent => _theme.OnAccent;
     public static Col Ok => _theme.Ok;
     public static Col Warn => _theme.Warn;
     public static Col Danger => _theme.Danger;

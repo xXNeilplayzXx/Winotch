@@ -45,6 +45,7 @@ public sealed class IslandShell
     public MediaSnapshot? Media { get; private set; }
     public BatteryInfo Battery { get; private set; } = new(100, false);
     public IReadOnlyList<ClipboardEntry> ClipboardItems { get; private set; } = Array.Empty<ClipboardEntry>();
+    public IReadOnlyList<InboxNotification> InboxItems { get; private set; } = Array.Empty<InboxNotification>();
     public FocusTimerState Focus { get; private set; } = FocusTimerState.Stopped;
     public FocusTimerSettings FocusPreset { get; private set; } =
         new(TimeSpan.FromMinutes(25), TimeSpan.FromMinutes(5), false);
@@ -68,7 +69,13 @@ public sealed class IslandShell
     public event Action<long>? CopyClipboardEntryRequested;
     public event Action<long>? DeleteClipboardEntryRequested;
     public event Action? ClearClipboardRequested;
+    public event Action<string>? MarkInboxReadRequested;
+    public event Action? ClearInboxRequested;
     public event Action? NotesEditRequested;
+    public event Action? CalendarEditRequested;
+    public event Action? CalendarSourceEditRequested;
+    public event Action<string>? QuickActionRequested;
+    public event Action<FocusTimerState>? FocusStateChangedRequested;
     public event Action? WeatherEditRequested;
     public event Action? FocusCustomRequested;
     public event Action? LauncherEditRequested;
@@ -84,7 +91,50 @@ public sealed class IslandShell
 
     /// <summary>True when the pill should hug the left or right edge as a
     /// rotated vertical capsule instead of hanging horizontally at the top.</summary>
-    private bool Vertical => _settings.Current.General.Edge != PillEdge.Top;
+    private string _monitorDeviceName = "";
+    private ShellTheme _resolvedTheme = ShellTheme.Dark;
+    private bool _quickQuietMode;
+
+    public WinotchSettings CurrentSettings => MonitorProfileStore.Resolve(_settings.Current, _monitorDeviceName);
+
+    public void SetMonitorDeviceName(string deviceName)
+    {
+        if (string.Equals(_monitorDeviceName, deviceName, StringComparison.OrdinalIgnoreCase)) return;
+        _monitorDeviceName = deviceName;
+        var appearance = CurrentSettings.Appearance;
+        OffsetX = appearance.OffsetX;
+        OffsetY = appearance.OffsetY;
+        ApplyTheme();
+    }
+
+    public void RefreshSettings()
+    {
+        var appearance = CurrentSettings.Appearance;
+        OffsetX = appearance.OffsetX;
+        OffsetY = appearance.OffsetY;
+        ApplyTheme();
+    }
+
+    private void UpdateSettings(Func<WinotchSettings, WinotchSettings> change)
+    {
+        if (!CurrentSettings.Appearance.UseMonitorProfiles || string.IsNullOrWhiteSpace(_monitorDeviceName))
+        {
+            _settings.Update(change);
+            return;
+        }
+
+        _settings.Update(current =>
+        {
+            var effective = MonitorProfileStore.Resolve(current, _monitorDeviceName);
+            var updated = change(effective);
+            return MonitorProfileStore.Save(current, _monitorDeviceName, updated with
+            {
+                Appearance = updated.Appearance with { UseMonitorProfiles = true },
+            });
+        });
+    }
+
+    private bool Vertical => CurrentSettings.General.Edge != PillEdge.Top;
     private double _x, _y, _w, _h;
     private double _cursorX, _cursorY;
     private bool _wantExpanded;
@@ -213,7 +263,7 @@ public sealed class IslandShell
 
     /// <summary>Persist the current offset (Confirm, or after a plain drag).</summary>
     private void PersistOffset() =>
-        _settings.Update(s => s with
+        UpdateSettings(s => s with
         {
             Appearance = s.Appearance with { OffsetX = OffsetX, OffsetY = OffsetY },
         });
@@ -295,7 +345,8 @@ public sealed class IslandShell
     /// repaint (theme/accent/Windows-appearance changes).</summary>
     public void ApplyTheme()
     {
-        ShellUi.Theme = _themeService.Current;
+        _resolvedTheme = _themeService.Resolve(CurrentSettings);
+        ShellUi.Theme = _resolvedTheme;
         MarkDataDirty();
     }
 
@@ -406,7 +457,7 @@ public sealed class IslandShell
     {
         get
         {
-            var settings = _settings.Current;
+            var settings = CurrentSettings;
             return !CallTakesStrip(settings) && MediaChip.Visible(
                 settings.Features.ShowMediaOnPill,
                 hasTrack: Media is not null,
@@ -473,6 +524,40 @@ public sealed class IslandShell
         MarkDataDirty();
     }
 
+    public void SetInbox(IReadOnlyList<InboxNotification> items)
+    {
+        InboxItems = items;
+        MarkDataDirty();
+    }
+
+    public void SetQuietMode(bool enabled)
+    {
+        _quickQuietMode = enabled;
+        MarkDataDirty();
+    }
+
+    public void ToggleQuickQuietMode()
+    {
+        _quickQuietMode = !_quickQuietMode;
+        QuickActionRequested?.Invoke("quiet");
+        MarkDataDirty();
+    }
+
+    public void ExecuteQuickAction(string actionId)
+    {
+        if (actionId == "inbox")
+        {
+            UpdateSettings(s => s.Widgets.Enabled.Contains("inbox") ? s : s with
+            {
+                Widgets = s.Widgets with { Enabled = s.Widgets.Enabled.Append("inbox").ToList() },
+            });
+            _wantExpanded = true;
+            MarkDataDirty();
+            return;
+        }
+        QuickActionRequested?.Invoke(actionId);
+    }
+
     public void ShowToast(ToastSpec spec)
     {
         _toasts.Add(new Toast(spec));
@@ -496,10 +581,6 @@ public sealed class IslandShell
             return;
         }
 
-        if (Focus.IsActive)
-        {
-            Focus = Focus.AdvanceTo(DateTimeOffset.UtcNow, OnPhaseComplete);
-        }
 
         for (var i = _toasts.Count - 1; i >= 0; i--)
         {
@@ -560,7 +641,7 @@ public sealed class IslandShell
 
     private void UpdateGeometry(double deltaTime)
     {
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
         var expanded = _blend > 0.5;
 
         var miniTarget = MiniTarget();
@@ -721,7 +802,7 @@ public sealed class IslandShell
 
     private (double Width, double Height) MiniTarget()
     {
-        var appearance = _settings.Current.Appearance;
+        var appearance = CurrentSettings.Appearance;
         if (_faces.Live is { } face)
         {
             // A face replaces the row outright, so the pill is exactly the span
@@ -804,9 +885,9 @@ public sealed class IslandShell
     private bool CardVisible(string id) => id switch
     {
         "media" => Media is not null,
-        "focus" => _settings.Current.Features.FocusTimerEnabled,
-        "clipboard" => _settings.Current.Features.ClipboardHistoryEnabled,
-        "clock" or "system" or "notes" or "weather" or "launcher" => true,
+        "focus" => CurrentSettings.Features.FocusTimerEnabled,
+        "clipboard" => CurrentSettings.Features.ClipboardHistoryEnabled,
+        "clock" or "system" or "notes" or "weather" or "launcher" or "calendar" or "actions" or "inbox" => true,
         _ => false,
     };
 
@@ -828,7 +909,7 @@ public sealed class IslandShell
     private (float Left, float Width)[] ColumnRects(float panelLeft, float panelWidth)
     {
         const float pad = 14f;
-        if (UseColumns(_settings.Current) && panelWidth >= pad * 2 + ColumnGap + 200)
+        if (UseColumns(CurrentSettings) && panelWidth >= pad * 2 + ColumnGap + 200)
         {
             var colW = (panelWidth - pad * 2 - (float)ColumnGap) / 2;
             return new[] { (panelLeft + pad, colW), (panelLeft + pad + colW + (float)ColumnGap, colW) };
@@ -875,7 +956,12 @@ public sealed class IslandShell
                     ? ClipboardEmptyHeight(settings)
                     : 68 + Math.Clamp(ClipboardItems.Count, 1, 5) * 36
                 : 0,
+            "calendar" => 82,
+            "actions" => 38 + Math.Max(1, (int)Math.Ceiling(settings.Widgets.QuickActions.Count /
+                (double)Math.Clamp((int)((CardLayoutWidth(settings) - 20) / 108), 1, 3))) * 38,
+            "inbox" => InboxItems.Count == 0 ? 78 : 72 + Math.Min(4, InboxItems.Count) * 42,
             _ => 0,
+
         };
         return height * settings.Widgets.SizeFor(id).Factor();
     }
@@ -954,7 +1040,7 @@ public sealed class IslandShell
         var rect = new SKRect((float)_x, (float)_y, (float)(_x + _w), (float)(_y + _h));
 
         // Resolve the palette for this frame so theme/accent changes apply live.
-        ShellUi.Theme = _themeService.Current;
+        ShellUi.Theme = _resolvedTheme;
 
         // Shadow pass (fill translucent dark + drop-shadow filter spread).
         using (var shadowFilter = SKImageFilter.CreateDropShadow(
@@ -977,7 +1063,7 @@ public sealed class IslandShell
             path.AddRoundRect(rect, (float)radius, (float)radius);
             canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
 
-            var appearance = _settings.Current.Appearance;
+            var appearance = CurrentSettings.Appearance;
             var surface = appearance.Surface;
             var glass = surface != SurfaceMode.Solid;
             // Glass is more see-through than its slider suggests (the 0.9
@@ -1018,7 +1104,7 @@ public sealed class IslandShell
                 // Frost lifts the translucent fill off the solid look even
                 // when the backdrop capture fails (locked session, etc.).
                 ShellUi.FillRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
-                    (float)radius, ShellUi.Fade(Col.White, 0.05));
+                    (float)radius, ShellUi.Fade(ShellUi.Text, 0.05));
             }
 
             if (_blend < 0.996)
@@ -1042,7 +1128,8 @@ public sealed class IslandShell
                 canvas.Restore();
             }
 
-            using (var topGlow = new SKPaint { Color = new SKColor(255, 255, 255, 14), IsAntialias = true })
+            var glow = _themeService.Current.IsLight ? new SKColor(0, 0, 0, 10) : new SKColor(255, 255, 255, 14);
+            using (var topGlow = new SKPaint { Color = glow, IsAntialias = true })
             {
                 canvas.DrawRect(rect.Left + 3, rect.Top + 1, Math.Max(0, rect.Width - 6), 1, topGlow);
             }
@@ -1050,7 +1137,7 @@ public sealed class IslandShell
         canvas.Restore();
 
         ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
-            (float)radius, 1f, ShellUi.Fade(Col.White, 0.08));
+            (float)radius, 1f, ShellUi.Fade(ShellUi.Stroke, 0.45));
 
         if (_contextMenuOpen)
         {
@@ -1090,7 +1177,7 @@ public sealed class IslandShell
     /// (playing/call always take over the strip).</summary>
     private List<MiniItem> BuildMiniRow()
     {
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
         var items = new List<MiniItem> { new(MiniKind.Led, 10) };
         var idle = settings.Appearance.IdleContent;
         var clock = ClockText(settings);
@@ -1232,7 +1319,7 @@ public sealed class IslandShell
         var cy = rect.Top + rect.Height / 2;
         var items = BuildMiniRow();
         var x = (float)PillRow.Start(rect.Left, rect.Width, RowContent(items));
-        var clock = ClockText(_settings.Current);
+        var clock = ClockText(CurrentSettings);
 
         foreach (var item in items)
         {
@@ -1257,14 +1344,14 @@ public sealed class IslandShell
                     }
                     else
                     {
-                        TextKit.Draw(canvas, IdleText(_settings.Current), x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
+                        TextKit.Draw(canvas, IdleText(CurrentSettings), x, cy - 9, 11.5f, ShellUi.Text, TextKit.Semibold);
                     }
                     break;
                 case MiniKind.Clock:
                     TextKit.Draw(canvas, clock, x, cy - 11, 15, ShellUi.Text, TextKit.Semibold);
                     break;
                 case MiniKind.Date:
-                    TextKit.Draw(canvas, ShortDate(_settings.Current), x, cy - 8, 10f,
+                    TextKit.Draw(canvas, ShortDate(CurrentSettings), x, cy - 8, 10f,
                         ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
                     break;
                 case MiniKind.Battery:
@@ -1440,7 +1527,7 @@ public sealed class IslandShell
         var left = rect.Left + pad;
         var right = rect.Right - pad;
         var y = rect.Top + 14f;
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
 
         // Header: date left, clock center, actions right. The Stacked layout
         // centers the date under the clock instead (item: date/time layout).
@@ -1487,7 +1574,7 @@ public sealed class IslandShell
     /// the Vertical text option on, the letters stay upright instead.</summary>
     private void DrawMiniVertical(SKCanvas canvas, SKRect rect)
     {
-        if (!FaceActive && _settings.Current.Appearance.VerticalText)
+        if (!FaceActive && CurrentSettings.Appearance.VerticalText)
         {
             DrawMiniVerticalText(canvas, rect);
             return;
@@ -1501,7 +1588,7 @@ public sealed class IslandShell
     {
         canvas.Save();
         canvas.Translate(rect.MidX, rect.MidY);
-        canvas.RotateDegrees(_settings.Current.General.Edge == PillEdge.Left ? 90 : -90);
+        canvas.RotateDegrees(CurrentSettings.General.Edge == PillEdge.Left ? 90 : -90);
         var local = new SKRect(-(float)_h / 2, -(float)_w / 2, (float)_h / 2, (float)_w / 2);
         try
         {
@@ -1565,7 +1652,7 @@ public sealed class IslandShell
     /// rendering and the capsule's length calculation so they always agree.</summary>
     private string MiniItemText(MiniItem item)
     {
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
         return item.Kind switch
         {
             MiniKind.Brand => "Winotch",
@@ -1625,7 +1712,7 @@ public sealed class IslandShell
         var x = (float)_contextMenuX;
         var y = (float)_contextMenuY;
 
-        FillRound(canvas, x, y, (float)menuW, (float)menuH, 12, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.98));
+        FillRound(canvas, x, y, (float)menuW, (float)menuH, 12, ShellUi.Card);
         ShellUi.StrokeRound(canvas, x, y, (float)menuW, (float)menuH, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
 
         var rowY = y + 5f;
@@ -1696,13 +1783,16 @@ public sealed class IslandShell
             case "launcher": DrawLauncherWidget(canvas, left, top, width, settings); break;
             case "focus": DrawFocusWidget(canvas, left, top, width); break;
             case "clipboard": DrawClipboardWidget(canvas, left, top, width); break;
+            case "calendar": DrawCalendarWidget(canvas, left, top, width, settings); break;
+            case "actions": DrawQuickActionsWidget(canvas, left, top, width, settings); break;
+            case "inbox": DrawInboxWidget(canvas, left, top, width, settings); break;
         }
     }
 
     private void DrawCardHeader(SKCanvas canvas, float left, float top, float width, string id)
     {
         var right = left + width;
-        var enabled = _settings.Current.Widgets.Enabled;
+        var enabled = CurrentSettings.Widgets.Enabled;
         var index = enabled.IndexOf(id);
         var cy = top + 16;
 
@@ -1720,8 +1810,9 @@ public sealed class IslandShell
             "weather" => () => WeatherEditRequested?.Invoke(),
             "launcher" => () => LauncherEditRequested?.Invoke(),
             "system" => () => SystemMetricsEditRequested?.Invoke(),
+            "calendar" => () => CalendarSourceEditRequested?.Invoke(),
             // Cards with nothing else to configure just pick their size.
-            "clock" or "media" or "clipboard" => () => CardSizeEditRequested?.Invoke(id),
+            "clock" or "media" or "clipboard" or "actions" or "inbox" => () => CardSizeEditRequested?.Invoke(id),
             _ => null,
         };
         if (edit is not null)
@@ -1757,7 +1848,7 @@ public sealed class IslandShell
             var flashX = _arrowFlashDir > 0 ? downX : upX;
             ShellUi.FillCircle(canvas, flashX, cy, 15, ShellUi.Accent);
             ShellUi.DrawGlyph(canvas, _arrowFlashDir > 0 ? "\uE70D" : "\uE70E",
-                flashX, cy, 12.5f, Col.Rgba(0x06, 0x13, 0x1A));
+                flashX, cy, 12.5f, ShellUi.OnAccent);
         }
     }
 
@@ -1782,7 +1873,7 @@ public sealed class IslandShell
         var height = Math.Max(rowH * available.Count + 8, 34);
         var x = right - width;
 
-        FillRound(canvas, x, top, width, height, 10, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.98));
+        FillRound(canvas, x, top, width, height, 10, ShellUi.Card);
         ShellUi.StrokeRound(canvas, x, top, width, height, 10, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
 
         if (available.Count == 0)
@@ -1809,7 +1900,7 @@ public sealed class IslandShell
 
     private List<string> AvailableWidgets()
     {
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
         return WidgetSettings.Known
             .Where(id => !settings.Widgets.Enabled.Contains(id))
             .Where(id => id != "focus" || settings.Features.FocusTimerEnabled)
@@ -1819,10 +1910,106 @@ public sealed class IslandShell
 
     // ------------------------------------------------------ widget bodies
 
+    private void DrawCalendarWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var meeting = CalendarService.From(settings.Widgets.Calendar, DateTimeOffset.Now);
+        var x = left + 14;
+        if (meeting is null)
+        {
+            var source = settings.Widgets.Calendar.UseWindowsCalendars
+                ? "No upcoming Windows calendar events."
+                : string.IsNullOrWhiteSpace(settings.Widgets.Calendar.FilePath)
+                    ? "Import a local .ics calendar to see meetings."
+                    : "No upcoming meetings found.";
+            TextKit.Draw(canvas, source, x, top + 48, 11f, ShellUi.Fade(ShellUi.Muted, 0.95f));
+            RegisterButton(new SKRect(left + 8, top + 30, left + width - 8, top + 78), CalendarEditRequested);
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        var startsIn = meeting.Start - now;
+        var status = startsIn <= TimeSpan.Zero
+            ? "IN PROGRESS"
+            : startsIn < TimeSpan.FromMinutes(1) ? "STARTING NOW"
+            : startsIn < TimeSpan.FromHours(1) ? $"IN {(int)Math.Ceiling(startsIn.TotalMinutes)} MIN"
+            : meeting.Start.ToLocalTime().ToString(settings.General.Use24HourClock ? "ddd H:mm" : "ddd h:mm tt");
+        TextKit.Draw(canvas, status, x, top + 38, 9.5f, ShellUi.Accent, TextKit.Monospace);
+        RegisterButton(new SKRect(left + 8, top + 27, left + width - 8, top + 43), CalendarSourceEditRequested);
+        TextKit.Draw(canvas, ShellUi.Ellipsize(meeting.Title, width - 32, 13f, TextKit.Semibold),
+            x, top + 58, 13f, ShellUi.Text, TextKit.Semibold);
+        var detail = meeting.Location is { Length: > 0 } location
+            ? $"{meeting.Start.ToLocalTime():t}–{meeting.End.ToLocalTime():t}  ·  {location}"
+            : $"{meeting.Start.ToLocalTime():t}–{meeting.End.ToLocalTime():t}";
+        TextKit.Draw(canvas, ShellUi.Ellipsize(detail, width - 32, 10.5f, TextKit.Regular),
+            x, top + 75, 10.5f, ShellUi.Fade(ShellUi.Muted, 1));
+    }
+
+    private void DrawQuickActionsWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var actions = settings.Widgets.QuickActions;
+        if (actions.Count == 0)
+        {
+            TextKit.Draw(canvas, "Choose actions in Settings.", left + 14, top + 44, 11f, ShellUi.Fade(ShellUi.Muted, 0.95f));
+            return;
+        }
+
+        var cols = Math.Clamp((int)((width - 20) / 108), 1, 3);
+        var buttonWidth = (width - 20 - (cols - 1) * 6) / cols;
+        const float rowHeight = 34f;
+        for (var i = 0; i < actions.Count; i++)
+        {
+            var id = actions[i];
+            if (!QuickActionCatalog.Labels.TryGetValue(id, out var label)) continue;
+            var col = i % cols;
+            var row = i / cols;
+            var x = left + 10 + col * (buttonWidth + 6);
+            var y = top + 30 + row * (rowHeight + 4);
+            var rect = new SKRect(x, y, x + buttonWidth, y + rowHeight);
+            var hovering = rect.Contains(new SKPoint((float)_cursorX, (float)_cursorY));
+            var selected = id == "quiet" && _quickQuietMode;
+            FillRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height, 9,
+                selected ? ShellUi.Accent : hovering ? ShellUi.Card : ShellUi.CardHover);
+            TextKit.DrawCentered(canvas, ShellUi.Ellipsize(id == "quiet" && _quickQuietMode ? "Quiet on" : label, buttonWidth - 10, 10.5f, TextKit.Semibold),
+                rect.MidX, rect.MidY, 10.5f, selected ? ShellUi.OnAccent : ShellUi.Text, TextKit.Semibold);
+            RegisterButton(rect, id == "quiet" ? ToggleQuickQuietMode : () => QuickActionRequested?.Invoke(id));
+        }
+    }
+
+    private void DrawInboxWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
+    {
+        var unread = InboxItems.Count(item => !item.Read);
+        var count = unread == 1 ? "1 new" : $"{unread} new";
+        TextKit.Draw(canvas, count, left + 14, top + 36, 10f, ShellUi.Fade(ShellUi.Muted, 0.9f), TextKit.Monospace);
+        if (InboxItems.Count == 0)
+        {
+            TextKit.Draw(canvas, "Notification history is empty.", left + 14, top + 58, 11f, ShellUi.Fade(ShellUi.Muted, 0.95f));
+            TextKit.Draw(canvas, "Windows alerts: Settings → Widgets & features", left + 14, top + 75, 9.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+            return;
+        }
+
+        RegisterButton(ChipRight(canvas, "Clear", left + width - 14, top + 47, false), ClearInboxRequested);
+        if (!settings.WindowsNotificationInboxEnabled && !InboxItems.Any(item => item.Id.StartsWith("windows:", StringComparison.Ordinal)))
+        {
+            TextKit.Draw(canvas, "Windows alerts are off · Settings → Widgets", left + 14, top + 62, 9.5f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+        }
+        var rows = Math.Min(4, InboxItems.Count);
+        for (var i = 0; i < rows; i++)
+        {
+            var item = InboxItems[i];
+            var rowY = top + 68 + i * 42;
+            var title = ShellUi.Ellipsize(item.Title, width - 54, 11.5f, TextKit.Semibold);
+            TextKit.Draw(canvas, title, left + 14, rowY + 3, 11.5f, item.Read ? ShellUi.Muted : ShellUi.Text, TextKit.Semibold);
+            var body = string.IsNullOrWhiteSpace(item.Body) ? item.CreatedAt.ToLocalTime().ToString("t") : item.Body;
+            TextKit.Draw(canvas, ShellUi.Ellipsize(body, width - 54, 9.5f, TextKit.Regular), left + 14, rowY + 19, 9.5f, ShellUi.Fade(ShellUi.Muted, 1));
+            var id = item.Id;
+            RegisterButton(new SKRect(left + 8, rowY, left + width - 8, rowY + 36), () => MarkInboxReadRequested?.Invoke(id));
+        }
+    }
+
     private void DrawClockWidget(SKCanvas canvas, float left, float top, float width)
     {
         var centerX = left + width / 2;
-        TextKit.DrawCentered(canvas, ClockText(_settings.Current), centerX, top + 52, 30, ShellUi.Text, TextKit.Semibold);
+        TextKit.DrawCentered(canvas, ClockText(CurrentSettings), centerX, top + 52, 30, ShellUi.Text, TextKit.Semibold);
         TextKit.DrawCentered(canvas, DateTime.Now.ToString("dddd, MMMM d"), centerX, top + 76, 12.5f, ShellUi.Fade(ShellUi.Muted, 1));
     }
 
@@ -2211,12 +2398,12 @@ public sealed class IslandShell
     private void MoveWidget(string id, int direction)
     {
         var before = PanelCards().ToDictionary(c => c.Id, c => c.Top);
-        var enabled = _settings.Current.Widgets.Enabled.ToList();
+        var enabled = CurrentSettings.Widgets.Enabled.ToList();
         var from = enabled.IndexOf(id);
         var to = from + direction;
         if (from < 0 || to < 0 || to >= enabled.Count) return;
         (enabled[from], enabled[to]) = (enabled[to], enabled[from]);
-        _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+        UpdateSettings(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
 
         // Animate every card whose top moved, and flash the clicked arrow.
         var after = PanelCards().ToDictionary(c => c.Id, c => c.Top);
@@ -2255,12 +2442,12 @@ public sealed class IslandShell
     /// <summary>Reorder a widget to an absolute index (drag-to-reorder).</summary>
     public void MoveWidgetTo(string id, int targetIndex)
     {
-        var enabled = _settings.Current.Widgets.Enabled.ToList();
+        var enabled = CurrentSettings.Widgets.Enabled.ToList();
         var from = enabled.IndexOf(id);
         if (from < 0 || targetIndex < 0 || targetIndex >= enabled.Count || targetIndex == from) return;
         enabled.RemoveAt(from);
         enabled.Insert(targetIndex, id);
-        _settings.Update(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
+        UpdateSettings(s => s with { Widgets = s.Widgets with { Enabled = enabled } });
     }
 
     /// <summary>The expanded panel's card layout: one rect per visible card
@@ -2270,7 +2457,7 @@ public sealed class IslandShell
     /// gap mirror DrawPanel and ExpandedHeight exactly.</summary>
     private IEnumerable<(string Id, float Left, float Top, float Width, float Height)> PanelCards()
     {
-        var settings = _settings.Current;
+        var settings = CurrentSettings;
         var top0 = (float)_y + 66f;
         var rects = ColumnRects((float)_x, (float)_w);
         if (!UseColumns(settings))
@@ -2338,7 +2525,7 @@ public sealed class IslandShell
 
     private void RemoveWidget(string id)
     {
-        _settings.Update(s => s with
+        UpdateSettings(s => s with
         {
             Widgets = s.Widgets with { Enabled = s.Widgets.Enabled.Where(w => w != id).ToList() },
         });
@@ -2346,7 +2533,7 @@ public sealed class IslandShell
 
     private void AddWidget(string id)
     {
-        _settings.Update(s => s.Widgets.Enabled.Contains(id)
+        UpdateSettings(s => s.Widgets.Enabled.Contains(id)
             ? s
             : s with { Widgets = s.Widgets with { Enabled = s.Widgets.Enabled.Append(id).ToList() } });
     }
@@ -2373,6 +2560,8 @@ public sealed class IslandShell
             // Auto-break loop toggle rides the far right while running.
             var loopChip = ChipRight(canvas, "auto-break", left + width - 12, cy, LoopEnabled);
             RegisterButton(loopChip, ToggleLoop);
+            var quietChip = ChipRight(canvas, "quiet", left + width - 12, cy - 34, FocusQuietEnabled);
+            RegisterButton(quietChip, ToggleFocusQuiet);
         }
         else
         {
@@ -2400,16 +2589,24 @@ public sealed class IslandShell
     /// selected chip in the idle preset grid.</summary>
     private bool PresetMatches(int focusMin, int breakMin)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = CurrentSettings.Widgets;
         return widgets.FocusMinutes == focusMin && widgets.BreakMinutes == breakMin;
     }
 
-    private bool LoopEnabled => _settings.Current.Widgets.FocusAutoCycle;
+    private bool LoopEnabled => CurrentSettings.Widgets.FocusAutoCycle;
+    private bool FocusQuietEnabled => CurrentSettings.Features.QuietDuringFocus;
+
+    private void ToggleFocusQuiet()
+    {
+        var enabled = !FocusQuietEnabled;
+        UpdateSettings(s => s with { Features = s.Features with { QuietDuringFocus = enabled } });
+        MarkDataDirty();
+    }
 
     private void ToggleLoop()
     {
-        var enabled = !_settings.Current.Widgets.FocusAutoCycle;
-        _settings.Update(s => s with { Widgets = s.Widgets with { FocusAutoCycle = enabled } });
+        var enabled = !CurrentSettings.Widgets.FocusAutoCycle;
+        UpdateSettings(s => s with { Widgets = s.Widgets with { FocusAutoCycle = enabled } });
         // Keep a running timer on the new loop behavior immediately.
         if (Focus.IsActive)
         {
@@ -2485,7 +2682,7 @@ public sealed class IslandShell
     private void DrawChip(SKCanvas canvas, string text, float left, float cy, float w, bool selected)
     {
         var bg = selected ? ShellUi.Accent : ShellUi.CardHover;
-        var fg = selected ? Col.Rgba(0x06, 0x13, 0x1A) : ShellUi.Text;
+        var fg = selected ? ShellUi.OnAccent : ShellUi.Text;
         FillRound(canvas, left, cy - 14, w, 28, 14, bg);
         TextKit.DrawCentered(canvas, text, left + w / 2, cy, 11f, fg, TextKit.Semibold);
     }
@@ -2527,7 +2724,7 @@ public sealed class IslandShell
         var labelW = TextKit.Measure(label, 9.5f, TextKit.Monospace) + 18;
         var labelX = Math.Clamp(handleX, x + labelW / 2 + 2, right - 12 - labelW / 2);
         FillRound(canvas, labelX - labelW / 2, top + 46, labelW, 22, 11,
-            ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.96));
+            ShellUi.Card);
         ShellUi.StrokeRound(canvas, labelX - labelW / 2, top + 46, labelW, 22, 11, 1f,
             ShellUi.Fade(ShellUi.Stroke, 0.5));
         TextKit.DrawCentered(canvas, label, labelX, top + 57, 9.5f, ShellUi.Text, TextKit.Monospace);
@@ -2697,7 +2894,7 @@ public sealed class IslandShell
             var alpha = Math.Min(1.0, opacity * 1.35);
             var cardH = toast.Spec.Flourish ? 62f : 54f;
 
-            FillRound(canvas, tx, y - rise, tw, cardH, 16, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), alpha));
+            FillRound(canvas, tx, y - rise, tw, cardH, 16, ShellUi.Fade(ShellUi.Card, alpha));
             ShellUi.StrokeRound(canvas, tx, y - rise, tw, cardH, 16, 1f, ShellUi.Fade(ShellUi.Stroke, alpha * 0.5));
 
             var iconX = tx + 27;
@@ -2832,7 +3029,7 @@ public sealed class IslandShell
         var y = ledY + 10;
         if (x + w > CanvasWidth - 4) x = (float)(CanvasWidth - w - 4);
         if (y + h > CanvasHeight - 4) y = (float)(CanvasHeight - h - 4);
-        FillRound(canvas, x, y, w, h, 12, ShellUi.Fade(Col.Rgba(0x13, 0x15, 0x1B), 0.97));
+        FillRound(canvas, x, y, w, h, 12, ShellUi.Card);
         ShellUi.StrokeRound(canvas, x, y, w, h, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
         TextKit.DrawCentered(canvas, text, x + w / 2, y + h / 2, 10.5f, ShellUi.Text, TextKit.Semibold);
     }
@@ -2853,13 +3050,14 @@ public sealed class IslandShell
 
     private void StartFocus(int focusMin, int breakMin)
     {
-        var widgets = _settings.Current.Widgets;
+        var widgets = CurrentSettings.Widgets;
         var preset = new FocusTimerSettings(
             TimeSpan.FromMinutes(focusMin), TimeSpan.FromMinutes(breakMin), widgets.FocusAutoCycle);
         FocusPreset = preset;
         Focus = FocusTimerState.Start(preset, DateTimeOffset.UtcNow);
+        FocusStateChangedRequested?.Invoke(Focus);
         // Remember the picked preset so the idle grid highlights it next time.
-        _settings.Update(s => s with
+        UpdateSettings(s => s with
         {
             Widgets = s.Widgets with { FocusMinutes = focusMin, BreakMinutes = breakMin },
         });
@@ -2867,23 +3065,33 @@ public sealed class IslandShell
 
     private void PauseFocus()
     {
-        if (Focus.Status == FocusTimerStatus.Running) Focus = Focus.Pause(DateTimeOffset.UtcNow);
+        if (Focus.Status != FocusTimerStatus.Running) return;
+        Focus = Focus.Pause(DateTimeOffset.UtcNow);
+        FocusStateChangedRequested?.Invoke(Focus);
     }
 
     private void ResumeFocus()
     {
-        if (Focus.Status == FocusTimerStatus.Paused) Focus = Focus.Resume(DateTimeOffset.UtcNow);
+        if (Focus.Status != FocusTimerStatus.Paused) return;
+        Focus = Focus.Resume(DateTimeOffset.UtcNow);
+        FocusStateChangedRequested?.Invoke(Focus);
     }
 
     private void SkipFocus()
     {
-        if (Focus.IsActive) Focus = Focus.Skip(DateTimeOffset.UtcNow, OnPhaseComplete);
+        if (!Focus.IsActive) return;
+        Focus = Focus.Skip(DateTimeOffset.UtcNow, OnPhaseComplete);
+        FocusStateChangedRequested?.Invoke(Focus);
     }
 
     private void StopFocus()
     {
-        if (Focus.IsActive) Focus = Focus.Stop();
+        if (!Focus.IsActive) return;
+        Focus = Focus.Stop();
+        FocusStateChangedRequested?.Invoke(Focus);
     }
+
+    public void CommitPosition() => PersistOffset();
 
     // ------------------------------------------------------ media artwork
 

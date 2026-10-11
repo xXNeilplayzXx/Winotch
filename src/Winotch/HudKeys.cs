@@ -9,7 +9,8 @@ public enum HudKeyAction { None, VolumeUp, VolumeDown, VolumeMute }
 /// are ours, how far one press moves the level, and whether Winotch is allowed
 /// to claim the key at all. Pure, so the policy can be tested without a
 /// keyboard hook. Brightness has no virtual key — the brightness HUD mirrors
-/// the level instead of claiming keys (see BrightnessService).</summary>
+/// the level instead of claiming keys (see BrightnessService for a monitor on
+/// the cable and InternalBrightness for a laptop's own panel).</summary>
 public static class HudKeys
 {
     public const int VolumeMuteVirtualKey = 0xAD;

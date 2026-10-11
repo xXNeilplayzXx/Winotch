@@ -102,6 +102,7 @@ public sealed class OverlayWindow : Window, IDisposable
     public void AssignMonitor(MonitorSnapshot monitor)
     {
         Monitor = monitor;
+        _shell.SetMonitorDeviceName(monitor.DeviceName);
         var scale = monitor.DpiScaleX;
         Left = monitor.LeftDip;
         Top = monitor.TopDip;
@@ -162,14 +163,20 @@ public sealed class OverlayWindow : Window, IDisposable
         _shell.VolumeChangedRequested += _manager.MediaVolumeChanged;
         _shell.VolumeMuteRequested += _manager.MediaVolumeMuteToggled;
         _shell.CopyClipboardEntryRequested += _manager.CopyClipboardEntry;
+        _shell.MarkInboxReadRequested += _manager.MarkInboxRead;
+        _shell.ClearInboxRequested += _manager.ClearInbox;
+        _shell.QuickActionRequested += action => _manager.ExecuteQuickAction(action, Monitor.DeviceName);
+        _shell.FocusStateChangedRequested += state => _manager.SetFocusState(Monitor.DeviceName, state);
         _shell.DeleteClipboardEntryRequested += _manager.DeleteClipboardEntry;
         _shell.ClearClipboardRequested += _manager.ClearClipboard;
-        _shell.NotesEditRequested += _manager.OpenNotesEditor;
-        _shell.WeatherEditRequested += _manager.OpenWeatherEditor;
-        _shell.LauncherEditRequested += _manager.OpenLauncherEditor;
-        _shell.FocusCustomRequested += _manager.OpenFocusEditor;
-        _shell.SystemMetricsEditRequested += _manager.OpenMetricsEditor;
-        _shell.CardSizeEditRequested += _manager.OpenCardSizeEditor;
+        _shell.NotesEditRequested += () => _manager.OpenNotesEditor(Monitor.DeviceName);
+        _shell.WeatherEditRequested += () => _manager.OpenWeatherEditor(Monitor.DeviceName);
+        _shell.LauncherEditRequested += () => _manager.OpenLauncherEditor(Monitor.DeviceName);
+        _shell.FocusCustomRequested += () => _manager.OpenFocusEditor(Monitor.DeviceName);
+        _shell.SystemMetricsEditRequested += () => _manager.OpenMetricsEditor(Monitor.DeviceName);
+        _shell.CardSizeEditRequested += id => _manager.OpenCardSizeEditor(Monitor.DeviceName, id);
+        _shell.CalendarEditRequested += () => _manager.OpenCalendarEditor(Monitor.DeviceName);
+        _shell.CalendarSourceEditRequested += () => _manager.OpenSettingsWindow();
         _shell.LaunchAppRequested += _manager.LaunchApp;
     }
 
@@ -366,14 +373,7 @@ public sealed class OverlayWindow : Window, IDisposable
                 if (widgetId is null)
                 {
                     // Pill drag: persist the resting position (already live).
-                    _settings.Update(s => s with
-                    {
-                        Appearance = s.Appearance with
-                        {
-                            OffsetX = _shell.OffsetX,
-                            OffsetY = _shell.OffsetY,
-                        },
-                    });
+                    _shell.CommitPosition();
                 }
                 // Widget drag already persisted each move via MoveWidgetTo.
                 return;
