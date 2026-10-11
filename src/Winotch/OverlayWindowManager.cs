@@ -485,7 +485,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
                 foreach (var window in _windows) window.Shell.SetMedia(snapshot);
                 if (snapshot is { Playing: true } media && media.Title.Length > 0 &&
                     !string.Equals(media.Key, _lastToastKey, StringComparison.Ordinal) &&
-                    _settings.Current.Toasts.MediaToastsEnabled)
+                    _settings.Current.Toasts.MediaToastsEnabled && !IsQuietDuringFocus)
                 {
                     _lastToastKey = media.Key;
                     var spec = new ToastSpec("", media.Title, media.Artist, 4.5);
@@ -498,6 +498,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             // App is shutting down or the dispatcher is gone — drop the event.
         }
     }
+
+    private bool IsQuietDuringFocus => FocusFeedbackPolicy.ShouldSuppress(
+        _settings.Current.Features.QuietDuringFocus, _windows.Select(window => window.Shell.Focus));
 
     public async Task MediaPlayPauseAsync() => await _media.PlayPauseAsync();
     public async Task MediaNextAsync() => await _media.NextAsync();
@@ -581,6 +584,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         {
             Application.Current?.Dispatcher.BeginInvoke(() =>
             {
+                // The focus state may have changed between the hook and the UI
+                // dispatch; check again before emitting transient feedback.
+                if (IsQuietDuringFocus) return;
                 foreach (var window in _windows) window.Shell.ShowTransport(action);
             });
         }
@@ -1006,24 +1012,25 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     /// last fired key across probes.</summary>
     private async Task CheckRainAlertAsync()
     {
-        if (!_settings.Current.Toasts.RainAlertsEnabled) return;
+        if (!_settings.Current.Toasts.RainAlertsEnabled || IsQuietDuringFocus) return;
         var config = _settings.Current.Widgets.Weather;
         if (!config.HasLocation) return;
         try
         {
             var probe = await _weather.GetPrecipitationProbeAsync(config.Lat!.Value, config.Lon!.Value);
-            if (probe is null) return;
+            if (probe is null || IsQuietDuringFocus) return;
             var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var key = RainAlertEvaluator.Evaluate(
                 probe.Times, probe.Probability, probe.Mm, nowUnix, _lastRainAlertKey);
-            if (key is null || key == _lastRainAlertKey) return;
-            _lastRainAlertKey = key;
+            if (key is null || key == _lastRainAlertKey || IsQuietDuringFocus) return;
             // The key is "rain-<start unix>"; convert back to a friendly delay.
             var startUnix = long.Parse(key.AsSpan(5), System.Globalization.CultureInfo.InvariantCulture);
             var minutes = Math.Max(1, (int)Math.Round((startUnix - nowUnix) / 60.0));
             var when = minutes <= 1 ? "starting now" : $"in about {minutes} min";
             // A glance, not a toast: rain in half an hour wants awareness, not
             // a sentence you have to dismiss.
+            if (IsQuietDuringFocus) return;
+            _lastRainAlertKey = key;
             ShowGlance(new GlanceSpec("\U0001F327\uFE0F", "Rain soon",
                 $"At {config.City} {when}", 5));
         }

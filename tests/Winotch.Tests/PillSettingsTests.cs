@@ -48,6 +48,28 @@ public class PillSettingsTests
     }
 
     [Fact]
+    public void QuietDuringFocus_DefaultsOffAndRoundTrips()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"winotch-focus-quiet-{Guid.NewGuid():N}.json");
+        try
+        {
+            var settings = new SettingsService(path);
+            Assert.False(settings.Current.Features.QuietDuringFocus);
+
+            settings.Update(s => s with
+            {
+                Features = s.Features with { QuietDuringFocus = true },
+            });
+
+            Assert.True(new SettingsService(path).Current.Features.QuietDuringFocus);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void SettingsSections_RoundTrip_KeepsOnlyKnownIds()
     {
         var path = Path.Combine(Path.GetTempPath(), $"winotch-sections-{Guid.NewGuid():N}.json");

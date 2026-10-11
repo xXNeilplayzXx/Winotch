@@ -333,7 +333,10 @@ public partial class SettingsWindow : Window
             // so the card layout is per-widget instead of one size for all.
             MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
-                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })));
+                v => _settings.Update(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
+            MakeToggleRow("Quiet during focus", "Suppress media and rain feedback while a focus session is running",
+                s.Features.QuietDuringFocus,
+                v => _settings.Update(x => x with { Features = x.Features with { QuietDuringFocus = v } })));
     }
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>

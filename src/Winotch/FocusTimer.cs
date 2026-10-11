@@ -163,3 +163,12 @@ public readonly record struct FocusTimerCompletion(
     FocusTimerCompletionKind Kind, TimeSpan NextPhaseDuration, int CompletedFocusCycles);
 
 public enum FocusTimerCompletionKind { FocusComplete, BreakComplete }
+/// <summary>Whether transient media and weather feedback should be suppressed
+/// for the currently running focus phase. Paused sessions and breaks stay
+/// unsuppressed so the user does not miss feedback while not actively focusing.</summary>
+public static class FocusFeedbackPolicy
+{
+    public static bool ShouldSuppress(bool quietDuringFocus, IEnumerable<FocusTimerState> sessions) =>
+        quietDuringFocus && sessions.Any(session =>
+            session.Status == FocusTimerStatus.Running && session.Phase == FocusTimerPhase.Focus);
+}

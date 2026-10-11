@@ -547,6 +547,8 @@ public sealed record FeatureSettings
     public bool ClipboardHistoryEnabled { get; init; } = true;
     public bool FocusTimerEnabled { get; init; } = true;
     public bool PriorityAlertsEnabled { get; init; } = true;
+    /// <summary>When enabled, suppress media/rain feedback while a focus phase is running.</summary>
+    public bool QuietDuringFocus { get; init; }
     public bool FollowActiveMonitor { get; init; } = true;
 
     // Volume / brightness HUD: the level keys are claimed (so Windows' own

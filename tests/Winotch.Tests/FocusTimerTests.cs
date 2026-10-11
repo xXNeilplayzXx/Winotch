@@ -117,6 +117,30 @@ public class FocusTimerTests
         var next = FocusTimerState.Stopped.AdvanceTo(Now.AddMinutes(60), _ => { });
         Assert.Equal(FocusTimerStatus.Stopped, next.Status);
     }
+
+    [Fact]
+    public void QuietPolicy_RequiresOptInAndRunningFocusPhase()
+    {
+        var runningFocus = Started();
+        var pausedFocus = runningFocus.Pause(Now);
+        var runningBreak = runningFocus.SwitchToBreak(0, cycles: 1);
+
+        Assert.False(FocusFeedbackPolicy.ShouldSuppress(false, [runningFocus]));
+        Assert.True(FocusFeedbackPolicy.ShouldSuppress(true, [runningFocus]));
+        Assert.False(FocusFeedbackPolicy.ShouldSuppress(true, [pausedFocus]));
+        Assert.False(FocusFeedbackPolicy.ShouldSuppress(true, [runningBreak]));
+        Assert.False(FocusFeedbackPolicy.ShouldSuppress(true, [FocusTimerState.Stopped]));
+    }
+
+    [Fact]
+    public void QuietPolicy_SuppressesIfAnySessionIsInRunningFocusPhase()
+    {
+        var activeFocus = Started();
+        var pausedFocus = activeFocus.Pause(Now);
+
+        Assert.True(FocusFeedbackPolicy.ShouldSuppress(true, [pausedFocus, activeFocus]));
+        Assert.False(FocusFeedbackPolicy.ShouldSuppress(true, [pausedFocus]));
+    }
 }
 
 internal static class FocusTimerTestExtensions
