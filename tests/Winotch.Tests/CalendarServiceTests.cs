@@ -53,7 +53,7 @@ public sealed class NotificationInboxTests
     {
         var now = DateTimeOffset.UtcNow;
         var entries = Enumerable.Range(0, 120)
-            .Select(i => new InboxNotification($"id-{i}", now.AddMinutes(i), $"item {i}", "body"));
+            .Select(i => new InboxNotification($"id-{i}", now.AddMinutes(i - 120), $"item {i}", "body"));
         var changed = NotificationInboxStore.Add(entries, new InboxNotification("id-119", now.AddHours(1), "new version", "body"));
         Assert.Equal(NotificationInboxStore.MaximumEntries, changed.Count);
         Assert.Equal("new version", changed[0].Title);

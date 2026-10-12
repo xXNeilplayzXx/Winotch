@@ -113,8 +113,8 @@ public static class CalendarService
 
     private static IReadOnlyList<CalendarEvent> ExpandRecurrences(List<CalendarEvent> events, string source, DateTimeOffset now)
     {
-        // Recurrence expansion remains bounded to a 31-day look-ahead; RRULE is expanded
-        // here for common DAILY/WEEKLY rules without pulling in a heavyweight dependency.
+        // Recurrence expansion includes today plus the next 31 calendar days;
+        // RRULE is expanded here for common DAILY/WEEKLY rules without pulling in a heavyweight dependency.
         var lines = Regex.Replace(source.Replace("\r\n", "\n").Replace('\r', '\n'), "\n[ \\t]", "").Split('\n');
         var result = new List<CalendarEvent>(events);
         Dictionary<string, string>? fields = null;
@@ -138,7 +138,7 @@ public static class CalendarService
             {
                 var rule = ParseRule(line[(colon + 1)..]);
                 var interval = Math.Clamp(rule.Interval, 1, 365);
-                var horizon = now.AddDays(31);
+                var horizon = new DateTimeOffset(now.Date, now.Offset).AddDays(32).AddTicks(-1);
                 var cursor = start;
                 var occurrence = 1;
                 var produced = 0;
