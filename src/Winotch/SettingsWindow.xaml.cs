@@ -292,7 +292,7 @@ public partial class SettingsWindow : Window
         }
         AddSection("general", "General", "Clock, date, position and start-up", generalRows.ToArray());
 
-        AddSection("appearance", "Appearance", "Theme, accent, font, surface and glass",
+        AddSection("appearance", "Appearance", "Theme, accent, font, surface, glass and layout",
             MakeChoiceRow("Theme", "System follows Windows; Colour tints the island; Background follows your wallpaper",
                 new[]
                 {
@@ -322,6 +322,26 @@ public partial class SettingsWindow : Window
                     _opacityRow.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
                     _blurRow.Visibility = glass && blurEnabled ? Visibility.Visible : Visibility.Collapsed;
                 }),
+            MakeChoiceRow("Layout",
+                "Classic is the single pill; Glance floats the clock capsule with four glass cards framing it (top edge only)",
+                new[] { ("classic", "Classic"), ("glance", "Glance") },
+                s.Appearance.ShellLayout == ShellLayoutMode.Glance ? "glance" : "classic",
+                v =>
+                {
+                    var layout = ParseShellLayout(v);
+                    // The deck is the glossy design, so switching to it turns the
+                    // glass treatment on — the toggle below stays available for
+                    // anyone who wants the framing without the material.
+                    UpdateAppearance(x => x with
+                    {
+                        ShellLayout = layout,
+                        GlossyGlass = layout == ShellLayoutMode.Glance || x.GlossyGlass,
+                    });
+                }),
+            MakeToggleRow("Glossy glass",
+                "The milled midnight capsule with its blue glow and halo, and framed slate cards",
+                s.Appearance.GlossyGlass,
+                v => UpdateAppearance(x => x with { GlossyGlass = v })),
             _blurEnabledRow,
             _opacityRow,
             _blurRow);
@@ -516,6 +536,9 @@ public partial class SettingsWindow : Window
         "solid" => SurfaceMode.Solid,
         _ => SurfaceMode.Glass,
     };
+
+    private static ShellLayoutMode ParseShellLayout(string value) =>
+        value == "glance" ? ShellLayoutMode.Glance : ShellLayoutMode.Classic;
 
     // ------------------------------------------------------------- sections
 

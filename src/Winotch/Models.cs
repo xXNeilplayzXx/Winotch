@@ -55,6 +55,12 @@ public enum DisplayMode { Main, Named, All, FollowActive }
 /// layout (LED + clock + battery); the rest are the legacy idle options.</summary>
 public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
 
+/// <summary>How the resting shell is arranged on the desktop. Classic is the
+/// single pill (with the widget panel behind its hover); Glance floats the clock
+/// capsule with four framed glass cards around it — the layout profile from the
+/// high-gloss design.</summary>
+public enum ShellLayoutMode { Classic, Glance }
+
 /// <summary>Look-and-feel settings ported from the original app: theme, accent,
 /// glass/solid appearance with opacity + blur, background gradients, pill
 /// size presets/sliders, idle content and display targeting.
@@ -67,6 +73,15 @@ public sealed record AppearanceSettings
     public string AccentHex { get; init; } = "#50D6FF";
     public string Gradient { get; init; } = GradientSkin.None;
     public SurfaceMode Surface { get; init; } = SurfaceMode.Solid;
+
+    /// <summary>The high-gloss glass treatment: the milled midnight capsule with
+    /// its blue glow and halo, and the framed slate cards. Independent of
+    /// <see cref="Surface"/> — the surface decides how translucent the shell is,
+    /// this decides whether it is painted as glass or as its flat palette.</summary>
+    public bool GlossyGlass { get; init; }
+
+    /// <summary>Which layout profile the resting shell uses (item: glance deck).</summary>
+    public ShellLayoutMode ShellLayout { get; init; } = ShellLayoutMode.Classic;
     public int Opacity { get; init; } = 65;
     public int Blur { get; init; } = 14;
     public bool BlurEnabled { get; init; } = true;
@@ -123,6 +138,7 @@ public sealed record AppearanceSettings
             : (Glass ? SurfaceMode.Glass : SurfaceMode.Solid),
         Opacity = Math.Clamp(Opacity, 10, 100),
         Blur = Math.Clamp(Blur, 0, 40),
+        ShellLayout = Enum.IsDefined(ShellLayout) ? ShellLayout : ShellLayoutMode.Classic,
         Font = FontChoice.IsKnown(Font) ? Font : FontChoice.Aptos,
         CustomFonts = (CustomFonts ?? new List<string>())
             .Where(f => !string.IsNullOrWhiteSpace(f))

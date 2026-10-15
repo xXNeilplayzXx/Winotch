@@ -106,23 +106,11 @@ public static class ShellUi
         canvas.DrawRect(rect, paint);
     }
 
-    /// <summary>Shorten text to fit maxWidth, appending an ellipsis.</summary>
-    public static string Ellipsize(string text, float maxWidth, float size, SKTypeface face)
-    {
-        if (TextKit.Measure(text, size, face) <= maxWidth) return text;
-        const string ellipsis = "\u2026";
-        var ellipsisWidth = TextKit.Measure(ellipsis, size, face);
-        var budget = Math.Max(1, maxWidth - ellipsisWidth);
-        for (var len = text.Length - 1; len > 0; len--)
-        {
-            var candidate = text[..len];
-            if (TextKit.Measure(candidate, size, face) <= budget)
-            {
-                return candidate.TrimEnd() + ellipsis;
-            }
-        }
-        return ellipsis;
-    }
+    /// <summary>Shorten text to fit maxWidth, appending an ellipsis. The
+    /// implementation lives in <see cref="TextKit"/> so drawing code that has no
+    /// business knowing the app palette can fit its strings too.</summary>
+    public static string Ellipsize(string text, float maxWidth, float size, SKTypeface face) =>
+        TextKit.Ellipsize(text, maxWidth, size, face);
 }
 
 /// <summary>One interactive element (hit area + action) built during layout.</summary>

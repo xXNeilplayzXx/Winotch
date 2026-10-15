@@ -171,4 +171,24 @@ public static class TextKit
         var metrics = paint.FontMetrics;
         return metrics.Descent - metrics.Ascent;
     }
+
+    /// <summary>Shorten text to fit maxWidth, appending an ellipsis. Lives here
+    /// rather than in the shell's UI helpers so a composition — the glance deck,
+    /// for one — can fit its own strings without dragging in the app palette.</summary>
+    public static string Ellipsize(string text, float maxWidth, float size, SKTypeface? face = null)
+    {
+        if (Measure(text, size, face) <= maxWidth) return text;
+        const string ellipsis = "\u2026";
+        var ellipsisWidth = Measure(ellipsis, size, face);
+        var budget = Math.Max(1, maxWidth - ellipsisWidth);
+        for (var len = text.Length - 1; len > 0; len--)
+        {
+            var candidate = text[..len];
+            if (Measure(candidate, size, face) <= budget)
+            {
+                return candidate.TrimEnd() + ellipsis;
+            }
+        }
+        return ellipsis;
+    }
 }
