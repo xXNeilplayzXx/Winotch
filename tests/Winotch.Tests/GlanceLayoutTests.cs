@@ -285,11 +285,39 @@ public class SparklineTests
     [Fact]
     public void LongHistory_UsesTheMostRecentSamples()
     {
+        // Ninety-two flat 50% samples, then 0/10/20/30. The window is the last
+        // four, whose own span clears MinSpan — so the band is 0..30 and the line
+        // runs the full height. Both halves of that matter: a line drawing the
+        // oldest samples would sit flat mid-band, because they are all 50s, and a
+        // line scaled against the whole history instead of the window would
+        // stretch 0..50 and land somewhere else entirely.
+        var history = Enumerable.Repeat(50.0, 92).ToList();
+        history.AddRange(new[] { 0.0, 10, 20, 30 });
+
+        var points = Sparkline.Normalize(history, 4);
+
+        Assert.Equal(0, points[0], 6);
+        Assert.Equal(1.0 / 3, points[1], 6);
+        Assert.Equal(2.0 / 3, points[2], 6);
+        Assert.Equal(1, points[^1], 6);
+    }
+
+    [Fact]
+    public void LongHistory_NarrowWindow_IsCentredRatherThanStretched()
+    {
+        // The same history, but consecutive samples 1 apart: the window (92..95)
+        // is narrower than MinSpan, so the band is widened around its middle
+        // instead of stretching a 3-wide window across the whole card. This is
+        // what a raw window-relative scale would get wrong.
         var history = Enumerable.Range(0, 96).Select(i => (double)i).ToList();
         var points = Sparkline.Normalize(history, 4);
-        // The window is the last four samples (92..95), so the span is 92..95.
-        Assert.Equal(0, points[0], 6);
-        Assert.Equal(1, points[^1], 6);
+
+        var halfWindow = (95 - 92) / 2.0;
+        var expectedLow = (Sparkline.MinSpan / 2 - halfWindow) / Sparkline.MinSpan;
+        Assert.Equal(expectedLow, points[0], 6);
+        Assert.Equal(1 - expectedLow, points[^1], 6);
+        Assert.True(points[^1] - points[0] < 0.5,
+            "a narrow window must not be stretched across the band");
     }
 
     [Fact]
