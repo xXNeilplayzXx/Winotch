@@ -126,8 +126,9 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.5.0)
+## Release notes (v4.6.0)
 
-- Add calendar/next-meeting, quick actions, a bounded notification inbox, and per-monitor profiles.
-- Add an MSIX packaging project with opt-in native Windows calendar and Notification Center access; portable `.ics` import remains available.
-- Improve brightness reading across external monitors and built-in laptop panels, and refine theme contrast and dialog behavior.
+- Add the **glance deck**: a layout profile in Settings that replaces the collapsed pill with a floating midnight-glass clock capsule framed by four cards — weather, now playing, focus timer and system stats.
+- Add the high-gloss glass material behind it: a milled capsule rim with a pooled blue under-glow, framed slate cards with a top-lit 1px edge, plus the focus ring and stats sparkline.
+- Scale the composition with the screen — the capsule takes 0.39 of the canvas at 3.64:1 and the cards 0.17 — and fall back to the classic pill whenever the canvas, or a pill dragged too low, cannot hold the deck.
+- Keep both settings off by default: nothing changes until the layout profile is chosen.
