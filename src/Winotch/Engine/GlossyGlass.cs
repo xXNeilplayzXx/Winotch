@@ -6,12 +6,12 @@ namespace Winotch.Engine;
 /// cards. Kept apart from <see cref="ShellTheme"/> on purpose — the theme is the
 /// app's flat palette (text, accents, panel fills) resolved from Windows, while
 /// these are the material colors of the glass treatment, and they are opaque here
-/// with the alpha applied at draw time so one palette serves the pill, the panel
-/// cards and the glance deck at any translucency.</summary>
+/// with the alpha applied at draw time so one palette serves the pill and the
+/// panel cards at any translucency.</summary>
 public sealed record GlassPalette(
     Col CapsuleTop, Col CapsuleMid, Col CapsuleBottom, Col CapsuleGlow,
     Col CapsuleEdge, Col CapsuleRim, Col CapsuleBloom, Col Halo,
-    Col CardFillTop, Col CardFillBottom, Col CardStroke, Col CardSheen, Col Scrim)
+    Col CardFillTop, Col CardFillBottom, Col CardStroke, Col CardSheen)
 {
     /// <summary>The design's midnight glass. The capsule is nearly black at the
     /// top and turns deep blue only in its last fifth — the blue in the design
@@ -34,8 +34,7 @@ public sealed record GlassPalette(
         CardFillTop: Col.Rgba(0x3A, 0x41, 0x4E),
         CardFillBottom: Col.Rgba(0x2B, 0x30, 0x3A),
         CardStroke: Col.Rgba(0xE8, 0xEE, 0xF8),
-        CardSheen: Col.White,
-        Scrim: Col.Rgba(0x0A, 0x0D, 0x14));
+        CardSheen: Col.White);
 
     /// <summary>Frosted daylight glass — the same geometry and highlights, with
     /// the capsule lit rather than deep, so the light theme keeps the material
@@ -52,8 +51,7 @@ public sealed record GlassPalette(
         CardFillTop: Col.Rgba(0xFF, 0xFF, 0xFF),
         CardFillBottom: Col.Rgba(0xE9, 0xEE, 0xF6),
         CardStroke: Col.White,
-        CardSheen: Col.White,
-        Scrim: Col.Rgba(0x5A, 0x66, 0x7A));
+        CardSheen: Col.White);
 
     public static GlassPalette For(bool light) => light ? Light : Dark;
 
@@ -71,13 +69,11 @@ public sealed record GlassPalette(
 }
 
 /// <summary>Painters for the high-gloss glass treatment: the milled midnight
-/// capsule with its halo, the framed slate cards, and the two small charts the
-/// glance deck draws (the focus ring and the stats sparkline).
+/// capsule with its halo and the framed slate cards.
 ///
 /// Self-contained on purpose: these take a <see cref="GlassPalette"/> and plain
-/// geometry rather than reaching for the app palette, so a composition can be
-/// rendered with nothing but a canvas — which is exactly how the deck is
-/// previewed and diffed against the design outside the running app.</summary>
+/// geometry rather than reaching for the app palette, so the material can be
+/// rendered with nothing but a canvas.</summary>
 public static class GlossyGlass
 {
     /// <summary>Card corner radius from the design.</summary>
@@ -86,28 +82,6 @@ public static class GlossyGlass
     private static SKColor Sk(Col color, double alpha = 1) =>
         new(color.R, color.G, color.B,
             (byte)Math.Clamp(Math.Round(255 * alpha * (color.A / 255.0)), 0, 255));
-
-    /// <summary>A soft elliptical vignette behind the whole composition. The
-    /// desktop stays the desktop — this is not a full-screen dimmer, just enough
-    /// local contrast for light wallpapers to keep the glass readable.</summary>
-    public static void DrawScrim(SKCanvas canvas, LayoutRect bounds, GlassPalette palette)
-    {
-        if (bounds.IsEmpty) return;
-        var rx = bounds.Width / 2 * 1.16 + 70;
-        var ry = bounds.Height / 2 * 1.55 + 90;
-        if (rx <= 0 || ry <= 0) return;
-
-        canvas.Save();
-        canvas.Translate((float)bounds.CenterX, (float)bounds.CenterY);
-        canvas.Scale(1f, (float)(ry / rx));
-        using var shader = SKShader.CreateRadialGradient(
-            new SKPoint(0, 0), (float)rx,
-            [Sk(palette.Scrim, 0.32), Sk(palette.Scrim, 0.18), Sk(palette.Scrim, 0.0)],
-            [0f, 0.58f, 1f], SKShaderTileMode.Clamp);
-        using var paint = new SKPaint { Shader = shader, IsAntialias = true };
-        canvas.DrawCircle(0, 0, (float)rx, paint);
-        canvas.Restore();
-    }
 
     /// <summary>Everything the capsule throws onto the desktop: a whisper of a
     /// rim glow, and the light that pools below it.
@@ -397,95 +371,5 @@ public static class GlossyGlass
             StrokeCap = SKStrokeCap.Round,
         };
         canvas.DrawLine(rect.Left + radius, rect.Top + 0.6f, rect.Right - radius, rect.Top + 0.6f, topEdge);
-    }
-
-    /// <summary>The focus timer's progress ring: a faint track with the accent
-    /// arc running clockwise from the top.</summary>
-    public static void DrawRing(SKCanvas canvas, float cx, float cy, float radius, float thickness,
-        double progress01, Col accent, Col track, double alpha = 1)
-    {
-        if (radius <= 0 || thickness <= 0 || alpha <= 0) return;
-        var bounds = new SKRect(cx - radius, cy - radius, cx + radius, cy + radius);
-
-        using (var trackPaint = new SKPaint
-        {
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = thickness,
-            Color = Sk(track, alpha),
-            IsAntialias = true,
-        })
-        {
-            canvas.DrawArc(bounds, 0, 360, false, trackPaint);
-        }
-
-        var sweep = (float)Math.Clamp(progress01, 0, 1) * 360f;
-        if (sweep <= 0.5f) return;
-        using var arc = new SKPaint
-        {
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = thickness,
-            Color = Sk(accent, alpha),
-            IsAntialias = true,
-            StrokeCap = SKStrokeCap.Round,
-        };
-        canvas.DrawArc(bounds, -90, sweep, false, arc);
-    }
-
-    /// <summary>The stats card's line chart: the accent line, the wash under it,
-    /// and the live endpoint. <paramref name="points"/> are 0..1 with 1 at the top
-    /// (see <see cref="Sparkline"/>).</summary>
-    public static void DrawSparkline(SKCanvas canvas, SKRect rect, IReadOnlyList<double> points,
-        Col accent, double alpha = 1)
-    {
-        if (alpha <= 0 || points.Count == 0 || rect.Width <= 0 || rect.Height <= 0) return;
-
-        var step = rect.Width / Math.Max(1, points.Count - 1);
-        var line = new List<SKPoint>(points.Count);
-        for (var i = 0; i < points.Count; i++)
-        {
-            line.Add(new SKPoint(
-                rect.Left + step * i,
-                rect.Bottom - (float)Math.Clamp(points[i], 0, 1) * rect.Height));
-        }
-
-        using (var area = new SKPath())
-        {
-            area.MoveTo(line[0].X, rect.Bottom);
-            foreach (var point in line) area.LineTo(point.X, point.Y);
-            area.LineTo(line[^1].X, rect.Bottom);
-            area.Close();
-            using var fillShader = SKShader.CreateLinearGradient(
-                new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Left, rect.Bottom),
-                [Sk(accent, 0.30 * alpha), Sk(accent, 0.02 * alpha)],
-                [0f, 1f], SKShaderTileMode.Clamp);
-            using var fill = new SKPaint { Shader = fillShader, IsAntialias = true };
-            canvas.DrawPath(area, fill);
-        }
-
-        using (var stroke = new SKPath())
-        {
-            stroke.MoveTo(line[0]);
-            for (var i = 1; i < line.Count; i++) stroke.LineTo(line[i]);
-            using var linePaint = new SKPaint
-            {
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.6f,
-                Color = Sk(accent, 0.95 * alpha),
-                IsAntialias = true,
-                StrokeJoin = SKStrokeJoin.Round,
-                StrokeCap = SKStrokeCap.Round,
-            };
-            canvas.DrawPath(stroke, linePaint);
-        }
-
-        using var glow = new SKPaint
-        {
-            Color = Sk(accent, 0.22 * alpha),
-            IsAntialias = true,
-            ImageFilter = SKImageFilter.CreateBlur(3, 3, SKShaderTileMode.Clamp),
-        };
-        canvas.DrawCircle(line[^1].X, line[^1].Y, 3.4f, glow);
-        using var dot = new SKPaint { Color = Sk(accent, alpha), IsAntialias = true };
-        canvas.DrawCircle(line[^1].X, line[^1].Y, 2.1f, dot);
     }
 }

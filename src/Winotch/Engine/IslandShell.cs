@@ -41,11 +41,6 @@ public sealed class IslandShell
     private readonly Dictionary<string, SKBitmap> _thumbs = new();
     private readonly Dictionary<string, SKBitmap> _artCache = new();
 
-    // Rolling CPU history for the glance deck's sparkline. Fed by every
-    // SetSystemStats (the host's stats poll), so the line covers the last few
-    // minutes without the deck keeping a timer of its own.
-    private readonly List<double> _cpuHistory = new();
-
     // Data the host window feeds in.
     public MediaSnapshot? Media { get; private set; }
     public BatteryInfo Battery { get; private set; } = new(100, false);
@@ -54,8 +49,7 @@ public sealed class IslandShell
     public FocusTimerState Focus { get; private set; } = FocusTimerState.Stopped;
     public FocusTimerSettings FocusPreset { get; private set; } =
         new(TimeSpan.FromMinutes(25), TimeSpan.FromMinutes(5), false);
-    public WeatherSnapshot? Weather { get; private set; }
-    public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
+    public WeatherSnapshot? Weather { get; private set; }    public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
     public CallState? Call { get; private set; }
     public bool MicrophoneActive { get; private set; }
     public bool CameraActive { get; private set; }
@@ -141,24 +135,9 @@ public sealed class IslandShell
 
     private bool Vertical => CurrentSettings.General.Edge != PillEdge.Top;
 
-    /// <summary>True when the resting shell is the glance deck: the layout
-    /// profile is on and the pill hangs from the top edge. A side pill is rotated
-    /// onto its edge, so the deck's framing has nowhere to go.</summary>
-    private bool GlanceLayoutOn =>
-        CurrentSettings.Appearance.ShellLayout == ShellLayoutMode.Glance && !Vertical;
-
-    /// <summary>True when the deck is what the pill is actually showing —
-    /// nothing else owns it (a level slider or a chip is sized for the classic
-    /// capsule) and drag mode is not repositioning it.</summary>
-    private bool GlanceResting => GlanceLayoutOn && !FaceActive && !DragMode;
-
-    /// <summary>The deck for this frame, anchored on the pill's live top edge so
-    /// the cards travel with it. Null while a face owns the pill, on a canvas too
-    /// small for the composition, or once the pill has been dragged too low for
-    /// it — each of which leaves the classic pill drawing.</summary>
-    private GlanceDeck? CurrentDeck => GlanceResting
-        ? GlanceLayout.Compute(CanvasWidth, CanvasHeight, Math.Max(0, _y))
-        : null;
+    /// <summary>True when the notch wears the high-gloss glass skin — see
+    /// <see cref="AppearanceSettings.UsesGlossySkin"/>.</summary>
+    private bool GlossySkin => CurrentSettings.Appearance.UsesGlossySkin;
 
     /// <summary>The glass material for the palette and accent resolved this
     /// frame.</summary>
@@ -499,8 +478,7 @@ public sealed class IslandShell
     /// <summary>True when the chip is showing a *playing* track, so the
     /// progress hairline needs a per-second repaint (the same cadence the
     /// expanded card already uses).</summary>
-    public bool MediaProgressLive => Media is { Playing: true } &&
-        (MediaChipActive || (GlanceResting && CurrentSettings.Widgets.Enabled.Contains("media")));
+    public bool MediaProgressLive => Media is { Playing: true } && MediaChipActive;
 
     public void SetBattery(BatteryInfo battery)
     {
@@ -531,7 +509,6 @@ public sealed class IslandShell
     public void SetSystemStats(SystemStatsSnapshot stats)
     {
         SystemStats = stats;
-        Sparkline.Append(_cpuHistory, stats.CpuPercent);
         MarkDataDirty();
     }
 
@@ -742,14 +719,10 @@ public sealed class IslandShell
         }
         else
         {
-            // The glance capsule floats clear of the top edge, so it is never
-            // tucked under the screen edge the way the notch style clips it.
-            var notch = settings.General.Style == NotchStyle.Notch && !GlanceLayoutOn;
-            var baseTop = GlanceLayoutOn
-                ? GlanceLayout.TopGap(CanvasHeight)
-                : notch
-                    ? (expanded ? NotchTopPanel : NotchTopMini)
-                    : (expanded ? IslandTopPanel : IslandTopMini);
+            var notch = settings.General.Style == NotchStyle.Notch;
+            var baseTop = notch
+                ? (expanded ? NotchTopPanel : NotchTopMini)
+                : (expanded ? IslandTopPanel : IslandTopMini);
 
             // Fold the drag offset into the spring target once, instead of
             // adding it to the eased position every frame. Adding it after
@@ -815,7 +788,8 @@ public sealed class IslandShell
             // bounds — keep the panel up while the cursor is over it so its
             // rows stay visible and clickable.
             var overAddMenu = _addMenuOpen && AddMenuRect().Contains(cursor);
-            if (!_wantExpanded && hoverRect.Contains(cursor) && restRect.Contains(cursor) && _blend < 0.5)
+            if (!_wantExpanded && hoverRect.Contains(cursor) &&
+                restRect.Contains(cursor) && _blend < 0.5)
             {
                 _wantExpanded = true;
             }
@@ -847,18 +821,6 @@ public sealed class IslandShell
                 ? Math.Max(MiniHeight, CanvasHeight - 16)
                 : Math.Max(MiniWidthMin, CanvasWidth - 16));
             return Vertical ? (MiniHeight, span) : (span, MiniHeight);
-        }
-        if (GlanceResting)
-        {
-            // The clock capsule: wide and tall, sized from the canvas so the
-            // design's proportions hold from a laptop panel up to a 4K display.
-            // The drawn radius stays half the height, so it is always a true
-            // capsule whatever the screen works out to.
-            var capsuleWidth = Math.Min(GlanceLayout.PillWidth(CanvasWidth),
-                Math.Max(MiniWidthMin, CanvasWidth - 16));
-            var capsuleHeight = Math.Min(GlanceLayout.PillHeight(CanvasWidth),
-                Math.Max(30, CanvasHeight - 8));
-            return (capsuleWidth, capsuleHeight);
         }
         if (Vertical)
         {
@@ -1026,17 +988,6 @@ public sealed class IslandShell
             (float)(_x + _w + m), (float)(_y + _h + m));
         if (rect.Contains(new SKPoint((float)xDip, (float)yDip))) return true;
 
-        // The glancing cards are real targets too (their play/pause glyph, the
-        // focus ring, the whole weather and stats cards). Let the desktop keep
-        // the clicks the moment the panel has unfolded over them.
-        if (_blend < 0.6 && CurrentDeck is { } deck)
-        {
-            foreach (var card in deck.Cards)
-            {
-                if (GlanceCardShown(card.Slot) && card.Rect.Grown(2).Contains(xDip, yDip)) return true;
-            }
-        }
-
         if (_toasts.Count > 0)
         {
             var (tx, ty, tw) = ToastAnchor();
@@ -1100,18 +1051,8 @@ public sealed class IslandShell
         // Resolve the palette for this frame so theme/accent changes apply live.
         ShellUi.Theme = _resolvedTheme;
         var appearance = CurrentSettings.Appearance;
-        var glossy = appearance.GlossyGlass;
+        var glossy = GlossySkin;
         var palette = Glass;
-        // The deck's cards fade out as the widget panel unfolds over the pill.
-        var deck = CurrentDeck;
-        var deckAlpha = deck is null ? 0 : Math.Clamp(1 - _blend * 1.6, 0, 1);
-
-        // The composition's own backdrop: a soft local vignette so the glass
-        // reads on any wallpaper, without dimming the desktop underneath it.
-        if (deck is not null && deckAlpha > 0.02)
-        {
-            GlossyGlass.DrawScrim(canvas, deck.Bounds, palette);
-        }
 
         // Shadow pass (fill translucent dark + drop-shadow filter spread).
         using (var shadowFilter = SKImageFilter.CreateDropShadow(
@@ -1239,14 +1180,6 @@ public sealed class IslandShell
         {
             ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
                 (float)radius, 1f, ShellUi.Fade(ShellUi.Stroke, 0.45));
-        }
-
-        // The glance deck's four cards, framing the capsule. Drawn outside the
-        // silhouette clip — they are separate pieces of glass, not part of the
-        // island.
-        if (deck is not null && deckAlpha > 0.02)
-        {
-            DrawGlanceDeck(canvas, deck, deckAlpha);
         }
 
         if (_contextMenuOpen)
@@ -1425,11 +1358,6 @@ public sealed class IslandShell
                     glance.Spec.Label, glance.Spec.Detail,
                     glance.HasFill ? glance.Fill : null, glance.Spec.Emoji);
                 return;
-        }
-        if (GlanceResting)
-        {
-            DrawGlanceCapsule(canvas, rect, CurrentSettings);
-            return;
         }
         var cy = rect.Top + rect.Height / 2;
         var items = BuildMiniRow();
@@ -2761,7 +2689,7 @@ public sealed class IslandShell
 
     private void DrawCard(SKCanvas canvas, float x, float y, float w, float h)
     {
-        if (!CurrentSettings.Appearance.GlossyGlass)
+        if (!GlossySkin)
         {
             FillRound(canvas, x, y, w, h, 13, ShellUi.Card);
             return;
@@ -2770,156 +2698,6 @@ public sealed class IslandShell
         // rounded corners, and a 1px cool-white edge.
         GlossyGlass.DrawCard(canvas, new SKRect(x, y, x + w, y + h), GlossyGlass.CardRadius, Glass);
     }
-
-    // ------------------------------------------------------------ glance deck
-
-    /// <summary>Whether the deck draws a card for a slot — the same widget and
-    /// feature switches the panel honours, so turning a widget off never leaves a
-    /// stray card floating on the desktop.</summary>
-    private bool GlanceCardShown(GlanceSlot slot)
-    {
-        var settings = CurrentSettings;
-        return slot switch
-        {
-            GlanceSlot.Weather => settings.Widgets.Enabled.Contains("weather"),
-            GlanceSlot.Media => settings.Widgets.Enabled.Contains("media"),
-            GlanceSlot.Focus => settings.Features.FocusTimerEnabled,
-            GlanceSlot.System => settings.Widgets.Enabled.Contains("system"),
-            _ => false,
-        };
-    }
-
-    /// <summary>The clock capsule's face: the time large and crisp with the date
-    /// under it, centred in the glass — the composition's one piece of type.</summary>
-    private void DrawGlanceCapsule(SKCanvas canvas, SKRect rect, WinotchSettings settings)
-    {
-        var clock = ClockText(settings);
-        var date = DateText(settings);
-        var clockSize = (float)Math.Clamp(rect.Height * 0.56, 24, 96);
-        var dateSize = (float)Math.Clamp(rect.Height * 0.15, 10, 22);
-        TextKit.DrawCentered(canvas, clock, rect.MidX,
-            rect.Top + rect.Height * (date.Length > 0 ? 0.44f : 0.5f), clockSize,
-            ShellUi.Text, TextKit.Semibold);
-        if (date.Length > 0)
-        {
-            TextKit.DrawCentered(canvas, date, rect.MidX, rect.Top + rect.Height * 0.77f, dateSize,
-                ShellUi.Fade(ShellUi.Muted, 1), TextKit.Regular);
-        }
-    }
-
-    /// <summary>Draw the deck's four cards and bind what they do. The deck itself
-    /// knows nothing about actions — it hands back the rects it painted as
-    /// controls, and the shell decides what a click on each one means.</summary>
-    private void DrawGlanceDeck(SKCanvas canvas, GlanceDeck deck, double alpha)
-    {
-        var settings = CurrentSettings;
-        var style = GlanceStyle.For(_resolvedTheme.IsLight, _resolvedTheme.Accent);
-        var data = new GlanceCardData(
-            GlanceCardShown(GlanceSlot.Weather) ? GlanceWeatherData(settings) : null,
-            GlanceCardShown(GlanceSlot.Media) ? GlanceMediaData() : null,
-            GlanceCardShown(GlanceSlot.Focus) ? GlanceFocusData(settings) : null,
-            GlanceCardShown(GlanceSlot.System) ? GlanceStatsData(settings) : null);
-
-        var hits = GlanceCards.Draw(canvas, deck, data, style, _cursorX, _cursorY, alpha);
-        if (hits.MediaToggle is { } mediaToggle) RegisterButton(Sk(mediaToggle), MediaPlayPauseRequested);
-        if (hits.FocusToggle is { } focusToggle) RegisterButton(Sk(focusToggle), ToggleFocusFromDeck);
-        if (hits.WeatherCard is { } weatherCard) RegisterButton(Sk(weatherCard), WeatherEditRequested);
-        if (hits.SystemCard is { } statsCard) RegisterButton(Sk(statsCard), SystemMetricsEditRequested);
-    }
-
-    /// <summary>Weather for the deck's card: the live snapshot, else the card's
-    /// empty state — which still names the location when one is set.</summary>
-    private GlanceWeather GlanceWeatherData(WinotchSettings settings)
-    {
-        var config = settings.Widgets.Weather;
-        if (Weather is not { } snapshot)
-        {
-            var city = config.City.Length > 0 ? config.City : "Weather";
-            return new GlanceWeather(city, "", config.HasLocation ? "Loading\u2026" : "Set a location", "");
-        }
-        return new GlanceWeather(
-            snapshot.City.Length > 0 ? snapshot.City : config.City,
-            $"{Math.Round(snapshot.Temp)}",
-            snapshot.Label,
-            snapshot.Emoji);
-    }
-
-    private GlanceMedia GlanceMediaData()
-    {
-        if (Media is not { } media)
-        {
-            return new GlanceMedia("Nothing playing", "Start a track to fill this card", "", "", "", null);
-        }
-        SKBitmap? art = null;
-        if (media.ArtBase64 is { Length: > 0 } artBase64 && TryGetArt(artBase64, 68, out var cached))
-        {
-            art = cached;
-        }
-        var hasLength = media.DurationSeconds > 0;
-        return new GlanceMedia(
-            media.Title.Length > 0 ? media.Title : "Untitled",
-            media.Artist.Length > 0 ? media.Artist : "Unknown artist",
-            hasLength ? FormatClock(MediaPosition(media)) : "",
-            hasLength ? FormatClock(media.DurationSeconds) : "",
-            // The card offers the action that is available: play while paused.
-            media.Playing ? "\uE769" : "\uE768",
-            art);
-    }
-
-    private GlanceFocus GlanceFocusData(WinotchSettings settings)
-    {
-        if (!Focus.IsActive)
-        {
-            // Idle: the ring is empty, the time is the preset the next session
-            // will run for, and the glyph offers to start it.
-            return new GlanceFocus("Focus", $"{settings.Widgets.FocusMinutes}:00", 0, false,
-                "\uE768", ShellUi.Muted);
-        }
-        var isBreak = Focus.Phase == FocusTimerPhase.Break;
-        return new GlanceFocus(
-            Focus.PhaseLabel,
-            FocusLabel(),
-            Focus.ProgressAt(DateTimeOffset.UtcNow),
-            true,
-            Focus.Status == FocusTimerStatus.Paused ? "\uE768" : "\uE769",
-            isBreak ? ShellUi.Ok : ShellUi.Accent);
-    }
-
-    /// <summary>The two metric rows the design calls for, in the user's own
-    /// order — a small card cannot hold four rows without squeezing the chart
-    /// out of it.</summary>
-    private GlanceStats GlanceStatsData(WinotchSettings settings)
-    {
-        var metrics = settings.Widgets.SystemMetrics;
-        var rows = new List<(string Label, string Value)>();
-        if (metrics.Cpu) rows.Add(("CPU", $"{SystemStats.CpuPercent:0}%"));
-        if (metrics.Memory) rows.Add(("MEM", $"{SystemStats.MemoryPercent:0}%"));
-        if (metrics.Battery) rows.Add(("BAT", $"{Battery.Percent}%"));
-        if (metrics.Network) rows.Add(("NET", $"{SystemStats.NetDownKbps:0}\u2193"));
-        if (rows.Count == 0) rows.Add(("CPU", $"{SystemStats.CpuPercent:0}%"));
-
-        var primary = rows[0];
-        var secondary = rows.Count > 1 ? rows[1] : (Label: "", Value: "");
-        return new GlanceStats("System Stats", primary.Label, primary.Value,
-            secondary.Label, secondary.Value, _cpuHistory);
-    }
-
-    /// <summary>The focus card's ring is the timer's control: pause while it runs,
-    /// resume while it is held, and start a fresh session from the persisted
-    /// preset when it is idle.</summary>
-    private void ToggleFocusFromDeck()
-    {
-        if (!Focus.IsActive)
-        {
-            StartFocus(CurrentSettings.Widgets.FocusMinutes, CurrentSettings.Widgets.BreakMinutes);
-            return;
-        }
-        if (Focus.Status == FocusTimerStatus.Paused) ResumeFocus();
-        else PauseFocus();
-    }
-
-    private static SKRect Sk(LayoutRect rect) =>
-        new((float)rect.X, (float)rect.Y, (float)rect.Right, (float)rect.Bottom);
 
     private void DrawIconButton(SKCanvas canvas, float cx, float cy, string glyph, Action? action)
     {
@@ -3059,8 +2837,8 @@ public sealed class IslandShell
     /// (only while the panel is expanded and the session actually supports
     /// seeking — otherwise the bar is display-only).</summary>
     public bool MediaSeekHit(double xDip, double yDip) =>
-        _blend > 0.5 && _mediaSeekEnabled &&
-        _mediaTimelineRectScreen.Contains((float)xDip, (float)yDip);
+        _blend > 0.5 &&
+        _mediaSeekEnabled && _mediaTimelineRectScreen.Contains((float)xDip, (float)yDip);
 
     public void BeginSeek(double xDip, double yDip)
     {

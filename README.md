@@ -85,6 +85,7 @@ Each card sizes itself independently — hit **⚙** on a card and pick **Compac
 - **Gradients** — Sunset, Ocean, Aurora, Candy, Graphite, Peach, Mint, Berry, Midnight or Forest.
 - **Fonts** — every font family installed on your PC, or **Import font…** to add your own `.ttf`/`.otf` (stored in `%LOCALAPPDATA%\Winotch\Fonts`). Applies to the notch and the whole UI.
 - **Size** — Compact / Standard / Wide presets plus fine width/height sliders (draft-and-apply so you can compare before committing). The standard default is 220 × 45 px.
+- **Glance** — the high-gloss glass skin for the notch and its panel, at the same size as Classic.
 - **Glass settings** — opacity and blur strength, with a glass on/off switch.
 
 ### Alerts & extras
@@ -128,7 +129,6 @@ Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LIC
 
 ## Release notes (v4.6.0)
 
-- Add the **glance deck**: a layout profile in Settings that replaces the collapsed pill with a floating midnight-glass clock capsule framed by four cards — weather, now playing, focus timer and system stats.
-- Add the high-gloss glass material behind it: a milled capsule rim with a pooled blue under-glow, framed slate cards with a top-lit 1px edge, plus the focus ring and stats sparkline.
-- Scale the composition with the screen — the capsule takes 0.39 of the canvas at 3.64:1 and the cards 0.17 — and fall back to the classic pill whenever the canvas, or a pill dragged too low, cannot hold the deck.
-- Keep both settings off by default: nothing changes until the layout profile is chosen.
+- Add **Glance**, a skin for the notch: pick it in Settings → Appearance and the classic pill and its widget panel are repainted in the high-gloss glass material — a milled capsule rim with a pooled blue under-glow and framed slate cards with a top-lit 1px edge.
+- Glance is paint-only. The notch keeps its classic width, height, position, hover panel and drag behaviour, so nothing is added to or moved around the desktop.
+- The glass material is also available on the classic layout through the **Glossy glass** toggle; both settings stay off by default.

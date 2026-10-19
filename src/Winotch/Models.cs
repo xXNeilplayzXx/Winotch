@@ -55,10 +55,9 @@ public enum DisplayMode { Main, Named, All, FollowActive }
 /// layout (LED + clock + battery); the rest are the legacy idle options.</summary>
 public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
 
-/// <summary>How the resting shell is arranged on the desktop. Classic is the
-/// single pill (with the widget panel behind its hover); Glance floats the clock
-/// capsule with four framed glass cards around it — the layout profile from the
-/// high-gloss design.</summary>
+/// <summary>Which skin the notch wears. Both layouts are the classic pill at the
+/// same size with the same hover panel — Classic paints the flat palette surface
+/// and Glance paints the high-gloss glass treatment over it.</summary>
 public enum ShellLayoutMode { Classic, Glance }
 
 /// <summary>Look-and-feel settings ported from the original app: theme, accent,
@@ -80,8 +79,13 @@ public sealed record AppearanceSettings
     /// this decides whether it is painted as glass or as its flat palette.</summary>
     public bool GlossyGlass { get; init; }
 
-    /// <summary>Which layout profile the resting shell uses (item: glance deck).</summary>
+    /// <summary>Which skin the notch wears — the classic flat palette or the
+    /// high-gloss glass. Paint only; the geometry is shared by both.</summary>
     public ShellLayoutMode ShellLayout { get; init; } = ShellLayoutMode.Classic;
+
+    /// <summary>True when the notch paints the high-gloss material. Glance is
+    /// that skin by definition; the toggle also lets a Classic notch wear it.</summary>
+    public bool UsesGlossySkin => GlossyGlass || ShellLayout == ShellLayoutMode.Glance;
     public int Opacity { get; init; } = 65;
     public int Blur { get; init; } = 14;
     public bool BlurEnabled { get; init; } = true;

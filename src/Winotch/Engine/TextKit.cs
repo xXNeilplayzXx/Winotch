@@ -173,8 +173,8 @@ public static class TextKit
     }
 
     /// <summary>Shorten text to fit maxWidth, appending an ellipsis. Lives here
-    /// rather than in the shell's UI helpers so a composition — the glance deck,
-    /// for one — can fit its own strings without dragging in the app palette.</summary>
+    /// rather than in the shell's UI helpers so a composition can fit its own
+    /// strings without dragging in the app palette.</summary>
     public static string Ellipsize(string text, float maxWidth, float size, SKTypeface? face = null)
     {
         if (Measure(text, size, face) <= maxWidth) return text;
