@@ -127,8 +127,8 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.6.0)
+## Release notes (v4.6.1)
 
-- Add **Glance**, a skin for the notch: pick it in Settings → Appearance and the classic pill and its widget panel are repainted in the high-gloss glass material — a milled capsule rim with a pooled blue under-glow and framed slate cards with a top-lit 1px edge.
-- Glance is paint-only. The notch keeps its classic width, height, position, hover panel and drag behaviour, so nothing is added to or moved around the desktop.
-- The glass material is also available on the classic layout through the **Glossy glass** toggle; both settings stay off by default.
+- **Glance is a skin, not a layout.** Instead of floating a clock capsule and four glass cards around the pill, Glance now repaints the classic notch and its widget panel in the high-gloss glass material — a milled capsule rim with a pooled blue under-glow and framed slate cards with a top-lit 1px edge.
+- The notch keeps its classic width, height, position, hover panel and drag behaviour, so nothing is added to or moved around the desktop. The floating deck from 4.6.0 is gone.
+- The glass material is still available on the classic layout through the **Glossy glass** toggle; both settings stay off by default.
