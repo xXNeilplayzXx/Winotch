@@ -127,7 +127,13 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.7.0)
+## Release notes (v4.7.1)
+
+- **Call chip content:** choose app name + timer, timer + app name, or either one alone; timer-first keeps elapsed time visible when a long app name is clipped.
+- **Settings organization:** clearer Basics, Appearance, Pill, Calls & media, Widgets, Alerts & quiet mode, and Display & startup sections. Previously-open sections migrate to their new names.
+- **Pill polish:** align the call chip label vertically and keep the Glance halo on the collapsed pill instead of letting it overwhelm the expanded panel.
+
+## Previous release notes (v4.7.0)
 
 - **Weather dashboard:** the Weather card now includes a near-term rain outlook (rain now, rain starting soon, dry outlook, or forecast unavailable), alongside current conditions. Rain forecast failures no longer hide temperature and conditions, and per-monitor weather locations remain independent.
 - **Weather units:** choose Auto, °C, or °F in Settings or during first-run setup. Auto follows the regional convention; the compact weather readout uses the same selection.

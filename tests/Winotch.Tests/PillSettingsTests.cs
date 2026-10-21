@@ -47,6 +47,45 @@ public class PillSettingsTests
         }
     }
 
+    [Theory]
+    [InlineData(CallChipContent.AppAndTimer, "Discord · 2:05")]
+    [InlineData(CallChipContent.TimerAndApp, "2:05 · Discord")]
+    [InlineData(CallChipContent.AppName, "Discord")]
+    [InlineData(CallChipContent.Timer, "2:05")]
+    public void CallChipLayout_ComposesTheSelectedPriority(CallChipContent mode, string expected)
+    {
+        Assert.Equal(expected, CallChipLayout.Text(mode, "Discord", "2:05"));
+    }
+
+    [Fact]
+    public void CallChipLayout_KeepsTimerWhenAppNameIsUnavailable()
+    {
+        Assert.Equal("2:05", CallChipLayout.Text(CallChipContent.AppName, " ", "2:05"));
+        Assert.Equal("2:05", CallChipLayout.Text(CallChipContent.AppAndTimer, null, "2:05"));
+    }
+
+    [Fact]
+    public void CallChipPriority_NormalizesInvalidValuesAndRoundTrips()
+    {
+        Assert.Equal(CallChipContent.AppAndTimer,
+            new FeatureSettings { CallChipPriority = (CallChipContent)int.MaxValue }.Normalize().CallChipPriority);
+
+        var path = Path.Combine(Path.GetTempPath(), $"winotch-call-chip-{Guid.NewGuid():N}.json");
+        try
+        {
+            var settings = new SettingsService(path);
+            settings.Update(s => s with
+            {
+                Features = s.Features with { CallChipPriority = CallChipContent.TimerAndApp },
+            });
+            Assert.Equal(CallChipContent.TimerAndApp, new SettingsService(path).Current.Features.CallChipPriority);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     [Fact]
     public void QuietDuringFocus_DefaultsOffAndRoundTrips()
     {
@@ -82,17 +121,28 @@ public class PillSettingsTests
                 {
                     // A hand-edited file could name anything: unknown ids,
                     // duplicates and blanks are dropped rather than trusted.
-                    OpenSettingsSections = new List<string> { "Appearance", "pill", "pill", "nonsense", "  " },
+                    OpenSettingsSections = new List<string> { "Appearance", "size", "pill", "alerts", "nonsense", "  " },
                 },
             });
 
             var sections = new SettingsService(path).Current.General.OpenSettingsSections;
-            Assert.Equal(new[] { "appearance", "pill" }, sections);
+            Assert.Equal(new[] { "appearance", "pill", "notifications" }, sections);
         }
         finally
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void SettingsSections_MigratesOldOpenSectionIds()
+    {
+        var settings = new GeneralSettings
+        {
+            OpenSettingsSections = new List<string> { "general", "size", "display", "widgets", "alerts" },
+        }.Normalize();
+
+        Assert.Equal(new[] { "basics", "pill", "displays", "widgets", "notifications" }, settings.OpenSettingsSections);
     }
 
     [Fact]

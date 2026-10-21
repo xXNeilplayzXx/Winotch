@@ -1075,10 +1075,12 @@ public sealed class IslandShell
             canvas.DrawRoundRect(rect, (float)radius, (float)radius, shadow);
         }
 
-        if (glossy)
+        if (glossy && !expanded)
         {
-            // The halo sits outside the silhouette: the glass glowing against
-            // the desktop, not a line inside the shape.
+            // The blue bloom is a collapsed-pill detail. On the tall panel it
+            // reads as an oversized circle under the expanded card stack, so
+            // keep the desktop halo with the capsule and let the panel's own
+            // glass edge define its silhouette.
             GlossyGlass.DrawCapsuleHalo(canvas, rect, (float)radius, palette);
         }
 
@@ -1433,8 +1435,9 @@ public sealed class IslandShell
                     FillRound(canvas, x + 6, cy - 11, callW, 22, 11, ShellUi.Fade(ShellUi.Ok, 0.16));
                     ShellUi.DrawGlyph(canvas, "\uE717", x + 18, cy, 11, ShellUi.Ok);
                     var callBudget = Math.Min(item.Width - 34, rect.Right - x - 8);
-                    TextKit.Draw(canvas, ShellUi.Ellipsize(CallLabel(), (float)Math.Max(40, callBudget), 11.5f, TextKit.Semibold),
-                        x + 26, cy - 8.5f, 11.5f, ShellUi.Ok, TextKit.Semibold);
+                    TextKit.DrawLeftCentered(canvas,
+                        ShellUi.Ellipsize(CallLabel(), (float)Math.Max(40, callBudget), 11.5f, TextKit.Semibold),
+                        x + 26, (float)cy, 11.5f, ShellUi.Ok, TextKit.Semibold);
                     break;
                 case MiniKind.Focus:
                     // Centred on the chip's own box. The bubble used to be drawn a
@@ -3082,7 +3085,7 @@ public sealed class IslandShell
         var elapsed = DateTimeOffset.UtcNow - call.StartedAtUtc;
         var total = Math.Max(0, (int)elapsed.TotalSeconds);
         var time = $"{(int)(total / 60)}:{total % 60:00}";
-        return call.AppName is { Length: > 0 } app ? $"{app} \u00B7 {time}" : time;
+        return CallChipLayout.Text(CurrentSettings.Features.CallChipPriority, call.AppName, time);
     }
 
     /// <summary>Track name shown in the collapsed pill while media plays

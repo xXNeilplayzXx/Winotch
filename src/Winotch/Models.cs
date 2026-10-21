@@ -22,7 +22,7 @@ public sealed record WinotchSettings
         General = General is null ? new GeneralSettings() : General.Normalize(),
         Appearance = Appearance is null ? new AppearanceSettings() : Appearance.Normalize(),
         Toasts = Toasts is null ? new ToastSettings() : Toasts.Normalize(),
-        Features = Features ?? new FeatureSettings(),
+        Features = Features is null ? new FeatureSettings() : Features.Normalize(),
         Widgets = Widgets is null ? new WidgetSettings() : Widgets.Normalize(),
         MonitorProfiles = MonitorProfiles is null
             ? new Dictionary<string, MonitorProfile>(StringComparer.OrdinalIgnoreCase)
@@ -58,6 +58,31 @@ public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
 /// <summary>The compact live readout displayed beside the clock in Default
 /// idle mode. None keeps the pill to the LED and clock alone.</summary>
 public enum IdleMiniWidget { Battery, Weather, Cpu, Memory, None }
+
+/// <summary>Which information appears first in the live call chip.</summary>
+public enum CallChipContent { AppAndTimer, TimerAndApp, AppName, Timer }
+
+public static class CallChipLayout
+{
+    public static CallChipContent Normalize(CallChipContent content) => Enum.IsDefined(content)
+        ? content
+        : CallChipContent.AppAndTimer;
+
+    /// <summary>Compose call-chip text. Putting the timer first keeps it visible
+    /// when a long app name is clipped to fit the pill.</summary>
+    public static string Text(CallChipContent content, string? appName, string timer)
+    {
+        var app = appName?.Trim() ?? "";
+        var elapsed = timer?.Trim() ?? "";
+        return content switch
+        {
+            CallChipContent.AppName => app.Length > 0 ? app : elapsed,
+            CallChipContent.Timer => elapsed,
+            CallChipContent.TimerAndApp => elapsed.Length > 0 && app.Length > 0 ? $"{elapsed} · {app}" : elapsed + app,
+            _ => app.Length > 0 && elapsed.Length > 0 ? $"{app} · {elapsed}" : app + elapsed,
+        };
+    }
+}
 
 /// <summary>Which skin the notch wears. Both layouts are the classic pill at the
 /// same size with the same hover panel — Classic paints the flat palette surface
@@ -405,7 +430,19 @@ public sealed record GeneralSettings
     /// settings file that isn't one of these is simply dropped.</summary>
     public static readonly string[] KnownSections =
     {
-        "general", "appearance", "size", "display", "pill", "alerts", "widgets",
+        "basics", "appearance", "pill", "calls", "widgets", "notifications", "displays",
+    };
+
+    public static string? NormalizeSectionId(string id) => id.Trim().ToLowerInvariant() switch
+    {
+        "general" or "basics" => "basics",
+        "appearance" => "appearance",
+        "size" or "pill" => "pill",
+        "calls" => "calls",
+        "widgets" => "widgets",
+        "alerts" or "notifications" => "notifications",
+        "display" or "displays" => "displays",
+        _ => null,
     };
 
     public GeneralSettings Normalize() => this with
@@ -415,9 +452,10 @@ public sealed record GeneralSettings
             : WeatherTemperatureUnit.Auto,
         OpenSettingsSections = (OpenSettingsSections ?? new List<string>())
             .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim().ToLowerInvariant())
-            .Where(KnownSections.Contains)
-            .Distinct()
+            .Select(NormalizeSectionId)
+            .Where(id => id is not null)
+            .Select(id => id!)
+            .Distinct(StringComparer.Ordinal)
             .ToList(),
     };
 }
@@ -608,6 +646,11 @@ public static class RainAlertEvaluator
 
 public sealed record FeatureSettings
 {
+    public FeatureSettings Normalize() => this with
+    {
+        CallChipPriority = CallChipLayout.Normalize(CallChipPriority),
+    };
+
     public bool ClipboardHistoryEnabled { get; init; } = true;
     public bool FocusTimerEnabled { get; init; } = true;
     public bool PriorityAlertsEnabled { get; init; } = true;
@@ -626,6 +669,7 @@ public sealed record FeatureSettings
 
     // Which live states may appear as chips on the collapsed pill.
     public bool ShowCallsOnPill { get; init; } = true;
+    public CallChipContent CallChipPriority { get; init; } = CallChipContent.AppAndTimer;
     public bool ShowMediaOnPill { get; init; } = true;
     public bool ShowFocusOnPill { get; init; } = true;
 
@@ -838,7 +882,7 @@ public sealed record MonitorProfile(
         General = General is null ? new GeneralSettings() : General.Normalize(),
         Appearance = Appearance is null ? new AppearanceSettings() : Appearance.Normalize(),
         Toasts = Toasts is null ? new ToastSettings() : Toasts.Normalize(),
-        Features = Features ?? new FeatureSettings(),
+        Features = Features is null ? new FeatureSettings() : Features.Normalize(),
         Widgets = Widgets is null ? new WidgetSettings() : Widgets.Normalize(),
     };
 

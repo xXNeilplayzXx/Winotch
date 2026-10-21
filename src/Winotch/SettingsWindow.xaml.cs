@@ -60,7 +60,10 @@ public partial class SettingsWindow : Window
         _lastMonitorProfiles = settings.Current.MonitorProfiles;
         _lastProfilesEnabled = settings.Current.Appearance.UseMonitorProfiles;
         _openSections = new HashSet<string>(
-            settings.Current.General.OpenSettingsSections, StringComparer.OrdinalIgnoreCase);
+            settings.Current.General.OpenSettingsSections
+                .Select(GeneralSettings.NormalizeSectionId)
+                .Where(id => id is not null)
+                .Select(id => id!), StringComparer.OrdinalIgnoreCase);
         InitializeComponent();
         VersionText.Text = AssemblyVersion();
         BuildSections();
@@ -262,46 +265,16 @@ public partial class SettingsWindow : Window
                 {
                     General = x.General with { Layout = v == "stacked" ? ClockLayout.Stacked : ClockLayout.Standard },
                 })),
-            MakeChoiceRow("Weather temperature", "Automatic follows your regional convention; or choose °C / °F",
-                new[] { ("auto", "Auto"), ("celsius", "°C"), ("fahrenheit", "°F") },
-                s.General.WeatherTemperatureUnit.ToString().ToLowerInvariant(),
-                v => UpdateSettings(x => x with
-                {
-                    General = x.General with { WeatherTemperatureUnit = ParseWeatherTemperatureUnit(v) },
-                })),
         };
         if (_rerunSetup is not null)
         {
             generalRows.Add(MakeButtonRow("Rerun setup wizard", "Reopen the two-page setup", _rerunSetup));
         }
-        generalRows.Add(MakeChoiceRow("Position", "Notch tucks into the top edge; Island floats below it. Use Pill → Drag mode to fine-tune placement",
-            new[] { ("notch", "Notch"), ("island", "Island") },
-            s.General.Style == NotchStyle.Notch ? "notch" : "island",
-            v => UpdateSettings(x => x with
-            {
-                General = x.General with { Style = v == "notch" ? NotchStyle.Notch : NotchStyle.Island },
-                Appearance = x.General.Style == (v == "notch" ? NotchStyle.Notch : NotchStyle.Island)
-                    ? x.Appearance
-                    : x.Appearance with { OffsetY = 0 },
-            })));
-        generalRows.Add(MakeToggleRow("Start with Windows", "Automatically launch when you sign in",
-            s.General.StartWithWindows,
-            v =>
-            {
-                UpdateSettings(x => x with { General = x.General with { StartWithWindows = v } });
-                var executable = StartupService.CurrentExecutablePath();
-                _startup.SetEnabled(v, executable);
-            }));
-        generalRows.Add(MakeToggleRow("Check for updates automatically",
-            "Look for newer builds on GitHub when Winotch starts",
-            s.General.AutoCheckUpdates,
-            v => UpdateSettings(x => x with { General = x.General with { AutoCheckUpdates = v } })));
-        if (_checkForUpdates is not null)
-        {
-            generalRows.Add(MakeButtonRow("Check for updates",
-                "See if a newer build is available", _checkForUpdates));
-        }
-        AddSection("general", "General", "Clock, date, position and start-up", generalRows.ToArray());
+        generalRows.Add(MakeChoiceRow("Weather temperature", "Choose Auto, Celsius or Fahrenheit",
+            new[] { ("auto", "Auto"), ("celsius", "°C"), ("fahrenheit", "°F") },
+            s.General.WeatherTemperatureUnit.ToString().ToLowerInvariant(),
+            v => UpdateSettings(x => x with { General = x.General with { WeatherTemperatureUnit = ParseWeatherTemperatureUnit(v) } })));
+        AddSection("basics", "Basics", "Clock, date and weather preferences", generalRows.ToArray());
 
         AddSection("appearance", "Appearance", "Theme, accent, font, surface, glass and layout",
             MakeChoiceRow("Theme", "System follows Windows; Colour tints the island; Background follows your wallpaper",
@@ -352,8 +325,6 @@ public partial class SettingsWindow : Window
             _opacityRow,
             _blurRow);
 
-        AddSection("size", "Size", "Pill width and height", MakeSizeControl(s.Appearance));
-
         var profileRows = new List<FrameworkElement>
         {
             MakeToggleRow("Profiles for each monitor", "Save and apply a complete independent settings profile per display",
@@ -370,7 +341,19 @@ public partial class SettingsWindow : Window
             profileRows.Add(MakeButtonRow("Capture settings for this monitor", "Save the current settings groups as this display's profile",
                 CaptureMonitorProfile));
         }
-        AddSection("display", "Display", "Which screen the island shows on", new[] { MakeDisplayControl(s.Appearance) }.Concat(profileRows).ToArray());
+        var displayRows = new List<FrameworkElement> { MakeDisplayControl(s.Appearance) };
+        displayRows.AddRange(profileRows);
+        displayRows.Add(MakeToggleRow("Start with Windows", "Automatically launch when you sign in", s.General.StartWithWindows,
+            v =>
+            {
+                UpdateSettings(x => x with { General = x.General with { StartWithWindows = v } });
+                _startup.SetEnabled(v, StartupService.CurrentExecutablePath());
+            }));
+        displayRows.Add(MakeToggleRow("Check for updates automatically", "Look for newer builds when Winotch starts", s.General.AutoCheckUpdates,
+            v => UpdateSettings(x => x with { General = x.General with { AutoCheckUpdates = v } })));
+        if (_checkForUpdates is not null)
+            displayRows.Add(MakeButtonRow("Check for updates", "See if a newer build is available", _checkForUpdates));
+        AddSection("displays", "Display & startup", "Monitor targeting, startup and per-display profiles", displayRows.ToArray());
 
         _customIdleRow = MakeTextBoxRow("Custom idle text", "Shown in the pill when 'Custom text' is selected",
             s.Appearance.CustomIdleText,
@@ -442,15 +425,6 @@ public partial class SettingsWindow : Window
             pillRows.Add(MakeButtonRow("Drag mode",
                 "Show the pill with Done / Reset buttons so you can reposition it", _enterDragMode));
         }
-        pillRows.Add(MakeToggleRow("Calls on the pill", "Green bubble while you're on a call",
-            s.Features.ShowCallsOnPill,
-            v => UpdateSettings(x => x with { Features = x.Features with { ShowCallsOnPill = v } })));
-        pillRows.Add(MakeToggleRow("Now playing on the pill", "Track chip while music plays",
-            s.Features.ShowMediaOnPill,
-            v => UpdateSettings(x => x with { Features = x.Features with { ShowMediaOnPill = v } })));
-        pillRows.Add(MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
-            s.Features.ShowFocusOnPill,
-            v => UpdateSettings(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
         pillRows.Add(MakeToggleRow("Volume keys", "Take the volume keys over so the pill shows the level instead of Windows' OSD",
             s.Features.VolumeHudEnabled,
             v => UpdateSettings(x => x with { Features = x.Features with { VolumeHudEnabled = v } })));
@@ -461,24 +435,56 @@ public partial class SettingsWindow : Window
         pillRows.Add(MakeToggleRow("Media key feedback", "Show the track on the pill when you press play / pause / next",
             s.Features.MediaHudEnabled,
             v => UpdateSettings(x => x with { Features = x.Features with { MediaHudEnabled = v } })));
-        AddSection("pill", "Pill", "Idle content, chips, drag and the level keys", pillRows.ToArray());
+        pillRows.Insert(1, MakeSizeControl(s.Appearance));
+        pillRows.Insert(0, MakeChoiceRow("Position", "Notch tucks into the top edge; Island floats below it",
+            new[] { ("notch", "Notch"), ("island", "Island") },
+            s.General.Style == NotchStyle.Notch ? "notch" : "island",
+            v => UpdateSettings(x => x with
+            {
+                General = x.General with { Style = v == "notch" ? NotchStyle.Notch : NotchStyle.Island },
+                Appearance = x.General.Style == (v == "notch" ? NotchStyle.Notch : NotchStyle.Island)
+                    ? x.Appearance : x.Appearance with { OffsetY = 0 },
+            })));
+        AddSection("pill", "Pill", "Position, size, idle content and controls", pillRows.ToArray());
 
-        AddSection("alerts", "Alerts", "Pill chips and toasts for tracks, battery, Wi-Fi and rain",
+        AddSection("calls", "Calls & media", "What appears on the pill during calls, playback and focus",
+            MakeToggleRow("Calls on the pill", "Show a green call chip while you're on a call",
+                s.Features.ShowCallsOnPill,
+                v => UpdateSettings(x => x with { Features = x.Features with { ShowCallsOnPill = v } })),
+            MakeChoiceRow("Call chip content", "Put the timer first when a long app name needs room",
+                new[] { ("app", "App name + timer"), ("timer-first", "Timer + app name"), ("app-only", "App name only"), ("timer-only", "Timer only") },
+                CallChipContentKey(s.Features.CallChipPriority),
+                v => UpdateSettings(x => x with { Features = x.Features with { CallChipPriority = ParseCallChipContent(v) } })),
+            MakeToggleRow("Now playing on the pill", "Show a track chip while music plays",
+                s.Features.ShowMediaOnPill,
+                v => UpdateSettings(x => x with { Features = x.Features with { ShowMediaOnPill = v } })),
+            MakeToggleRow("Media key feedback", "Show feedback when media keys are pressed",
+                s.Features.MediaHudEnabled,
+                v => UpdateSettings(x => x with { Features = x.Features with { MediaHudEnabled = v } })),
+            MakeToggleRow("Focus timer on the pill", "Show the active timer on the pill",
+                s.Features.ShowFocusOnPill,
+                v => UpdateSettings(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
+
+        AddSection("notifications", "Alerts & quiet mode", "Toasts, rain, priority alerts, quiet modes and notification access",
             MakeToggleRow("Now-playing toasts", "Pop a toast when the track changes",
                 s.Toasts.MediaToastsEnabled,
                 v => UpdateSettings(x => x with { Toasts = x.Toasts with { MediaToastsEnabled = v } })),
             MakeToggleRow("Priority alerts", "Low battery, charger, Wi-Fi, mic / camera events",
                 s.Features.PriorityAlertsEnabled,
                 v => UpdateSettings(x => x with { Features = x.Features with { PriorityAlertsEnabled = v } })),
-            MakeToggleRow("Rain alerts", "Chip on the pill when precipitation starts within 30 minutes (rain, charging and copies show on the pill instead of as toasts)",
+            MakeToggleRow("Rain alerts", "Show a heads-up when precipitation is expected soon",
                 s.Toasts.RainAlertsEnabled,
-                v => UpdateSettings(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })));
+                v => UpdateSettings(x => x with { Toasts = x.Toasts with { RainAlertsEnabled = v } })),
+            MakeToggleRow("Quiet during focus", "Suppress media and rain feedback during a focus session", s.Features.QuietDuringFocus,
+                v => UpdateSettings(x => x with { Features = x.Features with { QuietDuringFocus = v } })),
+            MakeToggleRow("Quiet mode", "Temporarily suppress pill toasts and feedback", s.Widgets.QuietMode,
+                v => UpdateSettings(x => x with { Widgets = x.Widgets with { QuietMode = v } })),
+            MakeButtonRow("Windows notification history", "Request Windows Notification Center access (MSIX only)",
+                () => _requestWindowsNotificationAccess?.Invoke()));
 
-        AddSection("widgets", "Widgets & features", "Clipboard, focus timer and widgets",
+        AddSection("widgets", "Widgets", "Expanded-panel cards and their features",
             MakeButtonRow("Configure quick actions", "Choose which buttons appear in the Quick actions card", OpenQuickActionsEditor),
             MakeButtonRow("Calendar source", "Choose Windows calendars or import a local .ics file", OpenCalendarEditor),
-            MakeButtonRow("Windows notification history", "Request Windows permission for current Notification Center toasts (MSIX only)",
-                () => _requestWindowsNotificationAccess?.Invoke()),
             MakeToggleRow("Clipboard history", "In-memory last 10 items — never written to disk",
                 s.Features.ClipboardHistoryEnabled,
                 v => UpdateSettings(x => x with { Features = x.Features with { ClipboardHistoryEnabled = v } })),
@@ -486,13 +492,7 @@ public partial class SettingsWindow : Window
             // so the card layout is per-widget instead of one size for all.
             MakeToggleRow("Focus timer", "Sessions with breaks — pick a preset or a custom ratio",
                 s.Features.FocusTimerEnabled,
-                v => UpdateSettings(x => x with { Features = x.Features with { FocusTimerEnabled = v } })),
-            MakeToggleRow("Quiet during focus", "Suppress media and rain feedback while a focus session is running",
-                s.Features.QuietDuringFocus,
-                v => UpdateSettings(x => x with { Features = x.Features with { QuietDuringFocus = v } })),
-            MakeToggleRow("Quiet mode", "Temporarily suppress pill toasts and feedback",
-                s.Widgets.QuietMode,
-                v => UpdateSettings(x => x with { Widgets = x.Widgets with { QuietMode = v } })));
+                v => UpdateSettings(x => x with { Features = x.Features with { FocusTimerEnabled = v } })));
     }
 
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>
@@ -503,6 +503,22 @@ public partial class SettingsWindow : Window
         "celsius" => WeatherTemperatureUnit.Celsius,
         "fahrenheit" => WeatherTemperatureUnit.Fahrenheit,
         _ => WeatherTemperatureUnit.Auto,
+    };
+
+    private static string CallChipContentKey(CallChipContent content) => content switch
+    {
+        CallChipContent.TimerAndApp => "timer-first",
+        CallChipContent.AppName => "app-only",
+        CallChipContent.Timer => "timer-only",
+        _ => "app",
+    };
+
+    private static CallChipContent ParseCallChipContent(string value) => value switch
+    {
+        "timer-first" => CallChipContent.TimerAndApp,
+        "app-only" => CallChipContent.AppName,
+        "timer-only" => CallChipContent.Timer,
+        _ => CallChipContent.AppAndTimer,
     };
 
     private static string EdgeKey(PillEdge edge) => edge switch
