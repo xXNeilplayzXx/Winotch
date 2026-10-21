@@ -132,6 +132,35 @@ public class PillSettingsTests
     }
 
     [Fact]
+    public void DefaultMiniWidget_NormalizesAndRoundTrips()
+    {
+        Assert.Equal(IdleMiniWidget.Battery, new AppearanceSettings().ResolveDefaultMiniWidget(true));
+        Assert.Equal(IdleMiniWidget.None, new AppearanceSettings().ResolveDefaultMiniWidget(false));
+        Assert.Equal(IdleMiniWidget.Battery,
+            new AppearanceSettings { DefaultMiniWidget = (IdleMiniWidget)99 }
+                .Normalize().ResolveDefaultMiniWidget(true));
+        Assert.Equal(IdleMiniWidget.Weather,
+            new AppearanceSettings { DefaultMiniWidget = IdleMiniWidget.Weather }
+                .ResolveDefaultMiniWidget(true));
+
+        var path = Path.Combine(Path.GetTempPath(), $"winotch-mini-widget-{Guid.NewGuid():N}.json");
+        try
+        {
+            var settings = new SettingsService(path);
+            settings.Update(s => s with
+            {
+                Appearance = s.Appearance with { DefaultMiniWidget = IdleMiniWidget.Weather },
+            });
+            Assert.Equal(IdleMiniWidget.Weather,
+                new SettingsService(path).Current.Appearance.ResolveDefaultMiniWidget(true));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Settings_RoundTrip_PreservesBlurToggleAndFont()
     {
         var path = Path.Combine(Path.GetTempPath(), $"winotch-blurfont-{Guid.NewGuid():N}.json");

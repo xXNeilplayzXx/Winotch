@@ -312,7 +312,7 @@ public static class GlossyGlass
     /// stroke, and the soft sheen across the top third. <paramref name="hover"/>
     /// lifts the body and the stroke for the card under the cursor.</summary>
     public static void DrawCard(SKCanvas canvas, SKRect rect, float radius,
-        GlassPalette palette, double alpha = 1, double hover = 0)
+        GlassPalette palette, double alpha = 1, double hover = 0, float strokeWidth = 1f)
     {
         if (alpha <= 0 || rect.Width <= 0 || rect.Height <= 0) return;
         hover = Math.Clamp(hover, 0, 1);
@@ -352,7 +352,7 @@ public static class GlossyGlass
         using (var stroke = new SKPaint
         {
             Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1f,
+            StrokeWidth = strokeWidth,
             Shader = strokeShader,
             IsAntialias = true,
         })
@@ -365,7 +365,7 @@ public static class GlossyGlass
         using var topEdge = new SKPaint
         {
             Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1.2f,
+            StrokeWidth = 1.2f * strokeWidth,
             Color = Sk(palette.CardStroke, (0.40 + 0.24 * hover) * alpha),
             IsAntialias = true,
             StrokeCap = SKStrokeCap.Round,

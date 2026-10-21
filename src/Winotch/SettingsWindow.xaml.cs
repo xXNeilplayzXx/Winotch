@@ -262,17 +262,28 @@ public partial class SettingsWindow : Window
                 {
                     General = x.General with { Layout = v == "stacked" ? ClockLayout.Stacked : ClockLayout.Standard },
                 })),
+            MakeChoiceRow("Weather temperature", "Automatic follows your regional convention; or choose °C / °F",
+                new[] { ("auto", "Auto"), ("celsius", "°C"), ("fahrenheit", "°F") },
+                s.General.WeatherTemperatureUnit.ToString().ToLowerInvariant(),
+                v => UpdateSettings(x => x with
+                {
+                    General = x.General with { WeatherTemperatureUnit = ParseWeatherTemperatureUnit(v) },
+                })),
         };
         if (_rerunSetup is not null)
         {
             generalRows.Add(MakeButtonRow("Rerun setup wizard", "Reopen the two-page setup", _rerunSetup));
         }
-        generalRows.Add(MakeToggleRow("Attach to the top edge", "Unchecked = floating island below the edge",
-            s.General.Style == NotchStyle.Notch,
-            v => UpdateSettings(x => x with { General = x.General with { Style = v ? NotchStyle.Notch : NotchStyle.Island } })));
-        generalRows.Add(MakeSliderRow("Drop from top", "0 = tucked under the top edge — or just drag the pill",
-            0, 200, (int)Math.Clamp(s.Appearance.OffsetY, 0, 200),
-            v => UpdateAppearance(x => x with { OffsetY = v })));
+        generalRows.Add(MakeChoiceRow("Position", "Notch tucks into the top edge; Island floats below it. Use Pill → Drag mode to fine-tune placement",
+            new[] { ("notch", "Notch"), ("island", "Island") },
+            s.General.Style == NotchStyle.Notch ? "notch" : "island",
+            v => UpdateSettings(x => x with
+            {
+                General = x.General with { Style = v == "notch" ? NotchStyle.Notch : NotchStyle.Island },
+                Appearance = x.General.Style == (v == "notch" ? NotchStyle.Notch : NotchStyle.Island)
+                    ? x.Appearance
+                    : x.Appearance with { OffsetY = 0 },
+            })));
         generalRows.Add(MakeToggleRow("Start with Windows", "Automatically launch when you sign in",
             s.General.StartWithWindows,
             v =>
@@ -329,13 +340,9 @@ public partial class SettingsWindow : Window
                 v =>
                 {
                     var layout = ParseShellLayout(v);
-                    // Glance is the glossy skin, so switching to it turns the
-                    // glass treatment on and the notch keeps its classic size.
-                    UpdateAppearance(x => x with
-                    {
-                        ShellLayout = layout,
-                        GlossyGlass = layout == ShellLayoutMode.Glance || x.GlossyGlass,
-                    });
+                    // Glance implies the glossy skin. Keep the separate
+                    // Classic preference intact so returning to Classic restores it.
+                    UpdateAppearance(x => x.WithShellLayout(layout));
                 }),
             MakeToggleRow("Glossy glass",
                 "The milled midnight capsule with its blue glow and halo, and framed slate cards (also implied by Glance)",
@@ -371,6 +378,17 @@ public partial class SettingsWindow : Window
         _customIdleRow.Visibility = s.Appearance.IdleContent == IdleContentMode.Custom
             ? Visibility.Visible
             : Visibility.Collapsed;
+        var defaultMiniWidgetRow = MakeChoiceRow("Default mini widget",
+            "Choose the live readout shown beside the clock when Idle content is Default",
+            new[]
+            {
+                ("battery", "Battery"), ("weather", "Weather"), ("cpu", "CPU"),
+                ("memory", "Memory"), ("none", "None"),
+            }, MiniWidgetKey(s.Appearance.ResolveDefaultMiniWidget(s.Features.ShowBatteryOnPill)),
+            v => UpdateAppearance(x => x with { DefaultMiniWidget = ParseMiniWidget(v) }));
+        defaultMiniWidgetRow.Visibility = s.Appearance.IdleContent == IdleContentMode.Auto
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         var pillRows = new List<FrameworkElement>
         {
@@ -384,7 +402,9 @@ public partial class SettingsWindow : Window
                 {
                     UpdateAppearance(x => x with { IdleContent = ParseIdle(v) });
                     _customIdleRow.Visibility = v == "custom" ? Visibility.Visible : Visibility.Collapsed;
+                    defaultMiniWidgetRow.Visibility = v == "auto" ? Visibility.Visible : Visibility.Collapsed;
                 }),
+            defaultMiniWidgetRow,
             _customIdleRow,
             MakeChoiceRow("Edge attachment", "Top = the usual pill; Left / Right rotate it vertically onto that edge",
                 new[] { ("top", "Top"), ("left", "Left"), ("right", "Right") },
@@ -431,9 +451,6 @@ public partial class SettingsWindow : Window
         pillRows.Add(MakeToggleRow("Focus timer on the pill", "Countdown chip while a session runs",
             s.Features.ShowFocusOnPill,
             v => UpdateSettings(x => x with { Features = x.Features with { ShowFocusOnPill = v } })));
-        pillRows.Add(MakeToggleRow("Battery on the pill", "Battery percent in the default idle layout",
-            s.Features.ShowBatteryOnPill,
-            v => UpdateSettings(x => x with { Features = x.Features with { ShowBatteryOnPill = v } })));
         pillRows.Add(MakeToggleRow("Volume keys", "Take the volume keys over so the pill shows the level instead of Windows' OSD",
             s.Features.VolumeHudEnabled,
             v => UpdateSettings(x => x with { Features = x.Features with { VolumeHudEnabled = v } })));
@@ -481,6 +498,13 @@ public partial class SettingsWindow : Window
     private void UpdateAppearance(Func<AppearanceSettings, AppearanceSettings> change) =>
         UpdateSettings(x => x with { Appearance = change(x.Appearance) });
 
+    private static WeatherTemperatureUnit ParseWeatherTemperatureUnit(string value) => value switch
+    {
+        "celsius" => WeatherTemperatureUnit.Celsius,
+        "fahrenheit" => WeatherTemperatureUnit.Fahrenheit,
+        _ => WeatherTemperatureUnit.Auto,
+    };
+
     private static string EdgeKey(PillEdge edge) => edge switch
     {
         PillEdge.Left => "left",
@@ -493,6 +517,24 @@ public partial class SettingsWindow : Window
         "left" => PillEdge.Left,
         "right" => PillEdge.Right,
         _ => PillEdge.Top,
+    };
+
+    private static string MiniWidgetKey(IdleMiniWidget widget) => widget switch
+    {
+        IdleMiniWidget.Weather => "weather",
+        IdleMiniWidget.Cpu => "cpu",
+        IdleMiniWidget.Memory => "memory",
+        IdleMiniWidget.None => "none",
+        _ => "battery",
+    };
+
+    private static IdleMiniWidget ParseMiniWidget(string value) => value switch
+    {
+        "weather" => IdleMiniWidget.Weather,
+        "cpu" => IdleMiniWidget.Cpu,
+        "memory" => IdleMiniWidget.Memory,
+        "none" => IdleMiniWidget.None,
+        _ => IdleMiniWidget.Battery,
     };
 
     private static string IdleKey(IdleContentMode mode) => mode switch

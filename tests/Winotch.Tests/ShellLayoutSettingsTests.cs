@@ -50,6 +50,30 @@ public class ShellLayoutSettingsTests
     }
 
     [Fact]
+    public void SwitchingFromGlanceToClassic_RestoresExplicitGlossyGlassPreference()
+    {
+        var classicFlat = new AppearanceSettings().WithShellLayout(ShellLayoutMode.Glance)
+            .WithShellLayout(ShellLayoutMode.Classic);
+        Assert.False(classicFlat.GlossyGlass);
+        Assert.False(classicFlat.UsesGlossySkin);
+
+        var classicGlossy = new AppearanceSettings { GlossyGlass = true }
+            .WithShellLayout(ShellLayoutMode.Glance)
+            .WithShellLayout(ShellLayoutMode.Classic);
+        Assert.True(classicGlossy.GlossyGlass);
+        Assert.True(classicGlossy.UsesGlossySkin);
+    }
+
+    [Fact]
+    public void SelectingGlance_LeavesClassicGlossyGlassPreferenceUnchanged()
+    {
+        var before = new AppearanceSettings();
+        var glance = before.WithShellLayout(ShellLayoutMode.Glance);
+        Assert.Equal(before.GlossyGlass, glance.GlossyGlass);
+        Assert.True(glance.UsesGlossySkin);
+    }
+
+    [Fact]
     public void GlanceLayout_KeepsEveryClassicGeometrySetting()
     {
         // The skin is paint-only: the size, edge, open direction and drag

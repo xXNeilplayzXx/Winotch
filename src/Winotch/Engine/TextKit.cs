@@ -10,6 +10,12 @@ public static class TextKit
     private static SKTypeface UiRegular = null!;
     private static SKTypeface UiSemibold = null!;
     private static SKTypeface UiBold = null!;
+    private static string? _uiFamily;
+    private static string? _uiFontFile;
+    private static readonly object FontGate = new();
+    private static readonly Dictionary<string, (SKTypeface Regular, SKTypeface Semibold, SKTypeface Bold)> FaceCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly AsyncLocal<(SKTypeface Regular, SKTypeface Semibold, SKTypeface Bold)?> ScopedFaces = new();
 
     static TextKit()
     {
@@ -23,9 +29,9 @@ public static class TextKit
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface UiEmoji = Pick("Segoe UI Emoji", "Segoe UI Symbol", "Arial");
 
-    public static SKTypeface Regular => UiRegular;
-    public static SKTypeface Semibold => UiSemibold;
-    public static SKTypeface Bold => UiBold;
+    public static SKTypeface Regular => ScopedFaces.Value?.Regular ?? UiRegular;
+    public static SKTypeface Semibold => ScopedFaces.Value?.Semibold ?? UiSemibold;
+    public static SKTypeface Bold => ScopedFaces.Value?.Bold ?? UiBold;
     public static SKTypeface Icons => IconFace.Face;
 
     /// <summary>The icon face as installed, when that is how it was found, so the
@@ -55,22 +61,68 @@ public static class TextKit
     /// intentionally fixed.</summary>
     public static void SetUiFamily(string family, string? fontFile = null)
     {
+        lock (FontGate)
+        {
+            if (!string.Equals(_uiFamily, family, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_uiFontFile, fontFile, StringComparison.OrdinalIgnoreCase))
+            {
+                var faces = ResolveFacesCached(family, fontFile);
+                UiRegular = faces.Regular;
+                UiSemibold = faces.Semibold;
+                UiBold = faces.Bold;
+                _uiFamily = family;
+                _uiFontFile = fontFile;
+            }
+        }
+    }
+
+    /// <summary>Temporarily use a monitor's selected font while painting its
+    /// widget cards. Monitor profiles can have different fonts, so a card must
+    /// not depend on the application-wide face alone.</summary>
+    public static IDisposable UseFontFamily(string family, string? fontFile = null)
+    {
+        var previous = ScopedFaces.Value;
+        lock (FontGate)
+        {
+            ScopedFaces.Value = ResolveFacesCached(family, fontFile);
+        }
+        return new FontScope(previous);
+    }
+
+    private sealed class FontScope((SKTypeface Regular, SKTypeface Semibold, SKTypeface Bold)? previous) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            ScopedFaces.Value = previous;
+        }
+    }
+
+    private static (SKTypeface Regular, SKTypeface Semibold, SKTypeface Bold) ResolveFacesCached(
+        string family, string? fontFile)
+    {
+        var key = $"{family}\0{fontFile}";
+        if (FaceCache.TryGetValue(key, out var cached)) return cached;
+        var faces = ResolveFaces(family, fontFile);
+        FaceCache[key] = faces;
+        return faces;
+    }
+
+    private static (SKTypeface Regular, SKTypeface Semibold, SKTypeface Bold) ResolveFaces(
+        string family, string? fontFile)
+    {
         if (!string.IsNullOrWhiteSpace(fontFile))
         {
             var fileFace = SKTypeface.FromFile(fontFile);
-            if (fileFace is not null)
-            {
-                UiRegular = fileFace;
-                UiSemibold = fileFace;
-                UiBold = fileFace;
-                return;
-            }
+            if (fileFace is not null) return (fileFace, fileFace, fileFace);
         }
-        UiRegular = Pick(family, "Segoe UI Variable Text", "Segoe UI");
-        UiSemibold = Pick(family, "Segoe UI Variable Text", "Segoe UI",
-            weight: SKFontStyleWeight.SemiBold);
-        UiBold = Pick(family, "Segoe UI Variable Text", "Segoe UI",
-            weight: SKFontStyleWeight.Bold);
+        return (
+            Pick(family, "Segoe UI Variable Text", "Segoe UI"),
+            Pick(family, "Segoe UI Variable Text", "Segoe UI", weight: SKFontStyleWeight.SemiBold),
+            Pick(family, "Segoe UI Variable Text", "Segoe UI", weight: SKFontStyleWeight.Bold));
     }
 
     private static SKTypeface Pick(string primary, string fallback, string last,
@@ -98,7 +150,7 @@ public static class TextKit
     public static float Measure(string text, float size, SKTypeface? face = null)
     {
         if (string.IsNullOrEmpty(text)) return 0;
-        using var paint = NewPaint(size, face ?? UiRegular, Col.White);
+        using var paint = NewPaint(size, face ?? Regular, Col.White);
         return paint.MeasureText(text);
     }
 
@@ -116,7 +168,7 @@ public static class TextKit
         float size, Col color, SKTypeface? face = null)
     {
         if (string.IsNullOrEmpty(text)) return;
-        using var paint = NewPaint(size, face ?? UiRegular, color);
+        using var paint = NewPaint(size, face ?? Regular, color);
         var baseline = y - paint.FontMetrics.Ascent;
         canvas.DrawText(text, x, baseline, paint);
     }
@@ -129,7 +181,7 @@ public static class TextKit
         float size, Col color, SKTypeface? face = null)
     {
         if (string.IsNullOrEmpty(text)) return;
-        using var paint = NewPaint(size, face ?? UiRegular, color);
+        using var paint = NewPaint(size, face ?? Regular, color);
         var metrics = paint.FontMetrics;
         var baseline = centerY - (metrics.Ascent + metrics.Descent) / 2;
         canvas.DrawText(text, x, baseline, paint);
@@ -141,7 +193,7 @@ public static class TextKit
         float size, Col color, SKTypeface? face = null)
     {
         if (string.IsNullOrEmpty(text)) return;
-        using var paint = NewPaint(size, face ?? UiRegular, color);
+        using var paint = NewPaint(size, face ?? Regular, color);
         var metrics = paint.FontMetrics;
         var width = paint.MeasureText(text);
         var baseline = centerY - (metrics.Ascent + metrics.Descent) / 2;
@@ -167,7 +219,7 @@ public static class TextKit
 
     public static float LineHeight(float size, SKTypeface? face = null)
     {
-        using var paint = NewPaint(size, face ?? UiRegular, Col.White);
+        using var paint = NewPaint(size, face ?? Regular, Col.White);
         var metrics = paint.FontMetrics;
         return metrics.Descent - metrics.Ascent;
     }

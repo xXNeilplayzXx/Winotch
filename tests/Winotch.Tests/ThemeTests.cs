@@ -87,6 +87,14 @@ public class ThemeTests
     }
 
     [Fact]
+    public void ThemePalettes_ProvideContrastingWidgetForegroundsForDarkAndLightCards()
+    {
+        Assert.True(ShellTheme.Light.Text.R < ShellTheme.Light.Card.R);
+        Assert.True(ShellTheme.Dark.Text.R > ShellTheme.Dark.Card.R);
+        Assert.NotEqual(ShellTheme.Light.Muted, ShellTheme.Dark.Muted);
+    }
+
+    [Fact]
     public void Refresh_SystemDark_UsesDarkPalette()
     {
         var service = Service(Os(light: false));

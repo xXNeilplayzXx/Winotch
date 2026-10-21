@@ -69,6 +69,25 @@ public class FontFallbackTests
     }
 
     [Fact]
+    public void WidgetFontScope_ChangesWidgetTextAndRestoresTheGlobalFace()
+    {
+        var originalRegular = TextKit.Regular;
+        var originalSemibold = TextKit.Semibold;
+
+        using (TextKit.UseFontFamily("Segoe UI"))
+        {
+            Assert.True(FontFallback.Matches("Segoe UI", TextKit.Regular.FamilyName));
+            Assert.True(FontFallback.Matches("Segoe UI", TextKit.Semibold.FamilyName));
+            Assert.Equal(
+                TextKit.Measure("Widget preview", 14, TextKit.Regular),
+                TextKit.Measure("Widget preview", 14));
+        }
+
+        Assert.Same(originalRegular, TextKit.Regular);
+        Assert.Same(originalSemibold, TextKit.Semibold);
+    }
+
+    [Fact]
     public void TheFontManagerSubstitutesRatherThanFailing()
     {
         // The assumption every rule above rests on. If a future SkiaSharp

@@ -17,6 +17,8 @@ public sealed class SetupWindow : Window
     private NotchStyle _style;
     private bool _glass;
     private ExpandDirection _openDirection;
+    private IdleMiniWidget _defaultMiniWidget;
+    private WeatherTemperatureUnit _weatherTemperatureUnit;
     private DisplayMode _display;
     private string _displayDevice = "";
     private List<string> _widgets;
@@ -39,6 +41,9 @@ public sealed class SetupWindow : Window
         _style = settings.Current.General.Style;
         _glass = settings.Current.Appearance.Glass;
         _openDirection = settings.Current.General.OpenDirection;
+        _defaultMiniWidget = settings.Current.Appearance.ResolveDefaultMiniWidget(
+            settings.Current.Features.ShowBatteryOnPill);
+        _weatherTemperatureUnit = settings.Current.General.WeatherTemperatureUnit;
         _display = settings.Current.Appearance.Display;
         _displayDevice = settings.Current.Appearance.DisplayDeviceName;
         _widgets = new List<string>(settings.Current.Widgets.Enabled);
@@ -249,6 +254,8 @@ public sealed class SetupWindow : Window
         _displayMapCard.Visibility = _display == DisplayMode.Named ? Visibility.Visible : Visibility.Collapsed;
         _pageHost.Children.Add(_displayMapCard);
 
+        _pageHost.Children.Add(Card(QuickPreferencesCard()));
+
         _launcherCard = BuildLauncherCard();
         _pageHost.Children.Add(BuildWidgetsCard());
         _pageHost.Children.Add(_launcherCard);
@@ -263,6 +270,42 @@ public sealed class SetupWindow : Window
     }
 
     // ------------------------------------------------------- building blocks
+
+    private FrameworkElement QuickPreferencesCard()
+    {
+        var heading = new TextBlock
+        {
+            Text = "QUICK PREFERENCES",
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = DialogUi.Muted,
+            FontFamily = new FontFamily("Consolas, Courier New"),
+            Margin = new Thickness(4, 0, 0, 6),
+        };
+        var hint = new TextBlock
+        {
+            Text = "Choose what the default pill shows and how weather is displayed.",
+            FontSize = 11,
+            Foreground = DialogUi.Muted,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 0, 4, 8),
+        };
+        var miniWidget = LabeledChips("Default mini widget", new[]
+        {
+            (IdleMiniWidget.Battery, "Battery"),
+            (IdleMiniWidget.Weather, "Weather"),
+            (IdleMiniWidget.Cpu, "CPU"),
+            (IdleMiniWidget.Memory, "Memory"),
+            (IdleMiniWidget.None, "None"),
+        }, _defaultMiniWidget, value => _defaultMiniWidget = value);
+        var temperature = LabeledChips("Weather temperature", new[]
+        {
+            (WeatherTemperatureUnit.Auto, "Auto"),
+            (WeatherTemperatureUnit.Celsius, "°C"),
+            (WeatherTemperatureUnit.Fahrenheit, "°F"),
+        }, _weatherTemperatureUnit, value => _weatherTemperatureUnit = value);
+        return new StackPanel { Children = { heading, hint, miniWidget, temperature } };
+    }
 
     private static Border FooterRow(Button? back, Button primary, FrameworkElement? hint = null)
     {
@@ -674,11 +717,17 @@ public sealed class SetupWindow : Window
         if (_widgets.Count == 0) _widgets = new List<string>(WidgetSettings.DefaultEnabled);
         _settings.Update(s => s with
         {
-            General = s.General with { Style = _style, OpenDirection = _openDirection },
+            General = s.General with
+            {
+                Style = _style,
+                OpenDirection = _openDirection,
+                WeatherTemperatureUnit = _weatherTemperatureUnit,
+            },
             Appearance = s.Appearance with
             {
                 Theme = _theme,
                 Glass = _glass,
+                DefaultMiniWidget = _defaultMiniWidget,
                 Display = _display,
                 DisplayDeviceName = _displayDevice,
             },

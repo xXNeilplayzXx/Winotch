@@ -127,7 +127,16 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.6.1)
+## Release notes (v4.7.0)
+
+- **Weather dashboard:** the Weather card now includes a near-term rain outlook (rain now, rain starting soon, dry outlook, or forecast unavailable), alongside current conditions. Rain forecast failures no longer hide temperature and conditions, and per-monitor weather locations remain independent.
+- **Weather units:** choose Auto, °C, or °F in Settings or during first-run setup. Auto follows the regional convention; the compact weather readout uses the same selection.
+- **Choose your idle pill readout:** select Battery, Weather, CPU, Memory, or None beside the clock, with the existing battery setting preserved for older configurations.
+- **Widget polish:** per-widget sizes now influence card corners and borders; the Focus widget controls are rearranged to stay within the card at every scale. Widget text respects monitor-specific font choices, and light glossy cards have clearer text and controls.
+- **Settings and setup refinements:** Quick Preferences brings common first-run choices forward, layout switching preserves the Classic glossy preference, and position controls clarify the difference between Notch and Island.
+- **Rain alerts:** status is refreshed per monitor, shown in the Weather card, and suppressed consistently during quiet focus sessions.
+
+## Previous release notes (v4.6.1)
 
 - **Glance is a skin, not a layout.** Instead of floating a clock capsule and four glass cards around the pill, Glance now repaints the classic notch and its widget panel in the high-gloss glass material — a milled capsule rim with a pooled blue under-glow and framed slate cards with a top-lit 1px edge.
 - The notch keeps its classic width, height, position, hover panel and drag behaviour, so nothing is added to or moved around the desktop. The floating deck from 4.6.0 is gone.

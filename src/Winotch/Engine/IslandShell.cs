@@ -49,7 +49,10 @@ public sealed class IslandShell
     public FocusTimerState Focus { get; private set; } = FocusTimerState.Stopped;
     public FocusTimerSettings FocusPreset { get; private set; } =
         new(TimeSpan.FromMinutes(25), TimeSpan.FromMinutes(5), false);
-    public WeatherSnapshot? Weather { get; private set; }    public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
+    public WeatherSnapshot? Weather { get; private set; }
+    public string RainStatus { get; private set; } = "";
+    public DateTimeOffset? RainStartsAtUtc { get; private set; }
+    public SystemStatsSnapshot SystemStats { get; private set; } = new(0, 0, 0, 0);
     public CallState? Call { get; private set; }
     public bool MicrophoneActive { get; private set; }
     public bool CameraActive { get; private set; }
@@ -355,6 +358,8 @@ public sealed class IslandShell
     {
         _resolvedTheme = _themeService.Resolve(CurrentSettings);
         ShellUi.Theme = _resolvedTheme;
+        _clipboardHintLines = null;
+        _clipboardHintLinesWidth = -1;
         MarkDataDirty();
     }
 
@@ -503,6 +508,8 @@ public sealed class IslandShell
     public void SetWeather(WeatherSnapshot? weather)
     {
         Weather = weather;
+        RainStatus = weather?.RainStatus ?? "";
+        RainStartsAtUtc = weather?.RainStartsAtUtc;
         MarkDataDirty();
     }
 
@@ -952,14 +959,14 @@ public sealed class IslandShell
             "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
             "media" => Media is null ? 0 : 112,
             "notes" => 104,
-            "weather" => 106,
+            "weather" => 124,
             // With no apps the card only holds the hint line and the "add
             // apps" chip — reserving a full 58px tile row for them left ~46px
             // of dead space in a card that is enabled by default.
             "launcher" => settings.Widgets.LauncherApps.Count == 0
                 ? 72 // hint line + the "add apps" chip (spans top+36..top+64)
                 : 40 + LauncherRows(settings) * 58,
-            "focus" => settings.Features.FocusTimerEnabled ? 150 : 0,
+            "focus" => settings.Features.FocusTimerEnabled ? FocusWidgetLayout.CardHeight : 0,
             "clipboard" => settings.Features.ClipboardHistoryEnabled
                 ? ClipboardItems.Count == 0
                     ? ClipboardEmptyHeight(settings)
@@ -1210,7 +1217,7 @@ public sealed class IslandShell
 
     // -------------------------------------------------------------- pill
 
-    private enum MiniKind { Led, Brand, Text, Clock, Date, Battery, Media, Focus, Call }
+    private enum MiniKind { Led, Brand, Text, Clock, Date, Battery, Weather, Cpu, Memory, Media, Focus, Call }
 
     private readonly record struct MiniItem(MiniKind Kind, double Width);
 
@@ -1240,14 +1247,23 @@ public sealed class IslandShell
                 items.Add(new MiniItem(MiniKind.Brand, TextKit.Measure("Winotch", 11.5f, TextKit.Semibold)));
                 items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
                 break;
-            default: // Auto — the rewrite's default: LED + clock + battery
+            default: // Auto — default layout: LED + clock + selected mini widget
                 items.Add(new MiniItem(MiniKind.Clock, TextKit.Measure(clock, 15, TextKit.Semibold)));
-                if (BatteryText().Length > 0 && settings.Features.ShowBatteryOnPill)
+                var miniWidget = settings.Appearance.ResolveDefaultMiniWidget(settings.Features.ShowBatteryOnPill);
+                (MiniKind? Kind, string? Text) mini = miniWidget switch
                 {
-                    // The dot's box starts 2px in and its label 19px in, so 20 is
-                    // the honest width; 16 let the percent run out of its chip.
-                    items.Add(new MiniItem(MiniKind.Battery,
-                        20 + TextKit.Measure(BatteryText(), 10.5f, TextKit.Monospace)));
+                    IdleMiniWidget.Weather => (MiniKind.Weather, MiniWeatherText()),
+                    IdleMiniWidget.Cpu => (MiniKind.Cpu, $"{SystemStats.CpuPercent:0}%"),
+                    IdleMiniWidget.Memory => (MiniKind.Memory, $"{SystemStats.MemoryPercent:0}%"),
+                    IdleMiniWidget.None => (null, null),
+                    _ => (MiniKind.Battery, BatteryText()),
+                };
+                if (mini.Kind == MiniKind.Battery && mini.Text!.Length == 0) mini = (null, null);
+                if (mini.Kind is { } kind && mini.Text is { } text)
+                {
+                    // Keep the selected readout compact and self-sizing, just like
+                    // the old battery chip. Weather uses a short temperature label.
+                    items.Add(new MiniItem(kind, 20 + TextKit.Measure(text, 10.5f, TextKit.Monospace)));
                 }
                 break;
         }
@@ -1399,6 +1415,11 @@ public sealed class IslandShell
                     break;
                 case MiniKind.Battery:
                     DrawBattery(canvas, x + 8, (float)cy, BatteryText());
+                    break;
+                case MiniKind.Weather:
+                case MiniKind.Cpu:
+                case MiniKind.Memory:
+                    DrawMiniReadout(canvas, item.Kind, x, (float)cy);
                     break;
                 case MiniKind.Media:
                     DrawMediaChip(canvas, x, cy);
@@ -1604,7 +1625,9 @@ public sealed class IslandShell
             var cardH = WidgetCardHeight(id, settings);
             if (cardH <= 0) continue;
             var ftop = CardTop(id, top);
-            DrawCard(canvas, cardLeft, ftop, cardWidth, (float)cardH);
+            var scale = settings.Widgets.SizeFor(id);
+            DrawCard(canvas, cardLeft, ftop, cardWidth, (float)cardH,
+                scale.BorderRadius(13f), scale.BorderWidth(1f));
             DrawCardHeader(canvas, cardLeft, ftop, cardWidth, id);
             DrawWidgetBody(canvas, cardLeft, ftop, cardWidth, id, settings);
         }
@@ -1703,6 +1726,7 @@ public sealed class IslandShell
             MiniKind.Clock => ClockText(settings),
             MiniKind.Date => ShortDate(settings),
             MiniKind.Battery => BatteryText(),
+            MiniKind.Weather or MiniKind.Cpu or MiniKind.Memory => MiniReadoutText(item.Kind),
             MiniKind.Media => MiniTrackLabel(),
             MiniKind.Focus => FocusLabel(),
             MiniKind.Call => CallLabel(),
@@ -1716,7 +1740,8 @@ public sealed class IslandShell
     {
         MiniKind.Clock => (15, TextKit.Semibold, ShellUi.Text),
         MiniKind.Date => (10, TextKit.Monospace, ShellUi.Fade(ShellUi.Muted, 0.95)),
-        MiniKind.Battery => (10.5f, TextKit.Monospace, ShellUi.Fade(ShellUi.Muted, 0.95)),
+        MiniKind.Battery or MiniKind.Weather or MiniKind.Cpu or MiniKind.Memory =>
+            (10.5f, TextKit.Monospace, ShellUi.Fade(ShellUi.Muted, 0.95)),
         MiniKind.Call => (11.5f, TextKit.Semibold, ShellUi.Ok),
         MiniKind.Focus => (11.5f, TextKit.Semibold,
             Focus.Phase == FocusTimerPhase.Break ? ShellUi.Ok : ShellUi.Accent),
@@ -1786,7 +1811,15 @@ public sealed class IslandShell
     /// mapped into the scaled local frame (like the rotated pill does).</summary>
     private void DrawWidgetBody(SKCanvas canvas, float left, float top, float width, string id, WinotchSettings settings)
     {
+        using var font = TextKit.UseFontFamily(FontChoice.FamilyOf(settings.Appearance.Font),
+            FontChoice.CustomFile(settings.Appearance.Font));
         var f = (float)settings.Widgets.SizeFor(id).Factor();
+        DrawWidgetBodyCoreScaled(canvas, left, top, width, id, settings, f);
+    }
+
+    private void DrawWidgetBodyCoreScaled(SKCanvas canvas, float left, float top, float width,
+        string id, WinotchSettings settings, float f)
+    {
         if (f == 1f)
         {
             DrawWidgetBodyCore(canvas, left, top, width, id, settings);
@@ -1839,11 +1872,14 @@ public sealed class IslandShell
         var index = enabled.IndexOf(id);
         var cy = top + 16;
 
+        var headerColor = GlossySkin
+            ? _resolvedTheme.IsLight ? Col.Rgba(0x39, 0x48, 0x5C) : Col.Rgba(0xDC, 0xE6, 0xF4)
+            : ShellUi.Muted;
         TextKit.Draw(canvas, WidgetSettings.Labels[id].ToUpperInvariant(), left + 22, top + 10, 8.5f,
-            ShellUi.Fade(ShellUi.Muted, 1), TextKit.Monospace);
+            ShellUi.Fade(headerColor, 1), TextKit.Monospace);
 
         // ✕ remove
-        DrawIconButton(canvas, right - 10, cy, "\uE711", () => RemoveWidget(id));
+        DrawCardIconButton(canvas, right - 10, cy, "\uE711", () => RemoveWidget(id));
         var cx = right - 10;
 
         // ⚙ edit (configurable cards only)
@@ -1860,29 +1896,31 @@ public sealed class IslandShell
         };
         if (edit is not null)
         {
-            DrawIconButton(canvas, cx - 28, cy, "\uE713", edit);
+            DrawCardIconButton(canvas, cx - 28, cy, "\uE713", edit);
         }
 
         // ↓ move down
         var downX = cx - (edit is not null ? 56 : 28);
         if (index >= 0 && index < enabled.Count - 1)
         {
-            DrawIconButton(canvas, downX, cy, "\uE70D", () => MoveWidget(id, 1));
+            DrawCardIconButton(canvas, downX, cy, "\uE70D", () => MoveWidget(id, 1));
         }
         else
         {
-            ShellUi.DrawGlyph(canvas, "\uE70D", downX, cy, 12.5f, ShellUi.Fade(ShellUi.Text, 0.22));
+            ShellUi.DrawGlyph(canvas, "\uE70D", downX, cy, 12.5f,
+                ShellUi.Fade(GlossySkin && _resolvedTheme.IsLight ? Col.Rgba(0x4F, 0x5D, 0x70) : ShellUi.Text, 0.42));
         }
 
         // ↑ move up
         var upX = downX - 28;
         if (index > 0)
         {
-            DrawIconButton(canvas, upX, cy, "\uE70E", () => MoveWidget(id, -1));
+            DrawCardIconButton(canvas, upX, cy, "\uE70E", () => MoveWidget(id, -1));
         }
         else
         {
-            ShellUi.DrawGlyph(canvas, "\uE70E", upX, cy, 12.5f, ShellUi.Fade(ShellUi.Text, 0.22));
+            ShellUi.DrawGlyph(canvas, "\uE70E", upX, cy, 12.5f,
+                ShellUi.Fade(GlossySkin && _resolvedTheme.IsLight ? Col.Rgba(0x4F, 0x5D, 0x70) : ShellUi.Text, 0.42));
         }
 
         // Brief accent flash on the arrow that was just clicked.
@@ -2250,6 +2288,7 @@ public sealed class IslandShell
         var config = settings.Widgets.Weather;
         var x = left + 14;
         var snapshot = Weather;
+        var fahrenheit = TemperatureFormatter.UsesFahrenheit(settings.General.WeatherTemperatureUnit);
         if (snapshot is null && !config.HasLocation)
         {
             TextKit.Draw(canvas, "No location set yet.", x, top + 42, 11.5f, ShellUi.Fade(ShellUi.Muted, 1));
@@ -2264,12 +2303,24 @@ public sealed class IslandShell
             return;
         }
         TextKit.DrawCentered(canvas, snapshot.Emoji, x + 18, top + 52, 22, ShellUi.Text, TextKit.Emoji);
-        TextKit.Draw(canvas, $"{Math.Round(snapshot.Temp)}", x + 42, top + 42, 24, ShellUi.Text, TextKit.Semibold);
-        TextKit.Draw(canvas, "\u00B0", x + 42 + TextKit.Measure($"{Math.Round(snapshot.Temp)}", 24, TextKit.Semibold), top + 42, 24, ShellUi.Fade(ShellUi.Text, 0.8f), TextKit.Semibold);
-        var meta = $"{snapshot.Label} \u00B7 feels {Math.Round(snapshot.Feels)}\u00B0 \u00B7 H {Math.Round(snapshot.Max)}\u00B0 L {Math.Round(snapshot.Min)}\u00B0";
+        var temperature = TemperatureFormatter.Format(snapshot.Temp, fahrenheit);
+        TextKit.Draw(canvas, temperature, x + 42, top + 42, 24, ShellUi.Text, TextKit.Semibold);
+        var meta = $"{snapshot.Label} · feels {TemperatureFormatter.Format(snapshot.Feels, fahrenheit)} · H {TemperatureFormatter.Format(snapshot.Max, fahrenheit)} L {TemperatureFormatter.Format(snapshot.Min, fahrenheit)}";
         var textWidth = Math.Max(70, width - 76); // keep clear of the emoji/temp block
         TextKit.Draw(canvas, ShellUi.Ellipsize(meta, textWidth, 10.5f, TextKit.Regular), x + 42, top + 72, 10.5f, ShellUi.Fade(ShellUi.Muted, 1));
-        TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, textWidth, 10f, TextKit.Regular), x + 42, top + 88, 10f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+        var rainStatus = string.IsNullOrWhiteSpace(snapshot.RainStatus) ? RainStatus : snapshot.RainStatus;
+        if (!string.IsNullOrWhiteSpace(rainStatus))
+        {
+            var raining = rainStatus == "Rain now";
+            TextKit.Draw(canvas, ShellUi.Ellipsize(rainStatus, textWidth, 10f, TextKit.Regular), x + 42, top + 88,
+                10f, ShellUi.Fade(raining ? ShellUi.Accent : ShellUi.Muted, 0.95f));
+            TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, textWidth, 9.5f, TextKit.Regular), x + 42, top + 103,
+                9.5f, ShellUi.Fade(ShellUi.Muted, 0.75f));
+        }
+        else
+        {
+            TextKit.Draw(canvas, ShellUi.Ellipsize(snapshot.City, textWidth, 10f, TextKit.Regular), x + 42, top + 88, 10f, ShellUi.Fade(ShellUi.Muted, 0.85f));
+        }
     }
 
     private void DrawLauncherWidget(SKCanvas canvas, float left, float top, float width, WinotchSettings settings)
@@ -2339,38 +2390,44 @@ public sealed class IslandShell
 
     private void DrawFocusWidget(SKCanvas canvas, float left, float top, float width)
     {
-        var right = left + width;
         var isBreak = Focus.Phase == FocusTimerPhase.Break;
         var accent = isBreak ? ShellUi.Ok : ShellUi.Accent;
         var remaining = FocusLabel();
-        if (remaining.Length > 0)
-        {
-            var remainingWidth = TextKit.Measure(remaining, 16, TextKit.Monospace);
-            TextKit.Draw(canvas, remaining, right - 22 - remainingWidth, top + 9, 16,
-                isBreak ? ShellUi.Ok : ShellUi.Text, TextKit.Monospace);
-        }
+        var phase = Focus.IsActive ? Focus.PhaseLabel.ToUpperInvariant() : "";
+        var session = Focus.CompletedFocusCycles > 0 ? $"SESSION {Focus.CompletedFocusCycles + 1}" : "";
+        var right = left + width;
+        var contentLeft = left + 12;
+        var contentRight = right - 12;
+        var remainingWidth = remaining.Length > 0
+            ? TextKit.Measure(remaining, 16, TextKit.Monospace)
+            : 0;
 
-        // Phase + session readout while the timer runs.
+        // On an active timer, give the phase/session label and clock separate
+        // sides of the first row; in idle mode show a single centered prompt.
         if (Focus.IsActive)
         {
-            var phase = Focus.PhaseLabel.ToUpperInvariant();
-            TextKit.Draw(canvas, phase, left + 12, top + 10, 9.5f, accent, TextKit.Monospace);
-            if (Focus.CompletedFocusCycles > 0)
-            {
-                TextKit.Draw(canvas, $"session {Focus.CompletedFocusCycles + 1}",
-                    left + 12 + TextKit.Measure(phase, 9.5f, TextKit.Monospace) + 10, top + 10, 9.5f,
-                    ShellUi.Fade(ShellUi.Muted, 0.9f), TextKit.Monospace);
-            }
+            var label = session.Length > 0 ? $"{phase}  {session}" : phase;
+            var maxLabelWidth = Math.Max(0, contentRight - contentLeft - remainingWidth - 12);
+            TextKit.Draw(canvas, ShellUi.Ellipsize(label, (float)maxLabelWidth, 9.5f, TextKit.Monospace),
+                contentLeft, top + 10, 9.5f, accent, TextKit.Monospace);
+            TextKit.Draw(canvas, remaining, contentRight - remainingWidth, top + 8, 16,
+                isBreak ? ShellUi.Ok : ShellUi.Text, TextKit.Monospace);
+        }
+        else
+        {
+            TextKit.DrawCentered(canvas, "Choose a focus session", left + width / 2,
+                top + 14, 11f, ShellUi.Fade(ShellUi.Muted, 0.95f), TextKit.Regular);
         }
 
+        var barLeft = contentLeft;
+        var barWidth = Math.Max(0, contentRight - contentLeft);
         var barY = top + 34;
-        var barLeft = left + 12;
-        var barWidth = width - 24;
         FillRound(canvas, barLeft, barY, barWidth, 4, 2, ShellUi.Hairline);
         var progress = Focus.ProgressAt(DateTimeOffset.UtcNow);
         if (progress > 0.01)
         {
-            FillRound(canvas, barLeft, barY, (float)(barWidth * progress), 4, 2, ShellUi.Fade(accent, 0.9));
+            FillRound(canvas, barLeft, barY, (float)(barWidth * progress), 4, 2,
+                ShellUi.Fade(accent, 0.9));
         }
         DrawFocusActions(canvas, left, top, width, accent);
     }
@@ -2583,49 +2640,61 @@ public sealed class IslandShell
 
     private void DrawFocusActions(SKCanvas canvas, float left, float top, float width, Col accent)
     {
-        var cy = top + 88;
-        var x = left + 14;
-        if (Focus.IsActive)
+        var idle = !Focus.IsActive;
+        if (idle)
         {
-            var toggleLabel = Focus.Status == FocusTimerStatus.Paused ? "resume" : "pause";
-            var rect = ChipCentered(canvas, toggleLabel, x + 38, cy,
-                Focus.Status == FocusTimerStatus.Paused);
-            RegisterButton(rect, Focus.Status == FocusTimerStatus.Paused ? ResumeFocus : PauseFocus);
-
-            x = rect.Right + 10;
-            var skipRect = ChipCentered(canvas, "skip", x + 28, cy, false);
-            RegisterButton(skipRect, SkipFocus);
-
-            x = skipRect.Right + 10;
-            var stopRect = ChipCentered(canvas, "stop", x + 30, cy, false);
-            RegisterButton(stopRect, StopFocus);
-
-            // Auto-break loop toggle rides the far right while running.
-            var loopChip = ChipRight(canvas, "auto-break", left + width - 12, cy, LoopEnabled);
-            RegisterButton(loopChip, ToggleLoop);
-            var quietChip = ChipRight(canvas, "quiet", left + width - 12, cy - 34, FocusQuietEnabled);
-            RegisterButton(quietChip, ToggleFocusQuiet);
-        }
-        else
-        {
-            // Four preset pairs, then custom + auto-break on a second row.
-            var centerX = left + width / 2;
-            var row1Y = top + 54;
-            RegisterButton(ChipCentered(canvas, "15 / 5", centerX - 3 * 40, row1Y, PresetMatches(15, 5)),
-                () => StartFocus(15, 5));
-            RegisterButton(ChipCentered(canvas, "25 / 5", centerX - 1 * 40, row1Y, PresetMatches(25, 5)),
-                () => StartFocus(25, 5));
-            RegisterButton(ChipCentered(canvas, "50 / 10", centerX + 1 * 40, row1Y, PresetMatches(50, 10)),
-                () => StartFocus(50, 10));
-            RegisterButton(ChipCentered(canvas, "90 / 20", centerX + 3 * 40, row1Y, PresetMatches(90, 20)),
-                () => StartFocus(90, 20));
-
-            var row2Y = top + 96;
-            RegisterButton(ChipCentered(canvas, "custom\u2026", centerX - 52, row2Y, false),
+            // Presets are laid out as two balanced rows, leaving comfortable
+            // breathing room inside the card at every scale.
+            var rowY = top + (float)FocusWidgetLayout.ChipRowOneY;
+            var presetLabels = new[] { "15 / 5", "25 / 5", "50 / 10", "90 / 20" };
+            var presetWidths = presetLabels.Select(label => TextKit.Measure(label, 11f, TextKit.Semibold) + 24).ToArray();
+            var firstCenters = FocusWidgetLayout.CenteredChipCenters(width,
+                presetWidths.Take(2).Select(value => (double)value).ToArray(), gap: 8);
+            var secondCenters = FocusWidgetLayout.CenteredChipCenters(width,
+                new[]
+                {
+                    (double)(TextKit.Measure("custom…", 11f, TextKit.Semibold) + 24),
+                    (double)(TextKit.Measure("auto-break", 11f, TextKit.Semibold) + 24),
+                }, gap: 8);
+            for (var i = 0; i < 2; i++)
+            {
+                var minutes = i == 0 ? 15 : 25;
+                var rest = 5;
+                RegisterButton(ChipCentered(canvas, presetLabels[i], left + (float)firstCenters[i], rowY,
+                    PresetMatches(minutes, rest)), () => StartFocus(minutes, rest));
+            }
+            for (var i = 0; i < 2; i++)
+            {
+                var minutes = i == 0 ? 50 : 90;
+                var rest = i == 0 ? 10 : 20;
+                RegisterButton(ChipCentered(canvas, presetLabels[i + 2], left + (float)secondCenters[i], top + (float)FocusWidgetLayout.ChipRowTwoY,
+                    PresetMatches(minutes, rest)), () => StartFocus(minutes, rest));
+            }
+            RegisterButton(ChipCentered(canvas, "custom…", left + (float)secondCenters[0], top + (float)FocusWidgetLayout.ChipRowThreeY, false),
                 () => FocusCustomRequested?.Invoke());
-            RegisterButton(ChipCentered(canvas, "auto-break", centerX + 54, row2Y, LoopEnabled),
+            RegisterButton(ChipCentered(canvas, "auto-break", left + (float)secondCenters[1], top + (float)FocusWidgetLayout.ChipRowThreeY, LoopEnabled),
                 ToggleLoop);
+            return;
         }
+
+        var chipLabels = new[]
+        {
+            Focus.Status == FocusTimerStatus.Paused ? "resume" : "pause",
+            "skip", "stop", "auto-break",
+        };
+        var chipWidths = chipLabels.Select(label => TextKit.Measure(label, 11f, TextKit.Semibold) + 24).ToArray();
+        var centers = FocusWidgetLayout.CenteredChipCenters(width,
+            chipWidths.Select(value => (double)value).ToArray(), gap: 6);
+        var cy = top + (float)FocusWidgetLayout.ActiveChipRowY;
+        var toggle = ChipCentered(canvas, chipLabels[0], left + (float)centers[0], cy,
+            Focus.Status == FocusTimerStatus.Paused);
+        RegisterButton(toggle, Focus.Status == FocusTimerStatus.Paused ? ResumeFocus : PauseFocus);
+        RegisterButton(ChipCentered(canvas, chipLabels[1], left + (float)centers[1], cy, false), SkipFocus);
+        RegisterButton(ChipCentered(canvas, chipLabels[2], left + (float)centers[2], cy, false), StopFocus);
+        RegisterButton(ChipCentered(canvas, chipLabels[3], left + (float)centers[3], cy, LoopEnabled), ToggleLoop);
+        var bottomChipWidth = TextKit.Measure("quiet", 11f, TextKit.Semibold) + 24;
+        var bottomChipCenter = FocusWidgetLayout.CenteredChipCenters(width, [bottomChipWidth])[0];
+        RegisterButton(ChipCentered(canvas, "quiet", left + (float)bottomChipCenter, top + (float)FocusWidgetLayout.ChipRowThreeY, FocusQuietEnabled), ToggleFocusQuiet);
     }
 
     /// <summary>Whether the persisted preset matches the given minutes — the
@@ -2687,16 +2756,30 @@ public sealed class IslandShell
             () => DeleteClipboardEntryRequested?.Invoke(entry.Id));
     }
 
-    private void DrawCard(SKCanvas canvas, float x, float y, float w, float h)
+    private void DrawCard(SKCanvas canvas, float x, float y, float w, float h,
+        float radius, float borderWidth)
     {
         if (!GlossySkin)
         {
-            FillRound(canvas, x, y, w, h, 13, ShellUi.Card);
+            FillRound(canvas, x, y, w, h, radius, ShellUi.Card);
+            ShellUi.StrokeRound(canvas, x, y, w, h, radius, borderWidth,
+                ShellUi.Fade(ShellUi.Stroke, 0.62));
             return;
         }
-        // The design frames every card the same way: a translucent slate body,
-        // rounded corners, and a 1px cool-white edge.
-        GlossyGlass.DrawCard(canvas, new SKRect(x, y, x + w, y + h), GlossyGlass.CardRadius, Glass);
+        // The design frames every card with a translucent slate body and a
+        // cool edge; both radius and edge weight track this card's chosen scale.
+        GlossyGlass.DrawCard(canvas, new SKRect(x, y, x + w, y + h), radius, Glass,
+            strokeWidth: borderWidth);
+    }
+
+    private void DrawCardIconButton(SKCanvas canvas, float cx, float cy, string glyph, Action? action)
+    {
+        var color = GlossySkin && _resolvedTheme.IsLight ? Col.Rgba(0x2D, 0x3A, 0x4C) : ShellUi.Text;
+        var hover = GlossySkin && _resolvedTheme.IsLight ? Col.Rgba(0xD1, 0xDE, 0xEF) : ShellUi.CardHover;
+        var hovering = Math.Abs(_cursorX - cx) <= 16 && Math.Abs(_cursorY - cy) <= 16;
+        if (hovering) ShellUi.FillCircle(canvas, cx, cy, 15, hover);
+        ShellUi.DrawGlyph(canvas, glyph, cx, cy, 12.5f, hovering ? color : ShellUi.Fade(color, 0.82f));
+        if (action is not null) RegisterButton(new SKRect(cx - 15, cy - 15, cx + 15, cy + 15), action);
     }
 
     private void DrawIconButton(SKCanvas canvas, float cx, float cy, string glyph, Action? action)
@@ -3027,6 +3110,27 @@ public sealed class IslandShell
     {
         if (Battery.Percent >= 100 && !Battery.IsCharging) return "";
         return $"{Battery.Percent}%";
+    }
+
+    private string MiniWeatherText() => Weather is { } weather
+        ? TemperatureFormatter.Format(weather.Temp,
+            TemperatureFormatter.UsesFahrenheit(CurrentSettings.General.WeatherTemperatureUnit))
+        : "—°";
+
+    private string MiniReadoutText(MiniKind kind) => kind switch
+    {
+        MiniKind.Weather => MiniWeatherText(),
+        MiniKind.Cpu => $"{SystemStats.CpuPercent:0}%",
+        MiniKind.Memory => $"{SystemStats.MemoryPercent:0}%",
+        _ => "",
+    };
+
+    private void DrawMiniReadout(SKCanvas canvas, MiniKind kind, float x, float cy)
+    {
+        var text = MiniReadoutText(kind);
+        if (text.Length == 0) return;
+        TextKit.Draw(canvas, text, x + 11, cy - 8, 10.5f,
+            ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
     }
 
     /// <summary>The four privacy-aware LED states from the legacy app: green on

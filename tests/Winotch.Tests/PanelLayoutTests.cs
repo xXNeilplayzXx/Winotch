@@ -85,6 +85,51 @@ public class PanelLayoutTests
         Assert.True(Math.Abs(left - right) <= 130, $"columns wildly unbalanced: {left} vs {right}");
     }
 
+    [Theory]
+    [InlineData(WidgetScale.Compact)]
+    [InlineData(WidgetScale.Standard)]
+    [InlineData(WidgetScale.Large)]
+    public void FocusWidgetControls_StayInsideTheScaledCard(WidgetScale scale)
+    {
+        var factor = scale.Factor();
+        var cardHeight = FocusWidgetLayout.CardHeight * factor;
+        const double chipHalfHeight = 14;
+        var rowYs = new[]
+        {
+            FocusWidgetLayout.ChipRowOneY,
+            FocusWidgetLayout.ChipRowTwoY,
+            FocusWidgetLayout.ChipRowThreeY,
+            FocusWidgetLayout.ActiveChipRowY,
+        };
+
+        Assert.All(rowYs, rowY => Assert.InRange((rowY + chipHalfHeight) * factor, 0, cardHeight));
+        Assert.True((FocusWidgetLayout.ChipRowThreeY + chipHalfHeight + 8) * factor < cardHeight,
+            "The bottom focus controls must leave visible padding before the card border.");
+    }
+
+    [Fact]
+    public void FocusWidgetChipRows_CenterWithinNarrowCards()
+    {
+        var rows = new[]
+        {
+            new[] { 60d, 60d },
+            new[] { 68d, 68d },
+            new[] { 68d, 102d },
+            new[] { 54d, 46d, 49d, 81d },
+        };
+
+        foreach (var row in rows)
+        {
+            var centers = FocusWidgetLayout.CenteredChipCenters(290, row, gap: 6);
+            Assert.Equal(row.Length, centers.Length);
+            for (var i = 0; i < row.Length; i++)
+            {
+                Assert.InRange(centers[i] - row[i] / 2, 10, 280);
+                Assert.InRange(centers[i] + row[i] / 2, 10, 280);
+            }
+        }
+    }
+
     [Fact]
     public void ClipboardEmptyCardHeight_IsUnscaledAndMatchesTheDrawConstants()
     {

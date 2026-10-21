@@ -266,6 +266,24 @@ public sealed class WeatherService : IDisposable
         return new PrecipitationProbe(times, probability, mm);
     }
 
+    /// <summary>Fetch current conditions plus a best-effort near-term rain
+    /// outlook. A precipitation endpoint hiccup must not suppress temperature
+    /// and condition data from the current-weather endpoint.</summary>
+    public async Task<WeatherSnapshot?> GetDashboardAsync(string city, double lat, double lon)
+    {
+        var currentTask = GetForecastAsync(city, lat, lon);
+        var precipitationTask = GetPrecipitationProbeAsync(lat, lon);
+        try { await Task.WhenAll(currentTask, precipitationTask); }
+        catch { /* Read each result below; rain failure must not hide current conditions. */ }
+        var current = await currentTask;
+        if (current is null) return null;
+        var probe = precipitationTask.Status == TaskStatus.RanToCompletion
+            ? precipitationTask.Result
+            : null;
+        return WeatherDashboardStatus.Create(current, probe?.Times, probe?.Probability, probe?.Mm,
+            DateTimeOffset.UtcNow);
+    }
+
     /// <summary>Fetch current + today's min/max for a location.</summary>
     public async Task<WeatherSnapshot?> GetForecastAsync(string city, double lat, double lon)
     {

@@ -52,8 +52,12 @@ public enum DisplayMode { Main, Named, All, FollowActive }
 
 /// <summary>What the collapsed pill shows when nothing else is demanding the
 /// strip (no media, no call, no focus timer). Auto keeps the current default
-/// layout (LED + clock + battery); the rest are the legacy idle options.</summary>
+/// layout (LED + clock + selected mini widget); the rest are the legacy idle options.</summary>
 public enum IdleContentMode { Auto, BrandClock, ClockOnly, Custom, DotOnly }
+
+/// <summary>The compact live readout displayed beside the clock in Default
+/// idle mode. None keeps the pill to the LED and clock alone.</summary>
+public enum IdleMiniWidget { Battery, Weather, Cpu, Memory, None }
 
 /// <summary>Which skin the notch wears. Both layouts are the classic pill at the
 /// same size with the same hover panel — Classic paints the flat palette surface
@@ -86,6 +90,13 @@ public sealed record AppearanceSettings
     /// <summary>True when the notch paints the high-gloss material. Glance is
     /// that skin by definition; the toggle also lets a Classic notch wear it.</summary>
     public bool UsesGlossySkin => GlossyGlass || ShellLayout == ShellLayoutMode.Glance;
+
+    /// <summary>Change the shell layout without changing the user's separate
+    /// Classic glossy-glass preference. Glance implies gloss while selected;
+    /// returning to Classic reveals the saved preference again.</summary>
+    public AppearanceSettings WithShellLayout(ShellLayoutMode layout) =>
+        this with { ShellLayout = layout };
+
     public int Opacity { get; init; } = 65;
     public int Blur { get; init; } = 14;
     public bool BlurEnabled { get; init; } = true;
@@ -110,6 +121,16 @@ public sealed record AppearanceSettings
     public string SizePreset { get; init; } = "standard";
 
     public IdleContentMode IdleContent { get; init; } = IdleContentMode.Auto;
+
+    /// <summary>The compact readout used by Default idle content. Null means
+    /// use the legacy battery toggle, preserving existing user preferences.</summary>
+    public IdleMiniWidget? DefaultMiniWidget { get; init; }
+
+    public IdleMiniWidget ResolveDefaultMiniWidget(bool legacyBatteryEnabled) =>
+        DefaultMiniWidget is { } choice && Enum.IsDefined(choice)
+            ? choice
+            : legacyBatteryEnabled ? IdleMiniWidget.Battery : IdleMiniWidget.None;
+
     public string CustomIdleText { get; init; } = "";
 
     /// <summary>In side mode (pill attached to the left/right edge), render
@@ -143,6 +164,9 @@ public sealed record AppearanceSettings
         Opacity = Math.Clamp(Opacity, 10, 100),
         Blur = Math.Clamp(Blur, 0, 40),
         ShellLayout = Enum.IsDefined(ShellLayout) ? ShellLayout : ShellLayoutMode.Classic,
+        DefaultMiniWidget = DefaultMiniWidget is { } miniWidget && Enum.IsDefined(miniWidget)
+            ? miniWidget
+            : null,
         Font = FontChoice.IsKnown(Font) ? Font : FontChoice.Aptos,
         CustomFonts = (CustomFonts ?? new List<string>())
             .Where(f => !string.IsNullOrWhiteSpace(f))
@@ -362,6 +386,9 @@ public sealed record GeneralSettings
     /// height following the width.</summary>
     public ExpandDirection OpenDirection { get; init; } = ExpandDirection.Vertical;
 
+    /// <summary>Display weather in the user's regional unit, or override it.</summary>
+    public WeatherTemperatureUnit WeatherTemperatureUnit { get; init; } = WeatherTemperatureUnit.Auto;
+
     /// <summary>Look for a newer build on GitHub when the app starts.</summary>
     public bool AutoCheckUpdates { get; init; } = true;
 
@@ -383,6 +410,9 @@ public sealed record GeneralSettings
 
     public GeneralSettings Normalize() => this with
     {
+        WeatherTemperatureUnit = Enum.IsDefined(WeatherTemperatureUnit)
+            ? WeatherTemperatureUnit
+            : WeatherTemperatureUnit.Auto,
         OpenSettingsSections = (OpenSettingsSections ?? new List<string>())
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Select(id => id.Trim().ToLowerInvariant())
@@ -391,6 +421,8 @@ public sealed record GeneralSettings
             .ToList(),
     };
 }
+
+public enum WeatherTemperatureUnit { Auto, Celsius, Fahrenheit }
 
 /// <summary>How the expanded panel header and clock widget stack the date:
 /// Standard puts the date off to the side, Stacked centers it under the time.</summary>
@@ -596,6 +628,9 @@ public sealed record FeatureSettings
     public bool ShowCallsOnPill { get; init; } = true;
     public bool ShowMediaOnPill { get; init; } = true;
     public bool ShowFocusOnPill { get; init; } = true;
+
+    /// <summary>Legacy battery-chip preference used when older settings have
+    /// no DefaultMiniWidget selection. New settings use Appearance.DefaultMiniWidget.</summary>
     public bool ShowBatteryOnPill { get; init; } = true;
 }
 
@@ -703,6 +738,37 @@ public sealed record WidgetSettings
 /// <summary>How large widget cards render inside the expanded panel.</summary>
 public enum WidgetScale { Compact, Standard, Large }
 
+public static class FocusWidgetLayout
+{
+    public const double CardHeight = 172;
+    public const double ChipRowOneY = 56;
+    public const double ChipRowTwoY = 91;
+    public const double ChipRowThreeY = 126;
+    public const double ActiveChipRowY = 94;
+
+    /// <summary>Centers a row of pill-shaped focus controls without exceeding
+    /// the card width. The caller supplies each control's measured width.</summary>
+    public static double[] CenteredChipCenters(double width, IReadOnlyList<double> chipWidths,
+        double gap = 8, double sidePadding = 10)
+    {
+        if (chipWidths.Count == 0) return Array.Empty<double>();
+        var usable = Math.Max(0, width - 2 * sidePadding);
+        var totalChips = chipWidths.Sum();
+        var actualGap = chipWidths.Count == 1
+            ? 0
+            : Math.Min(Math.Max(0, gap), Math.Max(0, (usable - totalChips) / (chipWidths.Count - 1)));
+        var total = totalChips + actualGap * (chipWidths.Count - 1);
+        var x = (width - total) / 2;
+        var centers = new double[chipWidths.Count];
+        for (var i = 0; i < chipWidths.Count; i++)
+        {
+            centers[i] = x + chipWidths[i] / 2;
+            x += chipWidths[i] + actualGap;
+        }
+        return centers;
+    }
+}
+
 public static class WidgetScaleExtensions
 {
     public static double Factor(this WidgetScale scale) => scale switch
@@ -711,6 +777,16 @@ public static class WidgetScaleExtensions
         WidgetScale.Large => 1.15,
         _ => 1.0,
     };
+
+    /// <summary>Scale a card's corner radius with its body so compact cards
+    /// feel tighter and large cards feel more spacious.</summary>
+    public static float BorderRadius(this WidgetScale scale, float standardRadius) =>
+        standardRadius * (float)scale.Factor();
+
+    /// <summary>Scale border weight with the card, retaining a visible hairline
+    /// at Compact and a slightly stronger edge at Large.</summary>
+    public static float BorderWidth(this WidgetScale scale, float standardWidth) =>
+        standardWidth * (float)scale.Factor();
 
     public static string Label(this WidgetScale scale) => scale switch
     {
@@ -861,7 +937,99 @@ public sealed record SystemMetricsConfig
 }
 
 /// <summary>Live weather shown by the weather card (fetched, not persisted).</summary>
-public sealed record WeatherSnapshot(string Emoji, string Label, double Temp, double Feels, double Max, double Min, string City);
+public sealed record WeatherSnapshot(string Emoji, string Label, double Temp, double Feels, double Max, double Min, string City)
+{
+    /// <summary>Live rain status for the next 30 minutes, when known.</summary>
+    public string RainStatus { get; init; } = "";
+    public DateTimeOffset? RainStartsAtUtc { get; init; }
+}
+
+/// <summary>Purely formats the near-term rain state behind the rain alert.
+/// Buckets are 15-minute UTC unix timestamps.</summary>
+public static class WeatherDashboardStatus
+{
+    public static WeatherSnapshot Create(WeatherSnapshot current,
+        long[]? times, double[]? probability, double[]? mm, DateTimeOffset now)
+    {
+        var count = Math.Min(times?.Length ?? 0,
+            Math.Min(probability?.Length ?? 0, mm?.Length ?? 0));
+        var nowUnix = now.ToUnixTimeSeconds();
+        var starts = FindRainStart(times, probability, mm, nowUnix);
+        var rainingNow = IsRainingNow(times, probability, mm, nowUnix);
+        var status = count == 0 ? "Rain forecast unavailable"
+            : rainingNow ? "Rain now"
+            : starts is null ? "No rain expected soon"
+            : FormatRainStart(starts.Value, now);
+        return current with
+        {
+            RainStatus = status,
+            RainStartsAtUtc = starts is null ? null : DateTimeOffset.FromUnixTimeSeconds(starts.Value),
+        };
+    }
+
+    public static string FormatRainStart(long startsUnix, DateTimeOffset now)
+    {
+        var minutes = Math.Max(1, (int)Math.Ceiling(Math.Max(0, startsUnix - now.ToUnixTimeSeconds()) / 60.0));
+        return minutes <= 1 ? "Rain starting now" : $"Rain starting in {minutes} min";
+    }
+
+    public static long? FindRainStart(long[]? times, double[]? probability, double[]? mm, long nowUnix)
+    {
+        if (times is null || probability is null || mm is null) return null;
+        var count = Math.Min(times.Length, Math.Min(probability.Length, mm.Length));
+        for (var i = 0; i < count; i++)
+        {
+            if (times[i] <= nowUnix && nowUnix < times[i] + 900)
+                return null;
+            if (times[i] <= nowUnix) continue;
+            if (times[i] - nowUnix > 30 * 60) return null;
+            if (IsRainy(probability[i], mm[i])) return times[i];
+        }
+        return null;
+    }
+
+    private static bool IsRainingNow(long[]? times, double[]? probability, double[]? mm, long nowUnix)
+    {
+        if (times is null || probability is null || mm is null) return false;
+        var count = Math.Min(times.Length, Math.Min(probability.Length, mm.Length));
+        for (var i = 0; i < count; i++)
+        {
+            if (times[i] > nowUnix) return false;
+            if (nowUnix < times[i] + 900) return IsRainy(probability[i], mm[i]);
+        }
+        return false;
+    }
+
+    private static bool IsRainy(double probability, double mm) =>
+        probability >= RainAlertEvaluator.ProbabilityThreshold || mm > 0.05;
+}
+
+public static class TemperatureFormatter
+{
+    private static readonly HashSet<string> FahrenheitRegions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "BS", "BZ", "KY", "FM", "PW", "US", "LR",
+    };
+
+    public static bool UsesFahrenheit(WeatherTemperatureUnit preference) => preference switch
+    {
+        WeatherTemperatureUnit.Fahrenheit => true,
+        WeatherTemperatureUnit.Celsius => false,
+        _ => IsFahrenheitRegion(System.Globalization.CultureInfo.CurrentCulture),
+    };
+
+    public static bool IsFahrenheitRegion(System.Globalization.CultureInfo culture)
+    {
+        try { return FahrenheitRegions.Contains(new System.Globalization.RegionInfo(culture.Name).TwoLetterISORegionName); }
+        catch (ArgumentException) { return false; }
+    }
+
+    public static string Format(double celsius, bool fahrenheit)
+    {
+        var value = fahrenheit ? celsius * 9 / 5 + 32 : celsius;
+        return $"{Math.Round(value):0}°{(fahrenheit ? "F" : "C")}";
+    }
+}
 
 /// <summary>One sample of the live system stats shown by the System card.</summary>
 public sealed record SystemStatsSnapshot(double CpuPercent, double MemoryPercent, double NetUpKbps, double NetDownKbps);

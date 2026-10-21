@@ -12,6 +12,15 @@ public class WidgetSettingsTests
     }
 
     [Fact]
+    public void GeneralSettings_Normalize_UsesCelsiusByDefaultAndRecoversInvalidTemperatureUnit()
+    {
+        Assert.Equal(WeatherTemperatureUnit.Auto, new GeneralSettings().WeatherTemperatureUnit);
+        Assert.Equal(WeatherTemperatureUnit.Auto,
+            new GeneralSettings { WeatherTemperatureUnit = (WeatherTemperatureUnit)int.MaxValue }
+                .Normalize().WeatherTemperatureUnit);
+    }
+
+    [Fact]
     public void Normalize_DropsUnknownIdsAndDuplicates()
     {
         var widgets = new WidgetSettings
@@ -59,6 +68,16 @@ public class WidgetSettingsTests
         var widgets = new WidgetSettings();
         Assert.Equal(WidgetScale.Standard, widgets.SizeFor("clock"));
         Assert.Equal(WidgetScale.Standard, widgets.SizeFor("bogus"));
+    }
+
+    [Theory]
+    [InlineData(WidgetScale.Compact, 10.2f, 0.85f)]
+    [InlineData(WidgetScale.Standard, 12f, 1f)]
+    [InlineData(WidgetScale.Large, 13.8f, 1.15f)]
+    public void BorderGeometry_ScalesWithItsWidget(WidgetScale scale, float expectedRadius, float expectedWidth)
+    {
+        Assert.Equal(expectedRadius, scale.BorderRadius(12f), 3);
+        Assert.Equal(expectedWidth, scale.BorderWidth(1f), 3);
     }
 
     [Fact]

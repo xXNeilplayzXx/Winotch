@@ -43,6 +43,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     private readonly IPrivacyConsentStore _privacy = new RegistryPrivacyConsentStore();
     private readonly ClipboardHistoryStore _clipboardStore = new();
     private readonly WeatherService _weather = new();
+    private readonly Dictionary<string, WeatherSnapshot> _weatherSnapshots = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _focusTimer;
     private readonly Dictionary<string, FocusTimerState> _focusStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer _calendarTimer;
@@ -150,7 +151,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         StartTimers();
         PollBattery();
         PollPrivacy();
-        _ = FetchWeatherAsync();
+        _ = SafeRefreshWeatherAsync();
         PollClipboard();
         _media.Start();
         // Volume keys are claimed from the moment the app runs (the hook only
@@ -160,7 +161,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         _hudHook.Observed = ObserveKey;
         _hudHook.Install();
         StartBrightnessMirror();
-        _ = CheckRainAlertAsync();
+        _ = SafeCheckRainAlertAsync();
 
         if (_settings.Current.General.AutoCheckUpdates)
         {
@@ -206,14 +207,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         theme.Start();
 
         var weather = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(15) };
-        weather.Tick += async (_, _) => await FetchWeatherAsync();
+        weather.Tick += async (_, _) => await SafeRefreshWeatherAsync();
         weather.Start();
 
         // Rain watch: probe precipitation every 5 minutes; the evaluator only
         // fires when rain *starts* within 30 minutes, so the 5-minute cadence
         // can't miss the beginning of an episode.
         var rain = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(5) };
-        rain.Tick += async (_, _) => await CheckRainAlertAsync();
+        rain.Tick += async (_, _) => await SafeCheckRainAlertAsync();
         rain.Start();
 
         _clipboardTimer.Start();
@@ -280,6 +281,9 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
                 var window = new OverlayWindow(_settings, _theme, _startup, this);
                 window.AssignMonitor(target);
                 var scoped = MonitorProfileStore.Resolve(_settings.Current, target.DeviceName);
+                window.Shell.SetWeather(_weatherSnapshots.TryGetValue(target.DeviceName, out var weather)
+                    ? weather
+                    : null);
                 window.Shell.SetInbox(VisibleInbox(_settings.Current));
                 window.Shell.SetQuietMode(scoped.Widgets.QuietMode);
                 if (_focusStates.TryGetValue(target.DeviceName, out var focus)) window.Shell.SetFocus(focus);
@@ -1067,11 +1071,11 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         SaveScoped(deviceName ?? "", s => s with { Widgets = s.Widgets.WithSize("weather", window.Scale) });
         if (window.City is { } city)
         {
-            _ = ResolveAndFetchWeatherAsync(city);
+            _ = ResolveAndFetchWeatherAsync(city, deviceName);
         }
         else if (window.UseWindowsLocation)
         {
-            _ = ResolveWindowsLocationAsync();
+            _ = ResolveWindowsLocationAsync(deviceName);
         }
     }
 
@@ -1314,7 +1318,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     // ------------------------------------------------------------- weather
 
-    private async Task ResolveAndFetchWeatherAsync(string city)
+    private async Task ResolveAndFetchWeatherAsync(string city, string? deviceName = null)
     {
         try
         {
@@ -1324,14 +1328,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
                 ShowToast(new ToastSpec("", "Weather", $"Couldn't find “{city}” — check the name and try again.", 5));
                 return;
             }
-            _settings.Update(s => s with
+            SaveScoped(deviceName ?? "", s => s with
             {
                 Widgets = s.Widgets with
                 {
                     Weather = new WeatherWidgetConfig { City = hit.Name, Lat = hit.Lat, Lon = hit.Lon },
                 },
             });
-            await FetchWeatherAsync();
+            await FetchWeatherAsync(deviceName);
         }
         catch (Exception ex)
         {
@@ -1341,7 +1345,7 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
 
     /// <summary>Resolve the user's Windows location (WinRT geolocation) into a
     /// saved weather location, like the legacy "Use Windows location".</summary>
-    private async Task ResolveWindowsLocationAsync()
+    private async Task ResolveWindowsLocationAsync(string? deviceName = null)
     {
         try
         {
@@ -1354,14 +1358,14 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
             }
             var hit = await _weather.SearchByCoordinatesAsync(loc.Lat, loc.Lon);
             var city = hit?.Name ?? $"({loc.Lat:0.##}, {loc.Lon:0.##})";
-            _settings.Update(s => s with
+            SaveScoped(deviceName ?? "", s => s with
             {
                 Widgets = s.Widgets with
                 {
                     Weather = new WeatherWidgetConfig { City = city, Lat = loc.Lat, Lon = loc.Lon },
                 },
             });
-            await FetchWeatherAsync();
+            await FetchWeatherAsync(deviceName);
         }
         catch
         {
@@ -1388,32 +1392,87 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
     }
 
     /// <summary>Probes 15-minute precipitation buckets at the weather
-    /// location and toasts once per rain episode that starts within the next
-    /// 30 minutes. The evaluator suppresses repeats; this only tracks the
-    /// last fired key across probes.</summary>
+    /// location, feeds the dashboard's live rain status, and toasts once per
+    /// rain episode that starts within the next 30 minutes.</summary>
+    private async Task SafeRefreshWeatherAsync()
+    {
+        try { await RefreshWeatherAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch Error] Weather refresh failed: {ex.Message}"); }
+    }
+
+    private async Task RefreshWeatherAsync()
+    {
+        var devices = new HashSet<string>(_windows.Select(window => window.Monitor.DeviceName), StringComparer.OrdinalIgnoreCase);
+        devices.UnionWith(_weatherSnapshots.Keys.Where(key => !string.IsNullOrWhiteSpace(key)));
+        if (devices.Count == 0) await FetchWeatherAsync();
+        else
+        {
+            foreach (var device in devices) await FetchWeatherAsync(device);
+        }
+    }
+
+    private async Task SafeCheckRainAlertAsync()
+    {
+        try { await CheckRainAlertAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Winotch Error] Rain forecast refresh failed: {ex.Message}"); }
+    }
+
     private async Task CheckRainAlertAsync()
     {
-        if (!_settings.Current.Toasts.RainAlertsEnabled || IsQuietDuringFocus) return;
-        var config = _settings.Current.Widgets.Weather;
-        if (!config.HasLocation) return;
+        var configs = new List<(string Device, WinotchSettings Settings)>();
+        if (_windows.Count == 0)
+            configs.Add(("", _settings.Current));
+        else
+            configs.AddRange(_windows.Select(window => (window.Monitor.DeviceName,
+                ResolveScoped(window.Monitor.DeviceName))));
+        foreach (var (deviceName, settings) in configs)
+        {
+            if (!settings.Toasts.RainAlertsEnabled || FocusFeedbackPolicy.ShouldSuppress(
+                    settings.Features.QuietDuringFocus, _focusStates.Values)) continue;
+            var config = settings.Widgets.Weather;
+            if (!config.HasLocation) continue;
+            await CheckRainAlertAsync(deviceName, settings);
+        }
+    }
+
+    private async Task CheckRainAlertAsync(string deviceName, WinotchSettings settings)
+    {
+        var config = settings.Widgets.Weather;
         try
         {
             var probe = await _weather.GetPrecipitationProbeAsync(config.Lat!.Value, config.Lon!.Value);
-            if (probe is null || IsQuietDuringFocus) return;
+            if (probe is null) return;
+            if (!_weatherSnapshots.TryGetValue(deviceName, out var current))
+            {
+                var forecast = await _weather.GetForecastAsync(config.City, config.Lat!.Value, config.Lon!.Value);
+                if (forecast is null) return;
+                current = forecast;
+            }
+            var previousKey = _lastRainAlertKeys.GetValueOrDefault(deviceName);
+            var updated = WeatherDashboardStatus.Create(current, probe.Times, probe.Probability, probe.Mm,
+                DateTimeOffset.UtcNow);
+            _weatherSnapshots[deviceName] = updated;
+            var targets = string.IsNullOrWhiteSpace(deviceName)
+                ? _windows
+                : _windows.Where(window => string.Equals(window.Monitor.DeviceName, deviceName,
+                    StringComparison.OrdinalIgnoreCase));
+            foreach (var window in targets) window.Shell.SetWeather(updated);
+            if (FocusFeedbackPolicy.ShouldSuppress(settings.Features.QuietDuringFocus, _focusStates.Values)) return;
             var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var key = RainAlertEvaluator.Evaluate(
-                probe.Times, probe.Probability, probe.Mm, nowUnix, _lastRainAlertKey);
-            if (key is null || key == _lastRainAlertKey || IsQuietDuringFocus) return;
+                probe.Times, probe.Probability, probe.Mm, nowUnix, previousKey);
+            if (key is null || key == previousKey ||
+                FocusFeedbackPolicy.ShouldSuppress(settings.Features.QuietDuringFocus, _focusStates.Values)) return;
             // The key is "rain-<start unix>"; convert back to a friendly delay.
             var startUnix = long.Parse(key.AsSpan(5), System.Globalization.CultureInfo.InvariantCulture);
-            var minutes = Math.Max(1, (int)Math.Round((startUnix - nowUnix) / 60.0));
-            var when = minutes <= 1 ? "starting now" : $"in about {minutes} min";
+            var when = WeatherDashboardStatus.FormatRainStart(startUnix, DateTimeOffset.FromUnixTimeSeconds(nowUnix));
             // A glance, not a toast: rain in half an hour wants awareness, not
             // a sentence you have to dismiss.
-            if (IsQuietDuringFocus) return;
-            _lastRainAlertKey = key;
-            ShowGlance(new GlanceSpec("\U0001F327\uFE0F", "Rain soon",
-                $"At {config.City} {when}", 5));
+            if (FocusFeedbackPolicy.ShouldSuppress(settings.Features.QuietDuringFocus, _focusStates.Values)) return;
+            _lastRainAlertKeys[deviceName] = key;
+            foreach (var window in targets)
+                window.Shell.ShowGlance(new GlanceSpec("\U0001F327\uFE0F", "Rain soon",
+                    $"At {config.City} {when}", 5));
         }
         catch
         {
@@ -1421,19 +1480,22 @@ public sealed class OverlayWindowManager : INotchHost, IDisposable
         }
     }
 
-    private string? _lastRainAlertKey;
+    private readonly Dictionary<string, string> _lastRainAlertKeys = new(StringComparer.OrdinalIgnoreCase);
 
-    private async Task FetchWeatherAsync()
+    private async Task FetchWeatherAsync(string? deviceName = null)
     {
-        var config = _settings.Current.Widgets.Weather;
+        var config = ResolveScoped(deviceName).Widgets.Weather;
         if (!config.HasLocation) return;
         try
         {
-            var snapshot = await _weather.GetForecastAsync(config.City, config.Lat!.Value, config.Lon!.Value);
-            if (snapshot is not null)
-            {
-                foreach (var window in _windows) window.Shell.SetWeather(snapshot);
-            }
+            var snapshot = await _weather.GetDashboardAsync(config.City, config.Lat!.Value, config.Lon!.Value);
+            if (snapshot is null) return;
+            _weatherSnapshots[deviceName ?? ""] = snapshot;
+            var targets = string.IsNullOrWhiteSpace(deviceName)
+                ? _windows
+                : _windows.Where(window => string.Equals(window.Monitor.DeviceName, deviceName,
+                    StringComparison.OrdinalIgnoreCase));
+            foreach (var window in targets) window.Shell.SetWeather(snapshot);
         }
         catch
         {
