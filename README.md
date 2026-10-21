@@ -8,7 +8,7 @@
   <img src="screenshots/collapsed.png" alt="The Winotch pill" width="720">
 </p>
 
-Written in C# with a custom SkiaSharp renderer — lightweight, smooth, and every pixel of the screen stays clickable except the pill itself.
+Written in C# with a custom SkiaSharp renderer, lightweight, smooth, and every pixel of the screen stays clickable except the pill itself.
 
 > **Note:** this `main` branch is the new C# rewrite (v2.0.0+). The earlier WebView2/Tauri build is archived on the [`legacy`](https://github.com/xXNeilplayzXx/Winotch/tree/legacy) branch — its releases (v0.2.3 → v1.0.1) remain downloadable from the [Releases](https://github.com/xXNeilplayzXx/Winotch/releases) page.
 
