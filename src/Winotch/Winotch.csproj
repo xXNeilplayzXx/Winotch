@@ -13,7 +13,7 @@
     <AppxPackageSigningEnabled Condition="'$(WinotchMsix)' != 'true'">false</AppxPackageSigningEnabled>
     <AssemblyName>Winotch</AssemblyName>
     <RootNamespace>Winotch</RootNamespace>
-    <Version>4.7.1</Version>
+    <Version>4.7.2</Version>
     <Product>Winotch</Product>
     <ApplicationIcon>Resources\WinotchTray.ico</ApplicationIcon>
   </PropertyGroup>

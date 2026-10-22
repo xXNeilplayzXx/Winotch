@@ -110,6 +110,21 @@ public class HudTimelineTests
     }
 
     [Fact]
+    public void BrightnessHud_StaysVisibleAcrossThePollingInterval()
+    {
+        var hud = new Hud(new HudSpec(HudKind.Brightness, 0.35));
+
+        hud.Tick(1.5);
+        Assert.False(hud.Expired);
+        Assert.Equal(1, hud.Opacity, 3);
+
+        hud.Refresh(new HudSpec(HudKind.Brightness, 0.45));
+        hud.Tick(1.5);
+        Assert.False(hud.Expired);
+        Assert.Equal(1, hud.Opacity, 3);
+    }
+
+    [Fact]
     public void Hud_StartsAtTheReadingItWasGiven()
     {
         var hud = new Hud(new HudSpec(HudKind.Brightness, 0.35));

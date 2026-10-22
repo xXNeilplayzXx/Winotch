@@ -195,10 +195,10 @@ public class PillFaceTests
     {
         var face = new LevelFace(new Hud(new HudSpec(HudKind.Brightness, 0.6)), 208);
 
-        face.Tick(1);
+        face.Tick(1.9);
         Assert.False(face.Expired);
 
-        face.Tick(1);
+        face.Tick(0.2);
         Assert.True(face.Expired);
     }
 

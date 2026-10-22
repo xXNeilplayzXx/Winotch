@@ -17,13 +17,18 @@ public sealed class Hud
     private const double FadeIn = 0.10;
     private const double FadeOut = 0.26;
     private const double Hold = 1.05;
+    // Brightness is observed by a 1.5s poll (DDC/CI can block), so its hold
+    // must outlast the gap between readings or the HUD fades between key repeats.
+    private const double BrightnessHold = 1.8;
 
-    private FadeTimeline _timeline = new(FadeIn, Hold, FadeOut);
+    private FadeTimeline _timeline;
 
     public Hud(HudSpec spec)
     {
         Spec = spec;
         Fill = spec.Level01;
+        _timeline = new FadeTimeline(FadeIn,
+            spec.Kind == HudKind.Brightness ? BrightnessHold : Hold, FadeOut);
     }
 
     public HudSpec Spec { get; private set; }
@@ -44,11 +49,13 @@ public sealed class Hud
     public double Opacity => _timeline.Opacity;
 
     /// <summary>Fold a repeat reading into the live HUD: the level moves, the
-    /// clock restarts, and the bar keeps animating from where it was.</summary>
+    /// clock restarts, and the bar keeps animating from where it was. Brightness
+    /// stays visible across the slower polling interval between readings.</summary>
     public void Refresh(HudSpec spec)
     {
         Spec = spec;
-        _timeline.Restart();
+        _timeline = new FadeTimeline(FadeIn,
+            spec.Kind == HudKind.Brightness ? BrightnessHold : Hold, FadeOut);
     }
 
     public void Tick(double deltaTime)
