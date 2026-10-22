@@ -127,7 +127,11 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.7.2)
+## Release notes (v4.7.3)
+
+- **Expanded notch media player:** album art, track details, a seekable timeline with elapsed and remaining time, transport controls, and a system-volume slider in a layout inspired by the macOS media panel.
+
+## Previous release notes (v4.7.2)
 
 - **Brightness HUD stays visible while adjusting.** Its display hold now outlasts the brightness polling interval, preventing the HUD from fading between updates.
 

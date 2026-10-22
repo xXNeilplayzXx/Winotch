@@ -957,7 +957,10 @@ public sealed class IslandShell
         {
             "clock" => 88,
             "system" => 38 + Math.Max(1, settings.Widgets.SystemMetrics.Count) * 24,
-            "media" => Media is null ? 0 : 112,
+            "media" => Media is null ? 0
+                : settings.General.Style == NotchStyle.Notch && settings.General.Edge == PillEdge.Top
+                    ? 194
+                    : 112,
             "notes" => 104,
             "weather" => 124,
             // With no apps the card only holds the hint line and the "add
@@ -2136,6 +2139,12 @@ public sealed class IslandShell
             _mediaVolumeRectScreen = SKRect.Empty;
             return;
         }
+        var settings = CurrentSettings;
+        if (settings.General.Style == NotchStyle.Notch && settings.General.Edge == PillEdge.Top)
+        {
+            DrawNotchMediaWidget(canvas, left, top, width, media);
+            return;
+        }
         var right = left + width;
         var textX = left + 12;
         if (media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 52, out var art))
@@ -2158,6 +2167,111 @@ public sealed class IslandShell
 
         DrawSeekBar(canvas, left, top, right, media);
         DrawVolumeRow(canvas, left, top, right);
+    }
+
+    /// <summary>The notch's expanded now-playing card: artwork and track details,
+    /// a seekable timeline with time labels, centered transport controls, and
+    /// the system-volume row.</summary>
+    private void DrawNotchMediaWidget(SKCanvas canvas, float left, float top, float width,
+        MediaSnapshot media)
+    {
+        var right = left + width;
+        var artRect = new SKRect(left + 14, top + 40, left + 68, top + 94);
+        FillRound(canvas, artRect.Left, artRect.Top, artRect.Width, artRect.Height, 9,
+            ShellUi.Fade(ShellUi.Text, 0.08));
+        if (media.ArtBase64 is { Length: > 0 } artB64 && TryGetArt(artB64, 54, out var art))
+        {
+            canvas.Save();
+            using (var clip = new SKPath())
+            {
+                clip.AddRoundRect(artRect, 9, 9);
+                canvas.ClipPath(clip, SKClipOperation.Intersect, true);
+            }
+            canvas.DrawBitmap(art!, artRect);
+            canvas.Restore();
+        }
+        else
+        {
+            ShellUi.DrawGlyph(canvas, "\uE189", artRect.MidX, artRect.MidY, 22, ShellUi.Accent);
+        }
+
+        var textLeft = left + 82;
+        var textWidth = Math.Max(50, right - textLeft - 18);
+        TextKit.DrawLeftCentered(canvas,
+            ShellUi.Ellipsize(media.Title.Length > 0 ? media.Title : "Untitled", textWidth, 14f, TextKit.Semibold),
+            textLeft, top + 59, 14f, ShellUi.Text, TextKit.Semibold);
+        TextKit.DrawLeftCentered(canvas,
+            ShellUi.Ellipsize(media.Artist.Length > 0 ? media.Artist : "Unknown artist", textWidth, 11.5f, TextKit.Regular),
+            textLeft, top + 79, 11.5f, ShellUi.Fade(ShellUi.Muted, 1), TextKit.Regular);
+
+        DrawNotchSeekBar(canvas, left + 14, top + 112, right - 14, media);
+
+        var controlsY = top + 145;
+        var center = left + width / 2;
+        DrawIconButton(canvas, center - 42, controlsY, "\uE892", MediaPrevRequested);
+        ShellUi.FillCircle(canvas, center, controlsY, 17, ShellUi.Fade(ShellUi.Accent, 0.92));
+        ShellUi.DrawGlyph(canvas, media.Playing ? "\uE769" : "\uE768", center, controlsY, 15, ShellUi.OnAccent);
+        RegisterButton(new SKRect(center - 20, controlsY - 20, center + 20, controlsY + 20),
+            MediaPlayPauseRequested);
+        DrawIconButton(canvas, center + 42, controlsY, "\uE893", MediaNextRequested);
+
+        var volumeCy = top + 177;
+        DrawIconButton(canvas, left + 24, volumeCy, _mediaVolumeMuted ? "\uE767" : "\uE74F",
+            _mediaVolumeAvailable ? VolumeMuteRequested : null);
+        var volumeLeft = left + 46;
+        var volumeRight = right - 16;
+        var volumeStrip = new SKRect(volumeLeft, volumeCy - 10, volumeRight, volumeCy + 10);
+        _mediaVolumeRect = volumeStrip;
+        _mediaVolumeRectScreen = ScreenRect(volumeStrip);
+        FillRound(canvas, volumeLeft, volumeCy - 2, volumeRight - volumeLeft, 4, 2,
+            _mediaVolumeAvailable ? ShellUi.Hairline : ShellUi.Fade(ShellUi.Hairline, 0.45));
+        var volumeFill = _mediaVolumeMuted ? 0 : Math.Clamp(_volumePreview ?? _mediaVolumeLevel, 0f, 1f);
+        if (volumeFill > 0.01f && _mediaVolumeAvailable)
+        {
+            FillRound(canvas, volumeLeft, volumeCy - 2, (volumeRight - volumeLeft) * volumeFill, 4, 2,
+                ShellUi.Fade(ShellUi.Accent, 0.9));
+        }
+        if (_mediaVolumeAvailable && (volumeStrip.Contains((float)_cursorX, (float)_cursorY) || _volumePreview is not null))
+        {
+            var handleX = volumeLeft + (volumeRight - volumeLeft) * volumeFill;
+            ShellUi.FillCircle(canvas, handleX, volumeCy, 5, ShellUi.Text);
+            TextKit.DrawCentered(canvas, _mediaVolumeMuted ? "Muted" : $"{Math.Round(volumeFill * 100)}%",
+                handleX, volumeCy - 9, 9.5f, _mediaVolumeMuted ? ShellUi.Ok : ShellUi.Text, TextKit.Semibold);
+        }
+    }
+
+    /// <summary>Seek track sized for the notch player, with elapsed and remaining
+    /// time labels above it and the same drag/click behavior as the compact card.</summary>
+    private void DrawNotchSeekBar(SKCanvas canvas, float left, float top, float right, MediaSnapshot media)
+    {
+        _mediaSeekEnabled = media.CanSeek && media.DurationSeconds > 0;
+        var ratio = _seekPreview is { } preview
+            ? preview
+            : (float)Math.Clamp(MediaPosition(media) / Math.Max(1, media.DurationSeconds), 0, 1);
+        var elapsed = FormatClock(ratio * media.DurationSeconds);
+        TextKit.Draw(canvas, elapsed, left, top - 5,
+            9.5f, ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
+        var remaining = media.DurationSeconds > 0
+            ? "−" + FormatClock(Math.Max(0, media.DurationSeconds - ratio * media.DurationSeconds))
+            : "−0:00";
+        var elapsedWidth = TextKit.Measure(elapsed, 9.5f, TextKit.Monospace);
+        var labelWidth = TextKit.Measure(remaining, 9.5f, TextKit.Monospace);
+        TextKit.Draw(canvas, remaining, right - labelWidth, top - 5,
+            9.5f, ShellUi.Fade(ShellUi.Muted, 0.95), TextKit.Monospace);
+        var trackLeft = left + elapsedWidth + 8;
+        var trackRight = right - labelWidth - 8;
+        var strip = new SKRect(trackLeft, top, trackRight, top + 16);
+        _mediaTimelineRect = strip;
+        _mediaTimelineRectScreen = ScreenRect(strip);
+        var trackY = top + 7;
+        FillRound(canvas, trackLeft, trackY, trackRight - trackLeft, 2, 1, ShellUi.Hairline);
+        if (ratio > 0.01f)
+            FillRound(canvas, trackLeft, trackY, (trackRight - trackLeft) * ratio, 2, 1, ShellUi.Fade(ShellUi.Text, 0.94));
+        if (!_mediaSeekEnabled) return;
+        var hovering = strip.Contains((float)_cursorX, (float)_cursorY);
+        if (hovering) AnyHoverButton = true;
+        if (hovering || _seekPreview is not null)
+            ShellUi.FillCircle(canvas, trackLeft + (trackRight - trackLeft) * ratio, trackY + 1, 4, ShellUi.Text);
     }
 
     /// <summary>The collapsed pill's now-playing chip: rounded album art, the
