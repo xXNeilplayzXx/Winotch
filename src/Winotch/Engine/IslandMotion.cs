@@ -3,13 +3,13 @@ namespace Winotch.Engine;
 /// <summary>The island's motion language, kept in one place so the collapsed
 /// pill and the expanded panel can never animate on different curves.
 ///
-/// The numbers come straight from the Dynamic Island reference design: a
-/// framer-motion spring of stiffness 400 / damping 30, content that enters from
-/// 90% scale and five pixels low, and content that leaves by drifting twenty
-/// pixels down, shrinking to 95% and blurring out. Expressed as a second-order
-/// spring that is a frequency plus a damping <em>ratio</em>, those two constants
-/// are <see cref="Frequency"/> and <see cref="DampingRatio"/> — which is what
-/// <see cref="SecondOrderVec2"/> takes.</summary>
+/// The numbers come from the Dynamic Island reference component: content that
+/// arrives from 90% scale, eight DIPs high and five pixels of blur, and content
+/// that leaves by drifting six DIPs up and shrinking back to 90% while staying
+/// sharp. Expressed as a second-order spring that is a frequency plus a damping
+/// <em>ratio</em>, stiffness 400 / damping 30 become <see cref="Frequency"/> and
+/// <see cref="DampingRatio"/> — which is what <see cref="SecondOrderVec2"/>
+/// takes.</summary>
 public static class IslandMotion
 {
     /// <summary>Reference spring stiffness (framer-motion units).</summary>
@@ -21,22 +21,27 @@ public static class IslandMotion
     /// <summary>Content entering the island starts at this scale.</summary>
     public const double EnterScale = 0.9;
 
-    /// <summary>Content entering the island starts this many DIPs low.</summary>
-    public const double EnterOffsetY = 5;
+    /// <summary>Content entering the island starts this many DIPs high —
+    /// negative because the layer arrives from above, not below.</summary>
+    public const double EnterOffsetY = -8;
+
+    /// <summary>The reference's <c>blur(5px)</c> on incoming content.</summary>
+    public const double EnterBlurPx = 5;
 
     /// <summary>Content leaving the island ends at this scale.</summary>
-    public const double ExitScale = 0.95;
+    public const double ExitScale = 0.9;
 
-    /// <summary>Content leaving the island ends this many DIPs low.</summary>
-    public const double ExitOffsetY = 20;
+    /// <summary>Content leaving the island ends this many DIPs high.</summary>
+    public const double ExitOffsetY = -6;
 
-    /// <summary>The reference's CSS <c>blur(10px)</c> on outgoing content.</summary>
-    public const double ExitBlurPx = 10;
+    /// <summary>The reference's <c>blur(0px)</c> on outgoing content: it leaves
+    /// sharp but fast, which is why the exit reads as a quick clip rather than a
+    /// dissolve.</summary>
+    public const double ExitBlurPx = 0;
 
     /// <summary>CSS blur radius to Skia sigma. CSS describes a Gaussian by its
     /// visible radius; Skia by its standard deviation, which is roughly half of
-    /// it. Halving keeps the outgoing content reading as motion blur rather than
-    /// a smear, and matters because the collapsed pill is only 44 DIPs tall.</summary>
+    /// it.</summary>
     public const double BlurSigmaPerPx = 0.5;
 
     /// <summary>Natural frequency in Hz that reproduces stiffness 400.</summary>
@@ -53,8 +58,8 @@ public static class IslandMotion
 /// reverses cleanly if the pointer leaves mid-morph.</summary>
 public readonly record struct ContentFrame(double Opacity, double Scale, double OffsetY, double BlurSigma)
 {
-    /// <summary>Content arriving: 90% scale and five DIPs low at the start,
-    /// settled and sharp at the end.</summary>
+    /// <summary>Content arriving: 90% scale, eight DIPs high and softly blurred
+    /// at the start; settled, sharp and full size at the end.</summary>
     public static ContentFrame Entering(double progress)
     {
         var t = Easings.Clamp01(progress);
@@ -63,11 +68,11 @@ public readonly record struct ContentFrame(double Opacity, double Scale, double 
             Opacity: t,
             Scale: IslandMotion.EnterScale + (1 - IslandMotion.EnterScale) * eased,
             OffsetY: IslandMotion.EnterOffsetY * (1 - eased),
-            BlurSigma: 0);
+            BlurSigma: IslandMotion.EnterBlurPx * IslandMotion.BlurSigmaPerPx * (1 - eased));
     }
 
     /// <summary>Content leaving: full size and sharp at the start, then a touch
-    /// smaller, twenty DIPs lower and blurred out as it goes.</summary>
+    /// smaller and six DIPs higher, sharp the whole way.</summary>
     public static ContentFrame Exiting(double progress)
     {
         var t = Easings.Clamp01(progress);

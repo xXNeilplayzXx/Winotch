@@ -127,7 +127,15 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v5.0.0)
+## Release notes (v5.1.0)
+
+- **Borderless island ink:** the expanded panel is now a solid near-black slab with 32px corners — the reference island's `bg-foreground` surface — instead of a translucent gradient card carrying a 1px outline and a lit top hairline. The ink meets the desktop cleanly and the drop shadow does the separating. Dark theme only: the light palette draws its content dark, so it keeps the gradient rather than swallowing its own text.
+- **Content arrives from above:** the motion language had its directions inverted relative to the reference. Content now enters from 8px high at 90% scale behind 5px of blur, and leaves sharp to the same 90% at 6px high. It previously rose from below and blurred *out* on the way — a dissolve where the reference is a quick clip.
+- **Settings is a two-pane sheet:** the window is now a 900px bordered card holding a rail of the seven sections on the left, a hairline, and the selected section's pane on the right with its own heading and description. The active item inverts to a black pill with light type in the light theme, and the mirror of that in the dark.
+- **Sections no longer collapse:** it is one pane at a time now rather than a stack of fold-outs. The remembered section is the last one you opened, so the window still reopens where you left it.
+- **Housekeeping:** version is now 5.1.0. No settings migrate — `OpenSettingsSections` is simply written as a single entry from here on.
+
+## Previous release notes (v5.0.0)
 
 - **New island motion:** the collapsed pill and the expanded panel now share one spring — the Dynamic Island's stiffness 400 / damping 30 — so the collapse and the expand settle on a single curve instead of each easing on its own. The difference is small on paper and obvious in the hand.
 - **Content that moves, not just fades:** opening the notch is no longer a cross-fade. The collapsed row sinks, shrinks to 95% and blurs out while the panel springs up from 90% scale, and the same arrival greets transient chips — a media key you press, a glance alert. Both halves are driven by the existing morph, so the motion lasts exactly as long as the resize and reverses cleanly if the pointer leaves mid-animation. The volume / brightness slider is deliberately excluded: it tracks a live value and must not swim under your thumb.

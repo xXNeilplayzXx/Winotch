@@ -1059,7 +1059,7 @@ public sealed class IslandShell
         AnyHoverButton = false;
 
         var expanded = _blend > 0.5;
-        var radius = expanded ? 22.0 : _h / 2;
+        var radius = expanded ? IslandDesign.PanelRadius : _h / 2;
         var rect = new SKRect((float)_x, (float)_y, (float)(_x + _w), (float)(_y + _h));
 
         // Resolve the palette for this frame so theme/accent changes apply live.
@@ -1130,7 +1130,19 @@ public sealed class IslandShell
             }
             else
             {
-                using (var body = ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha))
+                // Classic ink: one opaque near-black fill, edge to edge. The
+                // reference island has no border, rim or top highlight, so the
+                // body is a single flat colour rather than a vertical gradient.
+                // Light theme keeps the palette gradient — its content is drawn
+                // dark, so black ink would swallow the text.
+                using (var body = _resolvedTheme.IsLight
+                    ? ShellUi.Gradient(rect.Top, rect.Bottom, bodyAlpha)
+                    : new SKPaint
+                    {
+                        Color = IslandDesign.Ink.WithAlpha(
+                            (byte)Math.Clamp(Math.Round(255 * bodyAlpha), 0, 255)),
+                        IsAntialias = true,
+                    })
                 {
                     canvas.DrawRect(rect, body);
                 }
@@ -1168,16 +1180,8 @@ public sealed class IslandShell
                     _blend * 255, () => DrawPanel(canvas, rect));
             }
 
-            if (!glossy)
-            {
-                // The milled capsule brings its own lit edge, so the flat glow
-                // line would only double it up.
-                var glow = _themeService.Current.IsLight ? new SKColor(0, 0, 0, 10) : new SKColor(255, 255, 255, 14);
-                using (var topGlow = new SKPaint { Color = glow, IsAntialias = true })
-                {
-                    canvas.DrawRect(rect.Left + 3, rect.Top + 1, Math.Max(0, rect.Width - 6), 1, topGlow);
-                }
-            }
+            // No lit top edge: the reference island's ink meets the desktop
+            // cleanly, so the one-pixel highlight is gone.
         }
         canvas.Restore();
 
@@ -1187,11 +1191,8 @@ public sealed class IslandShell
             // blue rim along the bottom where the glow spills over the edge.
             GlossyGlass.DrawCapsuleEdge(canvas, rect, (float)radius, palette);
         }
-        else
-        {
-            ShellUi.StrokeRound(canvas, rect.Left, rect.Top, rect.Width, rect.Height,
-                (float)radius, 1f, ShellUi.Fade(ShellUi.Stroke, 0.45));
-        }
+        // Borderless by design: the reference capsule carries no outline, so
+        // the drop shadow above is the only thing separating ink from desktop.
 
         if (_contextMenuOpen)
         {

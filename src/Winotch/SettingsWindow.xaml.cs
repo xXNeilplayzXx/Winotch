@@ -87,7 +87,7 @@ public partial class SettingsWindow : Window
             }
             UpdateSettings(_ => WinotchSettings.Defaults);
             _openSections.Clear();
-            Rows.Children.Clear();
+            ClearSections();
             BuildSections();
         };
         var factory = DialogUi.Button("Factory reset…", danger: true);
@@ -113,7 +113,7 @@ public partial class SettingsWindow : Window
             {
                 _lastMonitorProfiles = settings.MonitorProfiles;
                 _lastProfilesEnabled = settings.Appearance.UseMonitorProfiles;
-                Rows.Children.Clear();
+                ClearSections();
                 BuildSections();
             }
         });
@@ -172,7 +172,7 @@ public partial class SettingsWindow : Window
         SetBrush("NotchDanger", theme.WpfDanger);
         if (rebuild)
         {
-            Rows.Children.Clear();
+            ClearSections();
             BuildSections();
         }
     }
@@ -603,9 +603,52 @@ public partial class SettingsWindow : Window
     /// rows folded away behind it. Sections ship folded, so the window reads as
     /// a short list of headings rather than one long scroll; whichever ones are
     /// open is persisted, so a reopened window looks the way it was left.</summary>
+
+    private readonly Dictionary<string, FrameworkElement> _panes = new();
+    private readonly Dictionary<string, Border> _navItems = new();
+    private string? _activeSection;
+
+    /// <summary>Tear the rail and the panes down together, so a rebuild — theme
+    /// change, monitor switch, reset — never leaves a stale nav item behind.</summary>
+    private void ClearSections()
+    {
+        Rows.Children.Clear();
+        NavRail.Children.Clear();
+        _panes.Clear();
+        _navItems.Clear();
+        _activeSection = null;
+    }
+
+    /// <summary>One section, as the reference sheet draws it: a name in the rail
+    /// and a pane on the right holding that section's heading, summary and rows.
+    /// Only the selected pane is visible, so the window reads as one screen at a
+    /// time instead of a long scroll of collapsed cards.</summary>
     private void AddSection(string id, string title, string summary, params FrameworkElement[] rows)
     {
-        var content = new StackPanel { Margin = new Thickness(4, 0, 4, 4) };
+        var heading = new TextBlock
+        {
+            Text = title,
+            FontSize = 19,
+            FontWeight = FontWeights.Bold,
+            Foreground = (Brush)FindResource("NotchText"),
+        };
+        var subtitle = new TextBlock
+        {
+            Text = summary,
+            FontSize = 12.5,
+            LineHeight = 19,
+            Foreground = (Brush)FindResource("NotchMutedText"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 18),
+        };
+
+        var content = new StackPanel
+        {
+            Margin = new Thickness(0, 0, 0, 10),
+            Visibility = Visibility.Collapsed,
+        };
+        content.Children.Add(heading);
+        content.Children.Add(subtitle);
         for (var i = 0; i < rows.Length; i++)
         {
             content.Children.Add(rows[i]);
@@ -615,98 +658,83 @@ public partial class SettingsWindow : Window
                 {
                     Height = 1,
                     Background = (Brush)FindResource("NotchHairline"),
-                    Margin = new Thickness(10, 0, 10, 0),
+                    Margin = new Thickness(4, 0, 4, 0),
                 });
             }
         }
 
-        // The header carries the label brighter than the old static caption —
-        // it is a control now — and a one-line hint that only shows while the
-        // section is folded (once the rows are visible, the hint is noise).
-        var heading = new TextBlock
+        Rows.Children.Add(content);
+        _panes[id] = content;
+
+        var label = new TextBlock
         {
-            Text = title.ToUpperInvariant(),
-            Style = (Style)FindResource("SectionLabelText"),
-            Foreground = (Brush)FindResource("NotchText"),
-        };
-        var subtitle = new TextBlock
-        {
-            Text = summary,
-            FontSize = 10.5,
-            Foreground = (Brush)FindResource("NotchMutedText"),
-            Margin = new Thickness(0, 3, 0, 0),
-        };
-        var chevron = new TextBlock
-        {
-            FontFamily = TryFindResource(IconFontWpf.ResourceKey) as FontFamily
-                ?? new FontFamily(IconFontWpf.FallbackFamilies),
-            FontSize = 12,
+            Text = title,
+            FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 2, 0),
         };
-
-        var labels = new StackPanel();
-        labels.Children.Add(heading);
-        labels.Children.Add(subtitle);
-
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(labels, 0);
-        Grid.SetColumn(chevron, 1);
-        headerRow.Children.Add(labels);
-        headerRow.Children.Add(chevron);
-
-        var open = _openSections.Contains(id);
-        var header = new ToggleButton
+        var item = new Border
         {
-            Style = (Style)FindResource("SectionHeaderToggle"),
-            IsChecked = open,
-            Content = headerRow,
+            CornerRadius = new CornerRadius(11),
+            Padding = new Thickness(13, 9, 13, 9),
+            Margin = new Thickness(0, 1, 0, 1),
+            Background = Brushes.Transparent,
+            Child = label,
         };
+        item.MouseLeftButtonUp += (_, _) => SelectSection(id, remember: true);
+        NavRail.Children.Add(item);
+        _navItems[id] = item;
 
-        void ApplyState(bool isOpen)
+        // The saved section is restored as soon as it is registered; until then
+        // the first section registered holds the pane.
+        var restore = _openSections.FirstOrDefault();
+        if (_activeSection is null || id == restore)
         {
-            content.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
-            subtitle.Visibility = isOpen ? Visibility.Collapsed : Visibility.Visible;
-            chevron.Text = isOpen ? "\uE70E" : "\uE70D";
-            chevron.Foreground = (Brush)FindResource(isOpen ? "NotchAccent" : "NotchMutedText");
+            SelectSection(id, remember: false);
+        }
+    }
+
+    /// <summary>Swap the pane and move the ink. The active item inverts to the
+    /// theme's text colour with the panel colour for its type — a black pill with
+    /// light type in the light theme, the mirror of it in the dark — which is the
+    /// reference's bg-foreground / text-background pairing.</summary>
+    private void SelectSection(string id, bool remember)
+    {
+        if (!_panes.ContainsKey(id)) return;
+        _activeSection = id;
+
+        foreach (var pair in _panes)
+        {
+            pair.Value.Visibility = pair.Key == id ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        // Applied before the handlers are wired, so building the window never
-        // reads as a user toggle (and never writes settings).
-        ApplyState(open);
-        header.Checked += (_, _) =>
+        var ink = (Brush)FindResource("NotchText");
+        var paper = (Brush)FindResource("NotchPanel");
+        var muted = (Brush)FindResource("NotchMutedText");
+        foreach (var pair in _navItems)
         {
-            ApplyState(true);
-            RememberSection(id, open: true);
-        };
-        header.Unchecked += (_, _) =>
-        {
-            ApplyState(false);
-            RememberSection(id, open: false);
-        };
+            var active = pair.Key == id;
+            pair.Value.Background = active ? ink : Brushes.Transparent;
+            if (pair.Value.Child is TextBlock text)
+            {
+                text.Foreground = active ? paper : muted;
+                text.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+        }
 
-        var card = new Border
-        {
-            Background = (Brush)FindResource("NotchPanelRaised"),
-            BorderBrush = (Brush)FindResource("NotchStroke"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Margin = new Thickness(0, 0, 0, 8),
-        };
-        var stack = new StackPanel();
-        stack.Children.Add(header);
-        stack.Children.Add(content);
-        card.Child = stack;
-        Rows.Children.Add(card);
+        ContentScroll.ScrollToTop();
+
+        // Building the window must never write settings, so only a real click
+        // persists the choice.
+        if (remember) RememberSection(id, open: true);
     }
 
     /// <summary>Record a section's open state so it survives closing the window.</summary>
     private void RememberSection(string id, bool open)
     {
+        // Single selection: the rail shows one pane, so the saved list is the
+        // last section opened rather than a set of expanded cards.
+        _openSections.Clear();
         if (open) _openSections.Add(id);
-        else _openSections.Remove(id);
         UpdateSettings(s => s with
         {
             General = s.General with
