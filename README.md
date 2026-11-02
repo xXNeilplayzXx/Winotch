@@ -127,7 +127,14 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v4.7.3)
+## Release notes (v5.0.0)
+
+- **New island motion:** the collapsed pill and the expanded panel now share one spring — the Dynamic Island's stiffness 400 / damping 30 — so the collapse and the expand settle on a single curve instead of each easing on its own. The difference is small on paper and obvious in the hand.
+- **Content that moves, not just fades:** opening the notch is no longer a cross-fade. The collapsed row sinks, shrinks to 95% and blurs out while the panel springs up from 90% scale, and the same arrival greets transient chips — a media key you press, a glance alert. Both halves are driven by the existing morph, so the motion lasts exactly as long as the resize and reverses cleanly if the pointer leaves mid-animation. The volume / brightness slider is deliberately excluded: it tracks a live value and must not swim under your thumb.
+- **Settings chrome:** the accent status light now carries the island's own halo rather than sitting flat, and the header badge and footer well take deeper corners to match the panel. All still follows your accent and Windows theme live.
+- **Housekeeping:** version is now 5.0.0. No settings migrate — the change is motion and surface only.
+
+## Previous release notes (v4.7.3)
 
 - **Expanded notch media player:** album art, track details, a seekable timeline with elapsed and remaining time, transport controls, and a system-volume slider in a layout inspired by the macOS media panel.
 

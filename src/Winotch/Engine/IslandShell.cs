@@ -32,7 +32,11 @@ public sealed class IslandShell
 
     private readonly SettingsService _settings;
     private readonly ThemeService _themeService;
-    private readonly SecondOrderVec2 _size = new(new Vec2(MiniWidthMin, MiniHeight), 3.2, 0.8, 0);
+    // The morph runs on the reference island spring (see IslandMotion): the
+    // same curve as the collapse/expand in the Dynamic Island design, so the
+    // pill and the panel share one settle time.
+    private readonly SecondOrderVec2 _size = new(new Vec2(MiniWidthMin, MiniHeight),
+        IslandMotion.Frequency, IslandMotion.DampingRatio, 0);
     private readonly List<Toast> _toasts = new();
     private readonly List<HitButton> _buttons = new();
     // While drawing the rotated vertical pill, registered button rects are in
@@ -1148,25 +1152,20 @@ public sealed class IslandShell
                 }
             }
 
+            // The two halves share one crossfade, so the collapsed row leaves
+            // as the panel arrives: the row sinks, shrinks a touch and blurs
+            // out while the panel springs up from 90% scale. Driving both from
+            // _blend means the motion is exactly as long as the morph and
+            // reverses cleanly if the pointer leaves mid-animation.
             if (_blend < 0.996)
             {
-                using var miniLayer = new SKPaint
-                {
-                    Color = new SKColor(255, 255, 255, (byte)((1 - _blend) * 255)),
-                };
-                canvas.SaveLayer(miniLayer);
-                DrawMini(canvas, rect);
-                canvas.Restore();
+                DrawContentLayer(canvas, rect, ContentFrame.Exiting(_blend),
+                    (1 - _blend) * 255, () => DrawMini(canvas, rect));
             }
             if (_blend > 0.004)
             {
-                using var panelLayer = new SKPaint
-                {
-                    Color = new SKColor(255, 255, 255, (byte)(_blend * 255)),
-                };
-                canvas.SaveLayer(panelLayer);
-                DrawPanel(canvas, rect);
-                canvas.Restore();
+                DrawContentLayer(canvas, rect, ContentFrame.Entering(_blend),
+                    _blend * 255, () => DrawPanel(canvas, rect));
             }
 
             if (!glossy)
@@ -1345,6 +1344,47 @@ public sealed class IslandShell
         return string.IsNullOrWhiteSpace(custom) ? ClockText(settings) : custom;
     }
 
+    /// <summary>Draw one layer of island content with the design's enter/exit
+    /// treatment: a scale and lift about the island's own center plus a blur
+    /// that only exists mid-transition. The layer alpha is folded into the same
+    /// paint, so opacity, geometry and blur always agree. A frame that is
+    /// already at rest draws straight through without a layer.</summary>
+    private static void DrawContentLayer(SKCanvas canvas, SKRect rect, ContentFrame frame,
+        double alpha, Action draw)
+    {
+        var a = (byte)Math.Clamp(Math.Round(alpha), 0, 255);
+        if (a == 0) return;
+
+        // At rest and fully opaque there is nothing to composite: draw straight
+        // through. The alpha test matters — a resting frame mid-crossfade still
+        // has to be faded, or the layer would pop in at full opacity.
+        if (frame.IsResting && a == 255)
+        {
+            draw();
+            return;
+        }
+
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, a) };
+        using SKImageFilter? blur = frame.BlurSigma > 0.01
+            ? SKImageFilter.CreateBlur((float)frame.BlurSigma, (float)frame.BlurSigma)
+            : null;
+        if (blur is not null) paint.ImageFilter = blur;
+
+        canvas.Save();
+        if (Math.Abs(frame.Scale - 1) > 0.0005 || Math.Abs(frame.OffsetY) > 0.01)
+        {
+            var cx = rect.MidX;
+            var cy = rect.MidY;
+            canvas.Translate(cx, cy + (float)frame.OffsetY);
+            canvas.Scale((float)frame.Scale);
+            canvas.Translate(-cx, -cy);
+        }
+        canvas.SaveLayer(paint);
+        draw();
+        canvas.Restore();
+        canvas.Restore();
+    }
+
     private void DrawMini(SKCanvas canvas, SKRect rect)
     {
         if (Vertical)
@@ -1504,6 +1544,17 @@ public sealed class IslandShell
         string label, string? detail, double? fill01, bool emoji)
     {
         if (opacity <= 0.01) return;
+        // A chip arrives the way the panel does — from 90% scale and five DIPs
+        // low — so a keypress or a glance lands with the same weight as the
+        // island itself. The level slider is deliberately left alone: it scales
+        // with a live value and must not swim under the thumb.
+        DrawContentLayer(canvas, rect, ContentFrame.Entering(opacity), 255,
+            () => DrawTransientPillContent(canvas, rect, opacity, glyph, label, detail, fill01, emoji));
+    }
+
+    private void DrawTransientPillContent(SKCanvas canvas, SKRect rect, double opacity, string glyph,
+        string label, string? detail, double? fill01, bool emoji)
+    {
         var cy = rect.Top + rect.Height / 2;
         if (emoji)
         {

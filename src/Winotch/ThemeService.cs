@@ -112,6 +112,9 @@ public static class ThemeResources
         resources["NotchPanelHover"] = Brush(theme.CardHover);
         resources["NotchStroke"] = Brush(theme.Stroke);
         resources["NotchAccent"] = Brush(theme.Accent);
+        // The same accent as a Color, for the effects that take one directly —
+        // the settings LED's glow is the island's own halo, not a drop shadow.
+        resources["NotchAccentColor"] = FromCol(theme.Accent);
         resources["NotchOk"] = Brush(theme.Ok);
         resources["NotchDanger"] = Brush(theme.Danger);
         resources["NotchText"] = Brush(theme.Text);
@@ -121,7 +124,10 @@ public static class ThemeResources
     }
 
     private static SolidColorBrush Brush(Col color) =>
-        new(Color.FromArgb(color.A, color.R, color.G, color.B));
+        new(FromCol(color));
+
+    private static Color FromCol(Col color) =>
+        Color.FromArgb(color.A, color.R, color.G, color.B);
 }
 
 /// <summary>Reads the two Windows theme sources the legacy app used: the app

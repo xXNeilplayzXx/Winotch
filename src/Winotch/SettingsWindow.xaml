@@ -15,13 +15,20 @@
         <!-- header: led + wordmark + version badge -->
         <Grid Grid.Row="0" Margin="0,0,0,20">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Ellipse Width="11" Height="11" Fill="{DynamicResource NotchAccent}" VerticalAlignment="Center" />
-                <TextBlock Text="Winotch" FontSize="23" FontWeight="SemiBold" Margin="11,0,0,0" VerticalAlignment="Center" />
-                <TextBlock Text="Settings" FontSize="23" Foreground="{DynamicResource NotchMutedText}" Margin="7,0,0,0" VerticalAlignment="Center" />
+                <!-- The status light, wearing the island's own halo: a glow with
+                     no offset, so the dot reads as lit rather than raised. -->
+                <Ellipse Width="11" Height="11" Fill="{DynamicResource NotchAccent}" VerticalAlignment="Center">
+                    <Ellipse.Effect>
+                        <DropShadowEffect Color="{DynamicResource NotchAccentColor}"
+                                          BlurRadius="16" ShadowDepth="0" Opacity="0.9" />
+                    </Ellipse.Effect>
+                </Ellipse>
+                <TextBlock Text="Winotch" FontSize="23" FontWeight="Bold" Margin="11,0,0,0" VerticalAlignment="Center" />
+                <TextBlock Text="Settings" FontSize="23" FontWeight="Bold" Foreground="{DynamicResource NotchMutedText}" Margin="7,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
             <Border x:Name="VersionBadge" HorizontalAlignment="Right" VerticalAlignment="Center"
                     Background="{DynamicResource NotchPanelRaised}" BorderBrush="{DynamicResource NotchStroke}"
-                    BorderThickness="1" CornerRadius="9" Padding="10,4">
+                    BorderThickness="1" CornerRadius="14" Padding="10,4">
                 <TextBlock x:Name="VersionText" FontSize="11" Foreground="{DynamicResource NotchMutedText}"
                            FontFamily="Consolas, Courier New" />
             </Border>
@@ -34,7 +41,7 @@
         <!-- footer: persistence hint + sticky action bar (apply/reset) -->
         <Border Grid.Row="2" Background="{DynamicResource NotchPanelRaised}"
                 BorderBrush="{DynamicResource NotchStroke}" BorderThickness="1"
-                CornerRadius="10" Padding="13,9" Margin="0,16,0,0">
+                CornerRadius="16" Padding="13,9" Margin="0,16,0,0">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE713;" FontFamily="{DynamicResource NotchIconFont}"
