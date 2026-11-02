@@ -625,11 +625,15 @@ public partial class SettingsWindow : Window
     /// time instead of a long scroll of collapsed cards.</summary>
     private void AddSection(string id, string title, string summary, params FrameworkElement[] rows)
     {
+        // A pane opens on a large title over one line of muted description —
+        // the display face, not the text face: the same family, drawn for
+        // heading sizes, is what keeps a short bold line from looking crude.
         var heading = new TextBlock
         {
             Text = title,
-            FontSize = 19,
-            FontWeight = FontWeights.Bold,
+            FontFamily = (FontFamily)FindResource("NotchDisplayFont"),
+            FontSize = 22,
+            FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("NotchText"),
         };
         var subtitle = new TextBlock
@@ -639,7 +643,7 @@ public partial class SettingsWindow : Window
             LineHeight = 19,
             Foreground = (Brush)FindResource("NotchMutedText"),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 6, 0, 18),
+            Margin = new Thickness(0, 5, 0, 16),
         };
 
         var content = new StackPanel
@@ -649,18 +653,43 @@ public partial class SettingsWindow : Window
         };
         content.Children.Add(heading);
         content.Children.Add(subtitle);
-        for (var i = 0; i < rows.Length; i++)
+
+        if (rows.Length > 0)
         {
-            content.Children.Add(rows[i]);
-            if (i < rows.Length - 1)
+            var rowStack = new StackPanel();
+            for (var i = 0; i < rows.Length; i++)
             {
-                content.Children.Add(new Border
+                rowStack.Children.Add(rows[i]);
+                if (i < rows.Length - 1)
                 {
-                    Height = 1,
-                    Background = (Brush)FindResource("NotchHairline"),
-                    Margin = new Thickness(4, 0, 4, 0),
-                });
+                    // Inset from both edges, so the group reads as one card with
+                    // internal seams rather than as a stack of separate cards.
+                    rowStack.Children.Add(new Border
+                    {
+                        Height = 1,
+                        Background = (Brush)FindResource("NotchHairline"),
+                        Margin = new Thickness(14, 0, 14, 0),
+                    });
+                }
             }
+
+            // One rounded panel holds the whole section. Grouping is what makes
+            // a settings list scannable: proximity says which rows belong
+            // together, so a section stops being a column of loose lines and
+            // becomes a single object with parts.
+            content.Children.Add(new Border
+            {
+                Background = (Brush)FindResource("NotchPanelRaised"),
+                // A hairline, not a frame: the fill is what separates the group
+                // from the pane, and the edge only keeps a white-on-white card
+                // from dissolving in the light theme.
+                BorderBrush = (Brush)FindResource("NotchHairline"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(4),
+                Margin = new Thickness(0, 0, 0, 16),
+                Child = rowStack,
+            });
         }
 
         Rows.Children.Add(content);
@@ -672,10 +701,13 @@ public partial class SettingsWindow : Window
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        // A full-height row, not a chunky button: the rail is a list you read
+        // down, and a taller target per section would turn it into a column of
+        // bars that competes with the pane.
         var item = new Border
         {
-            CornerRadius = new CornerRadius(11),
-            Padding = new Thickness(13, 9, 13, 9),
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(12, 7, 12, 7),
             Margin = new Thickness(0, 1, 0, 1),
             Background = Brushes.Transparent,
             Child = label,

@@ -44,6 +44,15 @@ public static class IslandMotion
     /// it.</summary>
     public const double BlurSigmaPerPx = 0.5;
 
+    /// <summary>True when the system has been asked to keep motion gentle
+    /// (Windows' "Animation effects" switched off). The host sets this; the
+    /// frames below honour it.
+    ///
+    /// Reduced motion is not "no feedback" — content still appears and leaves on
+    /// the same clock, it just stops travelling, scaling and blurring, because
+    /// those are the parts that make some people unwell.</summary>
+    public static bool ReducedMotion { get; set; }
+
     /// <summary>Natural frequency in Hz that reproduces stiffness 400.</summary>
     public static double Frequency => Math.Sqrt(Stiffness) / (2 * Math.PI);
 
@@ -63,6 +72,7 @@ public readonly record struct ContentFrame(double Opacity, double Scale, double 
     public static ContentFrame Entering(double progress)
     {
         var t = Easings.Clamp01(progress);
+        if (IslandMotion.ReducedMotion) return new ContentFrame(t, 1, 0, 0);
         var eased = Easings.EaseOutCubic(t);
         return new ContentFrame(
             Opacity: t,
@@ -76,6 +86,7 @@ public readonly record struct ContentFrame(double Opacity, double Scale, double 
     public static ContentFrame Exiting(double progress)
     {
         var t = Easings.Clamp01(progress);
+        if (IslandMotion.ReducedMotion) return new ContentFrame(1 - t, 1, 0, 0);
         var eased = Easings.EaseOutCubic(t);
         return new ContentFrame(
             Opacity: 1 - t,

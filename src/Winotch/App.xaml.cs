@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows;
+using Winotch.Engine;
 using Application = System.Windows.Application;
 
 namespace Winotch;
@@ -23,6 +24,18 @@ public partial class App : Application
             _singleInstanceMutex = mutex;
 
             base.OnStartup(e);
+
+            // Windows' "Animation effects" switch is the same signal a native app
+            // reads, and it is the user's standing answer to "do you want things
+            // moving on screen". Honour it now and whenever it is toggled.
+            ApplyMotionPreference();
+            SystemParameters.StaticPropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SystemParameters.ClientAreaAnimation))
+                {
+                    ApplyMotionPreference();
+                }
+            };
 
             var settings = new SettingsService();
             var startup = new StartupService();
@@ -51,6 +64,9 @@ public partial class App : Application
             throw;
         }
     }
+
+    private static void ApplyMotionPreference() =>
+        IslandMotion.ReducedMotion = !SystemParameters.ClientAreaAnimation;
 
     private OverlayWindowManager? _manager;
 

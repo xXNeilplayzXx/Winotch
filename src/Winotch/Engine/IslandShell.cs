@@ -1516,20 +1516,24 @@ public sealed class IslandShell
             : hud.Muted ? "\uE74F" : "\uE767";
         ShellUi.DrawGlyph(canvas, glyph, rect.Left + 20, cy, 13, color, (float)opacity);
 
+        // One continuous bar, poured from the left. A level control is never
+        // segmented and its groove is a whisper rather than a boxed track: the
+        // reading comes from the length of the bar, and the fill is the
+        // material's own ink instead of the app's accent, so the level reads as
+        // a system value rather than as something the app is advertising.
         var trackLeft = rect.Left + 38;
-        var trackRight = Math.Max(trackLeft + 24, rect.Right - 56);
-        var trackWidth = trackRight - trackLeft;
-        FillRound(canvas, trackLeft, cy - 4, trackWidth, 8, 4, ShellUi.Fade(ShellUi.Text, 0.16 * opacity));
-        var filled = trackWidth * (float)Math.Clamp(hud.Fill, 0, 1);
-        if (filled > 0.5f)
-        {
-            // Centred inside the track, so a low level still reads as a bar.
-            FillRound(canvas, trackLeft, cy - 2, Math.Max(3f, filled), 4, 2,
-                ShellUi.Fade(hud.Muted ? ShellUi.Muted : ShellUi.Accent, opacity));
-        }
+        var trackRight = Math.Max(trackLeft + 24, rect.Right - 54);
+        const float trackHeight = 10f;
+        Material.DrawLevelBar(canvas, trackLeft, cy - trackHeight / 2, trackRight - trackLeft,
+            trackHeight, hud.Fill,
+            track: ShellUi.Text, trackAlpha: 0.15 * opacity,
+            fill: hud.Muted ? ShellUi.Muted : ShellUi.Text,
+            fillAlpha: opacity * (hud.Muted ? 0.45 : 0.92));
 
+        // Not a monospace clock face: the readout is the island's own family,
+        // just heavier, which is how a system HUD sets a number.
         TextKit.DrawCentered(canvas, HudKeys.Label(hud.Spec.Kind, hud.Level01, hud.Muted),
-            rect.Right - 28, cy, 11.5f, ShellUi.Fade(color, opacity), TextKit.Monospace);
+            rect.Right - 27, cy, 11.5f, ShellUi.Fade(color, opacity), TextKit.Semibold);
     }
 
     /// <summary>The track a transport chip names. Falls back to a generic label
@@ -1838,8 +1842,8 @@ public sealed class IslandShell
         var x = (float)_contextMenuX;
         var y = (float)_contextMenuY;
 
-        FillRound(canvas, x, y, (float)menuW, (float)menuH, 12, ShellUi.Card);
-        ShellUi.StrokeRound(canvas, x, y, (float)menuW, (float)menuH, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+        Material.DrawFloatingSurface(canvas,
+            new SKRect(x, y, x + (float)menuW, y + (float)menuH), Material.MenuRadius);
 
         var rowY = y + 5f;
         foreach (var (label, action, danger) in items)
@@ -2012,8 +2016,8 @@ public sealed class IslandShell
         var height = Math.Max(rowH * available.Count + 8, 34);
         var x = right - width;
 
-        FillRound(canvas, x, top, width, height, 10, ShellUi.Card);
-        ShellUi.StrokeRound(canvas, x, top, width, height, 10, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+        Material.DrawFloatingSurface(canvas, new SKRect(x, top, x + width, top + height),
+            Material.MenuRadius);
 
         if (available.Count == 0)
         {
@@ -2931,8 +2935,12 @@ public sealed class IslandShell
         if (!GlossySkin)
         {
             FillRound(canvas, x, y, w, h, radius, ShellUi.Card);
+            // A card on an ink sheet is defined by its fill, not by its frame:
+            // the edge is only there so a dark card does not dissolve into the
+            // dark panel, and at full weight it turns the stack into a grid of
+            // boxes.
             ShellUi.StrokeRound(canvas, x, y, w, h, radius, borderWidth,
-                ShellUi.Fade(ShellUi.Stroke, 0.62));
+                ShellUi.Fade(ShellUi.Stroke, 0.36));
             return;
         }
         // The design frames every card with a translucent slate body and a
@@ -3192,38 +3200,66 @@ public sealed class IslandShell
         {
             var opacity = toast.Opacity;
             if (opacity <= 0.02) continue;
-            var rise = (float)((1 - opacity) * 10);
             var alpha = Math.Min(1.0, opacity * 1.35);
-            var cardH = toast.Spec.Flourish ? 62f : 54f;
+            var cardH = toast.Spec.Flourish ? 70f : 58f;
 
-            FillRound(canvas, tx, y - rise, tw, cardH, 16, ShellUi.Fade(ShellUi.Card, alpha));
-            ShellUi.StrokeRound(canvas, tx, y - rise, tw, cardH, 16, 1f, ShellUi.Fade(ShellUi.Stroke, alpha * 0.5));
+            // A notification materialises rather than fades: it arrives a
+            // fraction small and a few DIPs high, then settles. Fading in place
+            // reads as a picture appearing — which is exactly what the old
+            // cards did — and loses the sense of a surface arriving.
+            var eased = Easings.EaseOutCubic(Math.Min(1, opacity));
+            var scale = 0.965f + 0.035f * (float)eased;
+            var rise = (float)((1 - eased) * 8);
+            var card = new SKRect(tx, y - rise, tx + tw, y - rise + cardH);
 
-            var iconX = tx + 27;
-            var iconY = y - rise + cardH / 2;
+            canvas.Save();
+            canvas.Translate(card.MidX, card.MidY);
+            canvas.Scale(scale);
+            canvas.Translate(-card.MidX, -card.MidY);
+
+            Material.DrawFloatingSurface(canvas, card, Material.ToastRadius, alpha);
+
+            // The icon gets its own rounded tile the way a notification holds
+            // an app icon; a bare emoji floating on the card reads as a bullet.
             var hasIcon = toast.Spec.Icon.Length > 0;
+            var tile = new SKRect(card.Left + 13, card.MidY - 15, card.Left + 43, card.MidY + 15);
             if (hasIcon)
             {
-                TextKit.DrawCentered(canvas, toast.Spec.Icon, iconX, iconY, 19, ShellUi.Fade(Col.White, alpha), TextKit.Emoji);
+                FillRound(canvas, tile.Left, tile.Top, tile.Width, tile.Height, 9,
+                    ShellUi.Fade(ShellUi.Text, 0.07 * alpha));
+                TextKit.DrawCentered(canvas, toast.Spec.Icon, tile.MidX, tile.MidY, 16,
+                    ShellUi.Fade(Col.White, alpha), TextKit.Emoji);
             }
-            var textX = hasIcon ? iconX + 15 : tx + 20;
-            var textW = tw - (textX - tx) - 10;
+
+            var textX = hasIcon ? tile.Right + 12 : card.Left + 16;
+            var textW = card.Right - textX - 14;
+            // Two centred lines beside the icon: title above body, the pair
+            // optically level with the tile rather than pinned to the top edge.
+            // A toast without a body centres its title on the whole card.
+            var hasBody = !string.IsNullOrWhiteSpace(toast.Spec.Body);
             TextKit.Draw(canvas, ShellUi.Ellipsize(toast.Spec.Title, textW, 12.5f, TextKit.Semibold),
-                textX, y - rise + 11, 12.5f, ShellUi.Fade(ShellUi.Text, alpha), TextKit.Semibold);
-            TextKit.Draw(canvas, ShellUi.Ellipsize(toast.Spec.Body, textW, 10f, TextKit.Regular),
-                textX, y - rise + 31, 10f, ShellUi.Fade(ShellUi.Muted, alpha));
+                textX, card.Top + (hasBody ? 14 : 21), 12.5f, ShellUi.Fade(ShellUi.Text, alpha), TextKit.Semibold);
+            // Vibrant body copy: a translucent surface is no place for flat grey,
+            // so the second line is the same ink at reduced opacity instead.
+            TextKit.Draw(canvas, ShellUi.Ellipsize(toast.Spec.Body, textW, 10.5f, TextKit.Regular),
+                textX, card.Top + 32, 10.5f, ShellUi.Fade(ShellUi.Text, alpha * 0.66));
 
             if (toast.Spec.Flourish)
             {
-                var barY = y - rise + cardH - 9;
-                FillRound(canvas, tx + 18, barY, tw - 36, 3, 1.5f, ShellUi.Hairline);
+                const float barH = 3.5f;
+                var barY = card.Bottom - 15;
+                FillRound(canvas, card.Left + 16, barY, card.Width - 32, barH, barH / 2,
+                    ShellUi.Fade(ShellUi.Text, 0.12 * alpha));
                 var fill = toast.FlourishFill;
                 if (fill > 0.01)
                 {
-                    FillRound(canvas, tx + 18, barY, (float)((tw - 36) * fill), 3, 1.5f, ShellUi.Ok);
+                    FillRound(canvas, card.Left + 16, barY, (float)((card.Width - 32) * fill), barH, barH / 2,
+                        ShellUi.Fade(ShellUi.Ok, alpha));
                 }
             }
-            y += cardH + 9;
+
+            canvas.Restore();
+            y += cardH + 10;
         }
     }
 
@@ -3352,8 +3388,8 @@ public sealed class IslandShell
         var y = ledY + 10;
         if (x + w > CanvasWidth - 4) x = (float)(CanvasWidth - w - 4);
         if (y + h > CanvasHeight - 4) y = (float)(CanvasHeight - h - 4);
-        FillRound(canvas, x, y, w, h, 12, ShellUi.Card);
-        ShellUi.StrokeRound(canvas, x, y, w, h, 12, 1f, ShellUi.Fade(ShellUi.Stroke, 0.6));
+        Material.DrawFloatingSurface(canvas, new SKRect(x, y, x + w, y + h),
+            Material.TooltipRadius, lift: 0.8f);
         TextKit.DrawCentered(canvas, text, x + w / 2, y + h / 2, 10.5f, ShellUi.Text, TextKit.Semibold);
     }
 

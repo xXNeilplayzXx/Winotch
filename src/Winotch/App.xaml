@@ -18,6 +18,10 @@
         <SolidColorBrush x:Key="NotchOnAccent" Color="#06131A" />
         <!-- UI typeface, overridden at runtime by the Appearance font setting -->
         <FontFamily x:Key="NotchUiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+        <!-- Display face for headings. Segoe UI Variable carries a separate
+             optical size for display text — the same family drawn for large
+             sizes — so a 22px title is not a blown-up 13px label. -->
+        <FontFamily x:Key="NotchDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
         <!-- Icon face, replaced at startup with the best one this machine
              actually has (see IconFontWpf): a machine where the family cannot be
              matched by name still gets its glyphs, and one with none of them is
@@ -229,19 +233,23 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
                         <Grid>
-                            <Border x:Name="Track" Width="40" Height="22" CornerRadius="11"
+                            <!-- The switch is the size it is because the knob
+                                 needs a thumb's worth of travel: 44x26 with a
+                                 22px knob and 2px of inset, so the control reads
+                                 as a physical toggle at a glance. -->
+                            <Border x:Name="Track" Width="44" Height="26" CornerRadius="13"
                                     Background="{DynamicResource NotchPanelHover}"
                                     BorderBrush="{DynamicResource NotchStroke}" BorderThickness="1" />
-                            <Ellipse x:Name="Knob" Width="16" Height="16"
+                            <Ellipse x:Name="Knob" Width="22" Height="22"
                                      Fill="{DynamicResource NotchMutedText}"
-                                     HorizontalAlignment="Left" Margin="3,0,0,0" />
+                                     HorizontalAlignment="Left" Margin="2,0,0,0" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Track" Property="Background" Value="{DynamicResource NotchAccent}" />
                                 <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource NotchAccent}" />
                                 <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
-                                <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
+                                <Setter TargetName="Knob" Property="Margin" Value="0,0,2,0" />
                                 <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource NotchOnAccent}" />
                             </Trigger>
                         </ControlTemplate.Triggers>

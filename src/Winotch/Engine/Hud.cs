@@ -23,9 +23,16 @@ public sealed class Hud
 
     private FadeTimeline _timeline;
 
+    // The bar is a spring, critically damped so it never overshoots past the
+    // level it is reporting, and quick enough that a single keypress still lands
+    // inside the fade. Carrying the bar's own velocity is what makes a held key
+    // read as one continuous slide instead of a restart from zero.
+    private readonly SecondOrderScalar _level;
+
     public Hud(HudSpec spec)
     {
         Spec = spec;
+        _level = new SecondOrderScalar(spec.Level01, frequency: 2.8, damping: 1.0, response: 0.12);
         Fill = spec.Level01;
         _timeline = new FadeTimeline(FadeIn,
             spec.Kind == HudKind.Brightness ? BrightnessHold : Hold, FadeOut);
@@ -61,7 +68,6 @@ public sealed class Hud
     public void Tick(double deltaTime)
     {
         _timeline.Tick(deltaTime);
-        Fill += (Spec.Level01 - Fill) * Math.Min(1, deltaTime * 14);
-        if (Math.Abs(Fill - Spec.Level01) < 0.002) Fill = Spec.Level01;
+        Fill = Math.Clamp(_level.Step(deltaTime, Spec.Level01), 0, 1);
     }
 }

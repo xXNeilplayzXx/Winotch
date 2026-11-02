@@ -127,7 +127,18 @@ Architecture inspiration: [DynamicWin](https://github.com/FlorianButz/DynamicWin
 
 Winotch itself is source-available under the [PolyForm Strict License 1.0.0](LICENSE). You're free to read it, build it, and use it for any noncommercial purpose — personal use, study, hobby projects, or at a charity, school, public research body, or government institution. You may not use it commercially, redistribute it, or publish modified or derived versions. It isn't OSI open source, so it isn't meant for package managers or the Microsoft Store.
 
-## Release notes (v5.1.0)
+## Release notes (v5.2.0)
+
+- **The HUDs share one material:** the volume / brightness pill, toasts, the context menu, the add-widget menu and the LED tooltip now all draw through a single floating-surface painter — a wide soft shadow, a body a step above the desktop, a sheen across its top half, and one edge that is bright where the light lands and gone at the bottom. Each had been a filled round rect inside a 1px outline of even weight, which is what made a floating surface read as a wireframe around a rectangle.
+- **The level bar behaves like a level:** one continuous full-radius groove, filled from the left in the island's own ink rather than the accent (a level readout shouldn't advertise the app), with a floor of one bar-height so 2% still reads as a bar and not a smudge. The percentage is semibold instead of monospace — a system readout, not a clock face.
+- **Held keys slide:** the bar is driven by a second-order spring that carries its own velocity into each new reading, so holding a volume key is one continuous slide rather than a restart from wherever the previous frame happened to leave it.
+- **Notifications materialise:** toasts are taller with 18px corners, the emoji sits in its own rounded tile the way a notification holds an app icon, and the second line is the same ink at 66% rather than flat grey. They arrive at 96.5% scale, 8px high, then settle — a surface arriving rather than a picture appearing.
+- **Quieter cards:** panel cards drop from a 0.62 stroke to 0.36. On an ink sheet a card is defined by its fill, not its frame, and at full weight the stack turned into a grid of boxes.
+- **Grouped settings:** each section's rows now sit inside one rounded card with dividers inset from both edges, instead of a column of loose rows separated by full-width hairlines — proximity does the grouping, so a section reads as one object with parts. Headings use Segoe UI Variable Display at 22px, the rail rows are tighter, and the switches grew to 44×26 with a 22px knob.
+- **Motion respects the system:** Winotch reads Windows' "Animation effects" setting. With it off, content still arrives and leaves on the same clock but stops travelling, scaling and blurring, because those are the parts that make some people unwell. Toggling the setting takes effect without a restart.
+- **Housekeeping:** version is now 5.2.0. No settings migrate — the change is surface, motion and layout only.
+
+## Previous release notes (v5.1.0)
 
 - **Borderless island ink:** the expanded panel is now a solid near-black slab with 32px corners — the reference island's `bg-foreground` surface — instead of a translucent gradient card carrying a 1px outline and a lit top hairline. The ink meets the desktop cleanly and the drop shadow does the separating. Dark theme only: the light palette draws its content dark, so it keeps the gradient rather than swallowing its own text.
 - **Content arrives from above:** the motion language had its directions inverted relative to the reference. Content now enters from 8px high at 90% scale behind 5px of blur, and leaves sharp to the same 90% at 6px high. It previously rose from below and blurred *out* on the way — a dissolve where the reference is a quick clip.
